@@ -1,238 +1,169 @@
-# No-Code Computer Vision Backend
+# Multi-Task Training Pipeline for Object Detection and ASR
 
-This project is a modular backend for computer vision tasks, supporting image classification, object detection, and image segmentation (semantic and instance) with appropriate metrics for each task.
-
-## Features
-
-- **Image Classification**: Train models to classify images into predefined categories
-  - Metrics: Accuracy, Precision, Recall, F1 Score
-  - Supported architectures: ResNet18/50, VGG16, EfficientNet, MobileNet
-  - Persistent train/val/test splits for consistent evaluation
-
-- **Object Detection**: Train models to detect and localize objects with bounding boxes
-  - Metrics: Average Precision (AP), Mean Average Precision (mAP), AP at different IoU thresholds
-  - Supported architectures: Faster R-CNN, SSD, RetinaNet, YOLO
-
-- **Image Segmentation**: 
-  - Semantic Segmentation: Pixel-level classification
-  - Instance Segmentation: Detect, segment, and classify individual objects
-  - Metrics: Mean Intersection over Union (mIoU), Pixel Accuracy, AP metrics for instance segmentation
-  - Supported architectures: FCN, DeepLabV3, Mask R-CNN, UNet
+This project provides a configurable and modular pipeline for fine-tuning models for two distinct tasks: Object Detection and Automatic Speech Recognition (ASR). The code is structured to be easily extensible and reusable for different datasets and models.
 
 ## Project Structure
 
-```
-no_code_backend/
-├── main.py                      # FastAPI app and API endpoints
-├── pipelines/                   # Pipeline implementations for different CV tasks
-│   ├── base_pipeline.py         # Abstract base pipeline interface
-│   ├── image_classification_pipeline.py
-│   ├── object_detection_pipeline.py
-│   └── image_segmentation_pipeline.py
-├── models/                      # Model definitions and factories
-│   ├── classification/
-│   ├── detection/
-│   └── segmentation/
-├── metrics/                     # Metrics calculation for each task
-│   ├── classification/
-│   ├── detection/
-│   └── segmentation/
-├── datasets_module/             # Dataset handling for each task
-│   ├── classification/
-│   ├── detection/
-│   └── segmentation/
-├── models/                      # Saved models
-│   └── [job_id]/                # Job-specific model data
-│       └── model.pth            # Saved model weights
-└── dataset_splits/             # Persistent dataset splits (gitignored)
-    └── [job_id]/               # Job-specific splits
-        └── dataset_splits.json # Train/val/test splits for reproducibility
-```
+The project is organized into separate packages for each task to improve maintainability and clarity.
 
-## Dataset Split Persistence
+  * **`fastapi_app.py`**: A REST API built with FastAPI to programmatically start and monitor training jobs for both tasks.
+  * **`ui.R` & `server.R`**: A web-based UI built with R Shiny that acts as a client to the FastAPI server, allowing for easy configuration of training and inference tasks.
+  * **`object_detection_train.py`**: The main script for executing the Object Detection training and evaluation pipeline.
+  * **`object_detection_utils/`**: A package containing all modules specific to the Object Detection task.
+      * `data_utils.py`: Functions for loading and processing image data.
+      * `augmentations.py`: Image augmentation pipelines.
+      * `model_utils.py`: Helpers for loading object detection models.
+      * `metrics.py`: Metrics calculation for object detection (mAP).
+      * `detection_dataset_builder.py`: The dataset builder script for COCO-style data.
+  * **`asr_train.py`**: The main script for executing the ASR training and evaluation pipeline.
+  * **`asr_utils/`**: A package containing all modules specific to the ASR task.
+      * `data_processing.py`: Functions for cleaning and filtering audio data.
+      * `models/`: A directory containing model-specific handlers (`_whisper.py`, `_xlsr.py`, etc.).
+      * `factory.py`: A factory to get the correct ASR model handler.
+      * `utils.py`: General helper functions for the ASR pipeline.
+  * **`requirements.txt`**: A list of all Python packages required to run all pipelines.
 
-For image classification tasks, the system now generates and saves train/validation/test splits during training, ensuring that:
+-----
 
-1. The same test data is used consistently during model evaluation
-2. No leakage occurs between training and test data
-3. Evaluation metrics are reliable and reproducible
+## Setup and Installation
 
-Split information is stored in JSON format with the following structure:
-```json
-{
-  "train": [0, 3, 7, ...],  // Indices for training set
-  "val": [1, 4, 9, ...],    // Indices for validation set
-  "test": [2, 5, 8, ...],   // Indices for testing set
-  "random_seed": 42,        // Random seed used for reproducibility
-  "dataset_path": "/path/to/dataset"  // Original dataset path
-}
-```
+### 1\. Create a Virtual Environment
 
-These splits are automatically loaded during evaluation when the same job_id is provided, ensuring that the model is always evaluated on the same test data that was held out during training.
-
-## Getting Started
-
-### Prerequisites
-
-- Python 3.8+
-- PyTorch 1.9+
-- FastAPI
-
-### Installation
-
-#### Option 1: Standard Installation
-
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-#### Option 2: Docker Installation
-
-1. Clone the repository
-2. Make sure you have Docker and Docker Compose installed
-3. Run the setup script:
-   ```bash
-   ./docker-setup.sh
-   ```
-   
-   Or manually:
-   ```bash
-   # Create necessary directories
-   mkdir -p models datasets logs mlruns
-   
-   # Build and start the containers
-   docker-compose build
-   docker-compose up -d
-   ```
-
-### Running the Server
-
-#### Standard Mode:
+It is highly recommended to use a virtual environment to manage project dependencies.
 
 ```bash
-python main.py
+python -m venv venv
+# On Windows: venv\Scripts\activate
+# On macOS/Linux: source venv/bin/activate
 ```
 
-The server will be available at http://localhost:8000
+### 2\. Install Python Dependencies
 
-#### Docker Mode:
-
-The server will be automatically started when running Docker Compose and will be available at http://localhost:8000. MLflow UI will be available at http://localhost:5000.
-
-### Quick Start Guide
-
-#### Development Setup:
+Install all the required Python packages using the `requirements.txt` file.
 
 ```bash
-# Clone this repository
-git clone <repository-url>
-cd no_code_backend
-
-# Start the development environment
-./docker-setup.sh
-
-# Open the API documentation in your browser
-xdg-open http://localhost:8000/docs  # Linux
-open http://localhost:8000/docs      # macOS
+pip install -r requirements.txt
 ```
 
-#### Production Setup:
+### 3\. R and RStudio Setup
+
+Ensure you have R and RStudio (or another R environment) installed. You will also need to install the R packages listed in `server.R` (e.g., `shiny`, `httr2`, `jsonlite`, `DT`, `dplyr`, `tidyr `, `shinyjs`). You can typically install them from the R console:
+
+```r
+install.packages(c("shiny", "httr2", "jsonlite", "DT", "dplyr", "shinyjs"))
+```
+
+-----
+
+## Data Preparation
+
+### For Object Detection
+
+The pipeline expects your dataset to be in a COCO-like format. The base directory you provide should have the following structure:
+
+```
+<base_dir>/
+├── train/
+│   ├── _annotations.coco.json
+│   └── image1.jpg, ...
+├── validation/
+│   ├── _annotations.coco.json
+│   └── image3.jpg, ...
+└── test/
+    ├── _annotations.coco.json
+    └── image5.jpg, ...
+```
+
+### For ASR (Automatic Speech Recognition)
+
+The ASR pipeline expects your dataset to be in a directory containing audio files, organized by split. It uses the `audiofolder` dataset loader.
+
+```
+<data_dir>/
+├── train/
+│   ├── metadata.csv  (Optional, but helps)
+│   └── audio1.wav, ...
+├── validation/
+│   ├── metadata.csv
+│   └── audio2.wav, ...
+└── test/
+    ├── metadata.csv
+    └── audio3.wav, ...
+```
+
+The `metadata.csv` should contain at least a `file_name` column and a `sentence` column for the transcripts.
+
+-----
+
+## How to Run the Pipelines
+
+You have three ways to run the training pipelines: an interactive web UI, a REST API, or directly from the command line.
+
+### Method 1: Interactive Web UI (R Shiny)
+
+Recommended for ease of use and visual feedback.
+
+**1. Launch the FastAPI Backend:**
+First, start the Python backend server.
 
 ```bash
-# Clone this repository
-git clone <repository-url>
-cd no_code_backend
-
-# Create or update .env.prod with your settings
-cp .env.example .env.prod
-nano .env.prod
-
-# Deploy the application
-sudo ./deploy-prod.sh
-
-# Access the application
-xdg-open https://localhost/api/docs  # Linux
-open https://localhost/api/docs      # macOS
+uvicorn fastapi_app:app --reload
 ```
 
-### API Endpoints
+**2. Run the Shiny App:**
+Open the `ui.R` or `server.R` file in RStudio and click "Run App". The R Shiny interface will open in a new window or your browser, allowing you to interact with the backend.
 
-- **POST /pipelines**: Create a new training pipeline
-- **POST /pipelines/{job_id}/train**: Start training for a pipeline
-- **GET /pipelines/{job_id}**: Get status of a training job
-- **POST /predict/{job_id}**: Make predictions with a trained model
-- **GET /mlflow/ui-url**: Get MLflow UI URL
+### Method 2: REST API (FastAPI)
 
-## Usage Examples
+Ideal for programmatic integration and MLOps workflows.
 
-Check the `examples.py` file for examples of using different pipelines:
+**1. Launch the API Server:**
 
 ```bash
-python examples.py
+uvicorn fastapi_app:app --reload
 ```
 
-## Docker Management
+The API will be available at `http://127.0.0.1:8000`. You can interact with it using tools like `curl`.
 
-### Development Environment
+**2. Start a Training Job (Example using `curl`):**
 
-Use the development Docker setup for local testing and development:
+  * **Object Detection:**
+
+    ```bash
+    curl -X POST 'http://127.0.0.1:8000/train/object-detection' \
+    -H 'Content-Type: application/json' \
+    -d '{ "base_dir": "/path/to/your/obj_dataset" }'
+    ```
+
+  * **ASR:**
+
+    ```bash
+    curl -X POST 'http://127.0.0.1:8000/train/asr' \
+    -H 'Content-Type: application/json' \
+    -d '{ "data_dir": "/path/to/your/asr_dataset", "model_checkpoint": "facebook/wav2vec2-base-960h" }'
+    ```
+
+**3. Check Job Status:**
 
 ```bash
-# Start the development environment
-./docker-setup.sh
-
-# View logs from all services
-docker-compose logs -f
-
-# View logs from specific service
-docker-compose logs -f app
-
-# Stop all services but retain volumes
-docker-compose down
-
-# Stop all services and remove volumes
-docker-compose down -v
+# Replace {YOUR_JOB_ID} with the ID from the previous step
+curl -X GET 'http://127.0.0.1:8000/status/{YOUR_JOB_ID}'
 ```
 
-### Production Deployment
+### Method 3: Command Line
 
-For production deployment with Nginx and SSL:
+For direct execution and scripting. You must now call the specific training script for each task.
 
-```bash
-# Deploy in production mode (requires root for ports 80/443)
-sudo ./deploy-prod.sh
+  * **Object Detection:**
 
-# View logs from all services
-docker-compose -f docker-compose.prod.yaml logs -f
+    ```bash
+    python object_detection_train.py --base_dir /path/to/your/obj_dataset
+    ```
 
-# Stop production deployment
-docker-compose -f docker-compose.prod.yaml down
-```
+  * **ASR:**
 
-### Rebuilding Images
+    ```bash
+    python asr_train.py --data_dir /path/to/your/asr_dataset --model_checkpoint "facebook/wav2vec2-base-960h"
+    ```
 
-```bash
-# Rebuild development images
-docker-compose build
-
-# Rebuild and restart development services 
-docker-compose up -d --build
-
-# Rebuild production images
-docker-compose -f docker-compose.prod.yaml build
-```
-
-### Supported Dataset Tasks
-
-The integration supports the following dataset tasks:
-
-- **Image Classification**: Datasets with image and label fields
-- **Object Detection**: Datasets with image and object annotations (boxes, labels)
-- **Semantic Segmentation**: Datasets with image and segmentation mask
-- **Instance Segmentation**: Datasets with image and instance masks
-
-## License
-
-[MIT](LICENSE)
+See all available options for each script by running it with the `--help` flag.
