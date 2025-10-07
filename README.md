@@ -112,7 +112,7 @@ These splits are automatically loaded during evaluation when the same job_id is 
 #### Standard Mode:
 
 ```bash
-python main.py
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 The server will be available at http://localhost:8000
@@ -120,6 +120,43 @@ The server will be available at http://localhost:8000
 #### Docker Mode:
 
 The server will be automatically started when running Docker Compose and will be available at http://localhost:8000. MLflow UI will be available at http://localhost:5000.
+
+### R Shiny UI (Alternative Frontend)
+
+An R Shiny dashboard is available as an alternative to the Gradio interface, providing the same functionality through a modern web dashboard.
+
+#### Prerequisites for R Shiny:
+
+- R 4.0+
+- Required R packages
+
+#### Installation:
+
+1. Install required R packages:
+   ```r
+   install.packages(c("shiny", "shinydashboard", "DT", "httr", 
+                      "jsonlite", "base64enc", "shinyWidgets", 
+                      "plotly", "shinycssloaders"))
+   ```
+
+#### Running the R Shiny UI:
+
+1. Make sure your FastAPI backend is running on `http://localhost:8000`
+2. Start the R Shiny application:
+   ```bash
+   # Bash Terminal
+   Rscript -e "shiny::runApp('shiny_ui_simple.R', host = '0.0.0.0', port = 3838)"
+   ```
+
+The R Shiny dashboard will be available at http://localhost:3838 (or the port shown in the R console) and provides:
+
+- **Dashboard**: API status, MLflow management, jobs overview
+- **Create Pipeline**: Configure and create new ML pipelines
+- **Train Model**: Dataset management, linking, and training initiation
+- **Make Predictions**: Model inference with image upload and results visualization
+- **Manage Jobs**: Job status checking and deletion
+
+The R Shiny UI consumes the same FastAPI endpoints as the Python Gradio interface, providing a consistent backend experience with different frontend options.
 
 ### Quick Start Guide
 

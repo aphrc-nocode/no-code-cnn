@@ -30,7 +30,24 @@ class ImageClassificationPipeline(BasePipeline):
             from mlflow_utils import start_run, log_metrics, log_model, end_run
             self.run_id = start_run(job_id, self.config.dict())
             
-            # Create model with transfer learning approach
+            # First, load dataset to determine actual number of classes
+            transform = self.get_transforms()
+            train_loader, val_loader, test_loader, classes = create_dataloaders(
+                dataset_path, transform, 
+                batch_size=self.config.batch_size,
+                val_split=0.2 if self.config.early_stopping else 0.1,
+                test_split=0.1,
+                job_id=job_id,  # Pass job_id to ensure splits persistence
+                use_saved_splits=False  # Create new splits for this training run
+            )
+            
+            # Update num_classes based on actual dataset BEFORE creating model
+            dataset_num_classes = len(classes)
+            if self.config.num_classes != dataset_num_classes:
+                await self._update_job_log(job_id, f"Updating num_classes from {self.config.num_classes} to {dataset_num_classes} based on dataset")
+                self.config.num_classes = dataset_num_classes
+            
+            # Now create model with correct number of classes
             model = self.create_model()
             
             # Setup training components
@@ -61,17 +78,6 @@ class ImageClassificationPipeline(BasePipeline):
             log_metrics({
                 "initial_learning_rate": self.config.learning_rate
             })
-            
-            # Create datasets and data loaders with persistent splits
-            transform = self.get_transforms()
-            train_loader, val_loader, test_loader, classes = create_dataloaders(
-                dataset_path, transform, 
-                batch_size=self.config.batch_size,
-                val_split=0.2 if self.config.early_stopping else 0.1,
-                test_split=0.1,
-                job_id=job_id,  # Pass job_id to ensure splits persistence
-                use_saved_splits=False  # Create new splits for this training run
-            )
             
             # Store class mapping
             class_to_idx = {cls_name: i for i, cls_name in enumerate(classes)}

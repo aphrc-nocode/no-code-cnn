@@ -34,7 +34,6 @@ from pipelines.base_pipeline import BasePipeline
 from pipelines.image_classification_pipeline import ImageClassificationPipeline
 from pipelines.object_detection_pipeline import ObjectDetectionPipeline
 from pipelines.image_segmentation_pipeline import ImageSegmentationPipeline
-from pipelines.speech_recognition_pipeline import SpeechRecognitionPipeline
 
 # Import MLflow utilities
 from mlflow_utils import (
@@ -51,7 +50,6 @@ class TaskType(str, Enum):
     IMAGE_CLASSIFICATION = "image_classification"
     OBJECT_DETECTION = "object_detection"
     IMAGE_SEGMENTATION = "image_segmentation"
-    SPEECH_RECOGNITION = "speech_recognition"
     STYLE_TRANSFER = "style_transfer"
 
 class SegmentationType(str, Enum):
@@ -85,11 +83,6 @@ class ModelArchitecture(str, Enum):
     MASK_RCNN = "mask_rcnn"
     UNET = "unet"
     
-    # Speech recognition architectures
-    WAV2VEC2_BERT = "wav2vec2_bert"
-    WHISPER_SMALL = "whisper_small"
-    WHISPER_BASE = "whisper_base"
-    WHISPER_LARGE = "whisper_large"
 
 class TrainingStatus(str, Enum):
     PENDING = "pending"
@@ -126,25 +119,6 @@ class PipelineConfig(BaseModel):
     patience: int = 5
     segmentation_type: Optional[SegmentationType] = SegmentationType.SEMANTIC
     dataset_source: Optional[DatasetSource] = DatasetSource.LOCAL
-    
-    # Speech recognition specific parameters
-    language_code: str = "en"
-    language: str = "english"
-    target_sampling_rate: int = 16000
-    min_duration_s: float = 1.0
-    max_duration_s: float = 30.0
-    min_transcript_len: int = 10
-    max_transcript_len: int = 300
-    outlier_std_devs: float = 2.0
-    apply_outlier_filtering: bool = True
-    alphabet: str = " 'abcdefghijklmnopqrstuvwxyz"
-    audio_column: str = "audio"
-    text_column: str = "sentence"
-    normalized_text_column: str = "normalized_text"
-    duration_column: str = "duration"
-    warmup_ratio: float = 0.1
-    early_stopping_patience: int = 5
-    early_stopping_threshold: float = 1e-3
 
 class TrainingJob(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -171,11 +145,6 @@ class PipelineFactory:
         ModelArchitecture.YOLOS_SMALL: "hustvl/yolos-small",
         ModelArchitecture.YOLOS_BASE: "hustvl/yolos-base",
         ModelArchitecture.OWLV2_BASE: "owlv2-base-patch16-ensemble",
-        # Speech recognition models
-        ModelArchitecture.WAV2VEC2_BERT: "facebook/w2v-bert-2.0",
-        ModelArchitecture.WHISPER_SMALL: "openai/whisper-small",
-        ModelArchitecture.WHISPER_BASE: "openai/whisper-base",
-        ModelArchitecture.WHISPER_LARGE: "openai/whisper-large",
     }
     
     @staticmethod
@@ -195,9 +164,6 @@ class PipelineFactory:
         elif config.task_type == TaskType.IMAGE_SEGMENTATION:
             from pipelines.image_segmentation_pipeline import ImageSegmentationPipeline
             return ImageSegmentationPipeline(config)
-        elif config.task_type == TaskType.SPEECH_RECOGNITION:
-            from pipelines.speech_recognition_pipeline import SpeechRecognitionPipeline
-            return SpeechRecognitionPipeline(config)
         else:
             raise ValueError(f"Unsupported task type: {config.task_type}")
 
@@ -892,13 +858,14 @@ async def upload_dataset_file(
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/predict/{job_id}")
-async def predict(job_id: str, file: UploadFile = File(...)):
+async def predict(job_id: str, file: UploadFile = File(...), confidence_threshold: float = Form(0.5)):
     """Make predictions using a trained model"""
     import time
     start_time = time.time()
     
     try:
         print(f"Prediction request for job_id: {job_id}")
+        print(f"Confidence threshold received: {confidence_threshold}")
         
         # Check if job exists
         job = job_manager.get_job(job_id)
@@ -969,13 +936,37 @@ async def predict(job_id: str, file: UploadFile = File(...)):
         
         # Create annotated images for visualization
         if job.pipeline_config.task_type == TaskType.OBJECT_DETECTION:
-            # Draw bounding boxes on the image
+            # Get detections and apply confidence filtering
             detections = prediction_result.get("detections", [])
+            original_count = len(detections)
+            
             if detections:
-                annotated_image = draw_bounding_boxes(image, detections)
-                # Convert to base64 for frontend display
-                prediction_result["annotated_image"] = pil_to_base64(annotated_image)
-                print(f"Created annotated image with {len(detections)} detections")
+                # Filter detections based on confidence threshold
+                filtered_detections = []
+                for detection in detections:
+                    confidence = detection.get("confidence", 0)
+                    # Convert percentage to decimal if needed
+                    if confidence > 1:
+                        confidence = confidence / 100
+                    
+                    if confidence >= confidence_threshold:
+                        filtered_detections.append(detection)
+                
+                print(f"Filtered detections: {len(filtered_detections)} from {original_count} (threshold: {confidence_threshold})")
+                
+                # Update the prediction result with filtered detections
+                prediction_result["detections"] = filtered_detections
+                
+                if filtered_detections:
+                    # Draw bounding boxes only for filtered detections
+                    annotated_image = draw_bounding_boxes(image, filtered_detections)
+                    # Convert to base64 for frontend display
+                    prediction_result["annotated_image"] = pil_to_base64(annotated_image)
+                    print(f"Created annotated image with {len(filtered_detections)} detections")
+                else:
+                    # No detections above threshold, return original image
+                    prediction_result["annotated_image"] = pil_to_base64(image)
+                    print("No detections above confidence threshold, returning original image")
             else:
                 # No detections, return original image
                 prediction_result["annotated_image"] = pil_to_base64(image)
@@ -1221,437 +1212,4 @@ async def upload_detection_dataset(job_id: str, file: UploadFile = File(...)):
             except:
                 pass
         raise HTTPException(status_code=400, detail=f"Failed to process dataset: {str(e)}")
-
-@app.post("/upload-speech-dataset/{job_id}")
-async def upload_speech_dataset(job_id: str, file: UploadFile = File(...)):
-    """
-    Upload a speech recognition dataset as a zip file.
-    Supports both CSV metadata format and AudioFolder format.
-    
-    Expected structures:
-    1. CSV Format:
-       dataset.zip/
-         train/metadata.csv (columns: file_name, sentence)
-         train/audio1.wav
-         validation/metadata.csv
-         validation/audio2.wav
-         test/metadata.csv
-         test/audio3.wav
-    
-    2. AudioFolder Format:
-       dataset.zip/
-         train/audio1.wav
-         train/audio2.wav
-         metadata.jsonl (or other HF format files)
-    """
-    try:
-        dataset_dir = Path(f"datasets/{job_id}")
-        dataset_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Verify that the uploaded file is a zip file
-        if not file.filename.lower().endswith(('.zip')):
-            raise HTTPException(status_code=400, detail="Only ZIP files are supported for speech datasets")
-        
-        # Save the zip file temporarily
-        zip_path = dataset_dir / file.filename
-        with open(zip_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
-        
-        # Extract the zip file using smart extraction to avoid nested folders
-        smart_extract_zip(zip_path, dataset_dir)
-        
-        # Delete the temporary zip file
-        zip_path.unlink()
-        
-        # Detect dataset format
-        from pipelines.speech_utils import detect_dataset_format
-        dataset_format = detect_dataset_format(str(dataset_dir))
-        
-        # Validate the dataset structure
-        validation_result = await validate_speech_dataset_structure(dataset_dir, dataset_format)
-        
-        return {
-            "message": f"Speech recognition dataset uploaded and extracted successfully to {dataset_dir}",
-            "dataset_id": job_id,
-            "task_type": "speech_recognition",
-            "dataset_format": dataset_format,
-            "validation": validation_result
-        }
-    except Exception as e:
-        # If something goes wrong, delete any partial files
-        if dataset_dir.exists():
-            import shutil
-            try:
-                if zip_path.exists():
-                    zip_path.unlink()
-            except:
-                pass
-        raise HTTPException(status_code=400, detail=f"Failed to process speech dataset: {str(e)}")
-
-
-async def validate_speech_dataset_structure(dataset_dir: Path, dataset_format: str) -> Dict[str, Any]:
-    """Validate the structure of an uploaded speech dataset"""
-    validation_result = {
-        "format": dataset_format,
-        "splits_found": [],
-        "total_samples": 0,
-        "issues": [],
-        "recommendations": []
-    }
-    
-    try:
-        if dataset_format == "csv":
-            # Validate CSV format
-            for potential_split in ["train", "validation", "test"]:
-                split_dir = dataset_dir / potential_split
-                csv_file = split_dir / "metadata.csv"
-                
-                if split_dir.exists() and csv_file.exists():
-                    import pandas as pd
-                    
-                    # Read and validate CSV
-                    try:
-                        df = pd.read_csv(csv_file)
-                        required_columns = ["file_name", "sentence"]
-                        missing_columns = [col for col in required_columns if col not in df.columns]
-                        
-                        if missing_columns:
-                            validation_result["issues"].append(
-                                f"Missing required columns in {potential_split}/metadata.csv: {missing_columns}"
-                            )
-                        else:
-                            # Count valid audio files
-                            valid_count = 0
-                            audio_extensions = {'.wav', '.mp3', '.flac', '.ogg', '.m4a', '.aac'}
-                            
-                            for _, row in df.iterrows():
-                                audio_file = split_dir / row["file_name"]
-                                if audio_file.exists() and audio_file.suffix.lower() in audio_extensions:
-                                    valid_count += 1
-                                else:
-                                    validation_result["issues"].append(
-                                        f"Missing audio file: {potential_split}/{row['file_name']}"
-                                    )
-                            
-                            validation_result["splits_found"].append({
-                                "split": potential_split,
-                                "samples": valid_count,
-                                "csv_rows": len(df)
-                            })
-                            validation_result["total_samples"] += valid_count
-                            
-                    except Exception as e:
-                        validation_result["issues"].append(f"Error reading {potential_split}/metadata.csv: {str(e)}")
-                        
-        elif dataset_format == "audiofolder":
-            # Validate AudioFolder format
-            for potential_split in dataset_dir.iterdir():
-                if potential_split.is_dir():
-                    audio_files = [
-                        f for f in potential_split.iterdir() 
-                        if f.suffix.lower() in {'.wav', '.mp3', '.flac', '.ogg', '.m4a', '.aac'}
-                    ]
-                    
-                    if audio_files:
-                        validation_result["splits_found"].append({
-                            "split": potential_split.name,
-                            "samples": len(audio_files)
-                        })
-                        validation_result["total_samples"] += len(audio_files)
-        
-        # Add recommendations
-        if validation_result["total_samples"] < 10:
-            validation_result["recommendations"].append(
-                "Dataset is very small (<10 samples). Consider adding more data for better training results."
-            )
-        
-        if len(validation_result["splits_found"]) < 2:
-            validation_result["recommendations"].append(
-                "Consider adding validation and test splits for better evaluation."
-            )
-        
-        if dataset_format == "unknown":
-            validation_result["issues"].append(
-                "Unknown dataset format. Please ensure your dataset follows CSV or AudioFolder structure."
-            )
-            validation_result["recommendations"].append(
-                "For CSV format: create train/validation/test directories with metadata.csv files. "
-                "For AudioFolder format: place audio files directly in split directories."
-            )
-            
-    except Exception as e:
-        validation_result["issues"].append(f"Validation error: {str(e)}")
-    
-    return validation_result
-
-
-@app.get("/validate-speech-dataset/{job_id}")
-async def validate_speech_dataset_endpoint(job_id: str):
-    """Validate an existing speech dataset structure"""
-    try:
-        dataset_dir = Path(f"datasets/{job_id}")
-        if not dataset_dir.exists():
-            raise HTTPException(status_code=404, detail="Dataset not found")
-        
-        from pipelines.speech_utils import detect_dataset_format
-        dataset_format = detect_dataset_format(str(dataset_dir))
-        
-        validation_result = await validate_speech_dataset_structure(dataset_dir, dataset_format)
-        
-        return {
-            "dataset_id": job_id,
-            "validation": validation_result
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Validation failed: {str(e)}")
-
-
-@app.get("/speech-dataset-info/{job_id}")
-async def get_speech_dataset_info(job_id: str):
-    """Get detailed information about a speech dataset"""
-    try:
-        dataset_dir = Path(f"datasets/{job_id}")
-        if not dataset_dir.exists():
-            raise HTTPException(status_code=404, detail="Dataset not found")
-        
-        from pipelines.speech_utils import detect_dataset_format, load_csv_speech_dataset
-        
-        dataset_format = detect_dataset_format(str(dataset_dir))
-        info = {
-            "dataset_id": job_id,
-            "format": dataset_format,
-            "directory": str(dataset_dir),
-            "splits": {}
-        }
-        
-        if dataset_format == "csv":
-            try:
-                # Load dataset to get detailed info
-                dataset = load_csv_speech_dataset(
-                    dataset_path=str(dataset_dir),
-                    target_sampling_rate=None  # Don't load audio for info
-                )
-                
-                for split_name, split_data in dataset.items():
-                    info["splits"][split_name] = {
-                        "samples": len(split_data),
-                        "columns": split_data.column_names
-                    }
-                    
-                    # Sample a few examples for preview
-                    if len(split_data) > 0:
-                        sample_size = min(3, len(split_data))
-                        samples = []
-                        for i in range(sample_size):
-                            sample = split_data[i]
-                            samples.append({
-                                "sentence": sample.get("sentence", ""),
-                                "audio_path": sample.get("audio", {}).get("path", ""),
-                                "speaker_id": sample.get("speaker_id", ""),
-                                "duration": sample.get("duration", "")
-                            })
-                        info["splits"][split_name]["samples_preview"] = samples
-                        
-            except Exception as e:
-                info["error"] = f"Failed to load CSV dataset: {str(e)}"
-                
-        elif dataset_format == "audiofolder":
-            # Get basic info for AudioFolder format
-            for item in dataset_dir.iterdir():
-                if item.is_dir():
-                    audio_files = [
-                        f.name for f in item.iterdir() 
-                        if f.suffix.lower() in {'.wav', '.mp3', '.flac', '.ogg', '.m4a', '.aac'}
-                    ]
-                    info["splits"][item.name] = {
-                        "samples": len(audio_files),
-                        "sample_files": audio_files[:5]  # Show first 5 files
-                    }
-        
-        return info
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get dataset info: {str(e)}")
-
-@app.post("/create-example-speech-dataset/{job_id}")
-async def create_example_speech_dataset(
-    job_id: str,
-    train_samples: int = 10,
-    val_samples: int = 3,
-    test_samples: int = 3,
-    language: str = "en"
-):
-    """
-    Create an example speech dataset for testing purposes.
-    Generates silent audio files with sample transcriptions.
-    """
-    try:
-        import tempfile
-        import shutil
-        import numpy as np
-        import pandas as pd
-        
-        dataset_dir = Path(f"datasets/{job_id}")
-        if dataset_dir.exists():
-            shutil.rmtree(dataset_dir)
-        dataset_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Sample sentences for different languages
-        sample_sentences = {
-            "en": [
-                "Hello world, this is a test recording",
-                "The quick brown fox jumps over the lazy dog",
-                "Speech recognition technology is advancing rapidly",
-                "Machine learning enables automatic transcription",
-                "Deep learning models can process audio signals",
-                "Artificial intelligence transforms how we interact with computers",
-                "Natural language processing helps understand human speech",
-                "Voice assistants are becoming increasingly popular",
-                "Audio processing requires sophisticated algorithms",
-                "Digital signal processing enables real-time speech analysis"
-            ],
-            "es": [
-                "Hola mundo, esta es una grabación de prueba",
-                "El reconocimiento de voz está avanzando rápidamente",
-                "La inteligencia artificial transforma la tecnología",
-                "Los asistentes de voz son cada vez más populares",
-                "El procesamiento de audio requiere algoritmos sofisticados"
-            ],
-            "fr": [
-                "Bonjour le monde, ceci est un enregistrement de test",
-                "La reconnaissance vocale progresse rapidement",
-                "L'intelligence artificielle transforme la technologie",
-                "Les assistants vocaux deviennent de plus en plus populaires",
-                "Le traitement audio nécessite des algorithmes sophistiqués"
-            ]
-        }
-        
-        sentences = sample_sentences.get(language, sample_sentences["en"])
-        
-        def create_silent_audio(filepath, duration=2.0, sample_rate=16000):
-            """Create a silent audio file"""
-            try:
-                import soundfile as sf
-                # Create silent audio
-                samples = int(duration * sample_rate)
-                audio_data = np.zeros(samples, dtype=np.float32)
-                sf.write(filepath, audio_data, sample_rate)
-            except ImportError:
-                # Fallback: create empty WAV header
-                import wave
-                with wave.open(str(filepath), 'w') as wav_file:
-                    wav_file.setnchannels(1)  # Mono
-                    wav_file.setsampwidth(2)  # 16-bit
-                    wav_file.setframerate(sample_rate)
-                    wav_file.writeframes(b'\x00' * int(duration * sample_rate * 2))
-        
-        # Create splits and metadata
-        splits_data = {
-            "train": train_samples,
-            "validation": val_samples,
-            "test": test_samples
-        }
-        
-        audio_counter = 1
-        total_created = 0
-        
-        for split_name, num_samples in splits_data.items():
-            if num_samples <= 0:
-                continue
-                
-            split_dir = dataset_dir / split_name
-            split_dir.mkdir(exist_ok=True)
-            
-            # Generate metadata
-            metadata_rows = []
-            for i in range(num_samples):
-                filename = f"audio_{audio_counter:04d}.wav"
-                sentence = sentences[i % len(sentences)]
-                duration = np.random.uniform(1.0, 3.0)  # Random duration 1-3 seconds
-                speaker_id = f"speaker_{(i % 5) + 1:03d}"  # 5 different speakers
-                
-                metadata_rows.append({
-                    "file_name": filename,
-                    "sentence": sentence,
-                    "speaker_id": speaker_id,
-                    "duration": duration,
-                    "language": language
-                })
-                
-                # Create silent audio file
-                audio_path = split_dir / filename
-                create_silent_audio(audio_path, duration)
-                
-                audio_counter += 1
-                total_created += 1
-            
-            # Save metadata CSV
-            df = pd.DataFrame(metadata_rows)
-            df.to_csv(split_dir / "metadata.csv", index=False)
-        
-        # Validate the created dataset
-        from pipelines.speech_utils import detect_dataset_format
-        dataset_format = detect_dataset_format(str(dataset_dir))
-        validation_result = await validate_speech_dataset_structure(dataset_dir, dataset_format)
-        
-        return {
-            "message": f"Example speech dataset created successfully",
-            "dataset_id": job_id,
-            "task_type": "speech_recognition",
-            "total_samples": total_created,
-            "splits": {split: num for split, num in splits_data.items() if num > 0},
-            "language": language,
-            "dataset_format": dataset_format,
-            "validation": validation_result
-        }
-        
-    except Exception as e:
-        # Clean up on error
-        if dataset_dir.exists():
-            shutil.rmtree(dataset_dir)
-        raise HTTPException(status_code=500, detail=f"Failed to create example dataset: {str(e)}")
-
-
-@app.get("/supported-speech-formats")
-async def get_supported_speech_formats():
-    """Get information about supported speech dataset formats and requirements"""
-    return {
-        "formats": {
-            "csv": {
-                "description": "CSV metadata format with separate audio files",
-                "structure": {
-                    "train/": "Training split directory",
-                    "train/metadata.csv": "CSV with file_name and sentence columns",
-                    "train/audio_*.wav": "Audio files referenced in CSV",
-                    "validation/": "Validation split directory (optional)",
-                    "test/": "Test split directory (optional)"
-                },
-                "required_columns": ["file_name", "sentence"],
-                "optional_columns": ["speaker_id", "duration", "language"],
-                "example_csv": "file_name,sentence,speaker_id\naudio_001.wav,\"Hello world\",spk_001"
-            },
-            "audiofolder": {
-                "description": "Hugging Face AudioFolder format",
-                "structure": {
-                    "train/": "Directory with audio files",
-                    "train/audio_*.wav": "Audio files with automatic transcription discovery",
-                    "metadata.jsonl": "Optional JSONL metadata file"
-                },
-                "note": "Less commonly used for ASR, CSV format recommended"
-            }
-        },
-        "supported_audio_formats": [".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac"],
-        "recommended_settings": {
-            "sampling_rate": "16000 Hz",
-            "duration_range": "1-30 seconds per clip",
-            "quality": "High quality, minimal background noise",
-            "format": "WAV format preferred for best compatibility"
-        },
-        "dataset_size_recommendations": {
-            "minimum": "100+ samples for basic training",
-            "good": "1000+ samples for decent performance", 
-            "excellent": "10000+ samples for production quality"
-        }
-    }
 
