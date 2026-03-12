@@ -5,7 +5,7 @@ services:
     build: .
     shm_size: 2gb
     ports:
-      - "8000:8000"
+      - "8090:8000"
     volumes:
       - ./models:/app/models
       - ./datasets:/app/datasets
@@ -17,7 +17,7 @@ services:
     networks:
       - ai-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
       interval: 30s
       timeout: 10s
       retries: 3
