@@ -28,6 +28,7 @@ import zipfile
 import shutil
 import traceback
 import glob
+import base64
 
 # Import pipeline base class
 from pipelines.base_pipeline import BasePipeline
@@ -42,6 +43,18 @@ from mlflow_utils import (
 )
 
 from data_loaders import create_dataloaders
+
+# Import Responsible AI Toolkit
+from responsible_ai import (
+    ClassBalanceAnalyzer,
+    LimeExplainer,
+    ShapExplainer,
+    GradCAMExplainer,
+    FairnessAnalyzer,
+    ModelCardGenerator,
+    DataCardGenerator,
+    BiasResourceLibrary
+)
 
 
 # ==================== Models & Schemas ====================
@@ -814,6 +827,8 @@ async def create_dataset_class(job_id: str, class_name: str):
 @app.post("/upload-dataset/{job_id}")
 async def upload_dataset_file(
     job_id: str,
+    task_type: str = "image_classification",
+    dataset_name: str = None,
     file: UploadFile = File(...),
     class_name: str = Form(None),
     file_type: str = Form("image")  # 'image', 'annotation', or 'zip'
@@ -822,6 +837,20 @@ async def upload_dataset_file(
     try:
         dataset_dir = Path(f"datasets/{job_id}")
         dataset_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save dataset_config.json
+        config_file = dataset_dir / "dataset_config.json"
+        config = {}
+        if config_file.exists():
+            try:
+                with open(config_file, "r") as f:
+                    config = json.load(f)
+            except: pass
+        config["task_type"] = task_type
+        if dataset_name:
+            config["dataset_name"] = dataset_name
+        with open(config_file, "w") as f:
+            json.dump(config, f)
 
         if file_type == "zip":
             # Save and extract zip file using smart extraction
@@ -1039,6 +1068,18 @@ async def list_available_datasets():
                 
                 # Try to determine the task type based on directory structure or content
                 task_type = "image_classification"  # Default
+                dataset_name_from_config = None
+                
+                # Check for dataset_config.json
+                config_file = d / "dataset_config.json"
+                if config_file.exists():
+                    try:
+                        with open(config_file, "r") as f:
+                            config = json.load(f)
+                            task_type = config.get("task_type", task_type)
+                            dataset_name_from_config = config.get("dataset_name", None)
+                    except: pass
+                    
                 is_coco_dataset = False
                 
                 # Check for COCO format (annotations directory or JSON files)
@@ -1128,7 +1169,7 @@ async def list_available_datasets():
                 
                 datasets.append({
                     "id": d.name,
-                    "name": d.name.replace('_', ' ').title(),
+                    "name": dataset_name_from_config if dataset_name_from_config else d.name.replace('_', ' ').title(),
                     "classes": classes if classes else ["(COCO format dataset)"],
                     "task_type": task_type,
                     "item_count": item_count,
@@ -1171,7 +1212,7 @@ async def link_dataset_to_job(job_id: str, dataset_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to link dataset: {str(e)}")
 
 @app.post("/upload-detection-dataset/{job_id}")
-async def upload_detection_dataset(job_id: str, file: UploadFile = File(...)):
+async def upload_detection_dataset(job_id: str, task_type: str = "object_detection", dataset_name: str = None, file: UploadFile = File(...)):
     """
     Upload a COCO format object detection dataset as a zip file.
     The zip file should contain the images and annotations in the COCO format structure.
@@ -1180,6 +1221,20 @@ async def upload_detection_dataset(job_id: str, file: UploadFile = File(...)):
     try:
         dataset_dir = Path(f"datasets/{job_id}")
         dataset_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save dataset_config.json
+        config_file = dataset_dir / "dataset_config.json"
+        config = {}
+        if config_file.exists():
+            try:
+                with open(config_file, "r") as f:
+                    config = json.load(f)
+            except: pass
+        config["task_type"] = task_type
+        if dataset_name:
+            config["dataset_name"] = dataset_name
+        with open(config_file, "w") as f:
+            json.dump(config, f)
         
         # Verify that the uploaded file is a zip file
         if not file.filename.lower().endswith(('.zip')):
@@ -1212,4 +1267,482 @@ async def upload_detection_dataset(job_id: str, file: UploadFile = File(...)):
             except:
                 pass
         raise HTTPException(status_code=400, detail=f"Failed to process dataset: {str(e)}")
+
+
+# ==================== Responsible AI Toolkit Endpoints ====================
+
+class ClassBalanceRequest(BaseModel):
+    dataset_id: Optional[str] = None
+    labels: Optional[List[int]] = None
+    class_names: Optional[List[str]] = None
+
+@app.post("/responsible-ai/class-balance")
+async def analyze_class_balance(request: ClassBalanceRequest):
+    """Analyze class balance in dataset. Accepts either a dataset_id (auto-extracts labels) or raw labels."""
+    try:
+        labels = None
+        class_names = request.class_names
+
+        # Clean dataset_id input
+        dataset_id = request.dataset_id.strip() if request.dataset_id else None
+
+        if dataset_id:
+            # Auto-extract labels from dataset directory structure
+            dataset_path = Path(f"datasets/{dataset_id}")
+            if not dataset_path.exists() or not dataset_path.is_dir():
+                raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+
+            image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff'}
+            
+            # Check for dataset_config.json
+            config_file = dataset_path / "dataset_config.json"
+            task_type = "image_classification"
+            if config_file.exists():
+                try:
+                    with open(config_file, "r") as f:
+                        config = json.load(f)
+                        task_type = config.get("task_type", task_type)
+                except: pass
+
+            if task_type == "semantic_segmentation":
+                raise HTTPException(status_code=400, detail="Class balance analysis for semantic segmentation datasets is not directly supported via folder structure.")
+
+            # Detect if dataset follows object detection structure
+            is_coco = False
+            json_files = []
+            
+            # Check for standard COCO structure
+            ann_dir = dataset_path / "annotations"
+            if ann_dir.is_dir():
+                json_files = list(ann_dir.glob("*.json"))
+            
+            # If no JSON in annotations, check root for JSON
+            if not json_files:
+                json_files = list(dataset_path.glob("*.json"))
+            
+            # Validate JSON if found
+            for jf in json_files:
+                try:
+                    with open(jf, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        if all(k in data for k in ["images", "annotations", "categories"]):
+                            is_coco = True
+                            target_json = data
+                            break
+                except:
+                    continue
+
+            if is_coco:
+                extracted_class_names = [cat.get("name", str(i)) for i, cat in enumerate(target_json["categories"])]
+                extracted_labels = [ann.get("category_id") for ann in target_json["annotations"] if "category_id" in ann]
+                if not extracted_labels:
+                    raise HTTPException(status_code=400, detail="No labels found in COCO annotation file.")
+                labels = np.array(extracted_labels)
+                if class_names is None:
+                    class_names = extracted_class_names
+                print(f"Extracted {len(labels)} labels from COCO annotations in dataset {dataset_id}")
+            else:
+                # Fallback to classification folder structure
+                class_dirs = sorted([
+                    d for d in dataset_path.iterdir()
+                    if d.is_dir() and d.name not in ('annotations', '__pycache__') and not d.name.startswith('.')
+                ])
+                if not class_dirs:
+                    raise HTTPException(status_code=400, detail="No valid dataset structure found.")
+                
+                extracted_labels = []
+                extracted_class_names = []
+                for class_idx, class_dir in enumerate(class_dirs):
+                    extracted_class_names.append(class_dir.name)
+                    image_count = sum(1 for f in class_dir.iterdir() if f.is_file() and f.suffix.lower() in image_extensions)
+                    extracted_labels.extend([class_idx] * image_count)
+                
+                if not extracted_labels:
+                    raise HTTPException(status_code=400, detail="No images found in dataset.")
+                labels = np.array(extracted_labels)
+                if class_names is None:
+                    class_names = extracted_class_names
+
+        elif request.labels is not None:
+            labels = np.array(request.labels)
+        else:
+            raise HTTPException(status_code=400, detail="Either 'dataset_id' or 'labels' must be provided.")
+
+        # Manual distribution calculation to avoid NumPy objects
+        # Count occurrences of each label
+        unique, counts = np.unique(labels, return_counts=True)
+        # Build distribution dict mapping class name or index to count
+        distribution = {}
+        for idx, cnt in zip(unique, counts):
+            # COCO category IDs are often 1-indexed; adjust if class_names length matches max label
+            if class_names:
+                if max(labels) == len(class_names):
+                    # Assume labels are 1-indexed
+                    name_idx = int(idx) - 1
+                else:
+                    name_idx = int(idx)
+                name = class_names[name_idx] if 0 <= name_idx < len(class_names) else str(int(idx))
+            else:
+                name = str(int(idx))
+            distribution[name] = int(cnt)
+        # Simple recommendations placeholder (could be extended)
+        recommendations = {"message": "Manual distribution computed"}
+        # Generate a simple report string
+        report = f"Class distribution: {distribution}"
+
+        # Build response and ensure everything is JSON‑serializable
+        response = {
+            "distribution": distribution,
+            "recommendations": recommendations,
+            "report": report,
+        }
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Class balance analysis failed: {str(e)}")
+
+class FairnessAnalysisRequest(BaseModel):
+    y_true: List[int]
+    y_pred: List[int]
+    subgroup_labels: List[int]
+    privileged_group: int = 0
+
+@app.post("/responsible-ai/fairness-analysis")
+async def analyze_fairness(request: FairnessAnalysisRequest):
+    """Analyze fairness across subgroups"""
+    try:
+        analyzer = FairnessAnalyzer()
+        y_true = np.array(request.y_true)
+        y_pred = np.array(request.y_pred)
+        subgroup_labels = np.array(request.subgroup_labels)
+        
+        subgroup_metrics = analyzer.analyze_subgroup_performance(y_true, y_pred, subgroup_labels)
+        fairness_metrics = analyzer.calculate_fairness_metrics(y_true, y_pred, subgroup_labels, request.privileged_group)
+        demographic_parity = analyzer.calculate_demographic_parity(y_pred, subgroup_labels)
+        equalized_odds = analyzer.calculate_equalized_odds(y_true, y_pred, subgroup_labels)
+        
+        return {
+            "subgroup_metrics": subgroup_metrics,
+            "fairness_metrics": fairness_metrics,
+            "demographic_parity": demographic_parity,
+            "equalized_odds": equalized_odds,
+            "report": analyzer.generate_fairness_report(),
+            "mitigation_strategies": analyzer.get_mitigation_strategies()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fairness analysis failed: {str(e)}")
+
+class ModelCardRequest(BaseModel):
+    model_name: str
+    model_architecture: str
+    dataset_name: str
+    training_metrics: Dict[str, float]
+    fairness_results: Optional[Dict[str, Any]] = None
+
+@app.post("/responsible-ai/generate-model-card")
+async def generate_model_card(request: ModelCardRequest):
+    """Generate a model card with responsible AI information"""
+    try:
+        generator = ModelCardGenerator()
+        generator.auto_populate_from_training(
+            model_name=request.model_name,
+            model_architecture=request.model_architecture,
+            dataset_name=request.dataset_name,
+            training_metrics=request.training_metrics,
+            fairness_results=request.fairness_results
+        )
+        
+        model_card = generator.generate_model_card()
+        json_card = generator.generate_json_model_card()
+        
+        return {
+            "model_card_markdown": model_card,
+            "model_card_json": json_card
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Model card generation failed: {str(e)}")
+
+@app.get("/responsible-ai/bias-types")
+async def get_bias_types():
+    """Get information about different types of bias"""
+    try:
+        library = BiasResourceLibrary()
+        return {"bias_types": library.bias_types}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve bias types: {str(e)}")
+
+@app.get("/responsible-ai/bias-examples")
+async def get_bias_examples(domain: Optional[str] = None):
+    """Get real-world bias examples"""
+    try:
+        library = BiasResourceLibrary()
+        examples = library.get_bias_examples(domain)
+        return {"bias_examples": examples}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve bias examples: {str(e)}")
+
+@app.get("/responsible-ai/mitigation-strategies")
+async def get_mitigation_strategies(stage: Optional[str] = None):
+    """Get bias mitigation strategies"""
+    try:
+        library = BiasResourceLibrary()
+        strategies = library.get_mitigation_strategies(stage)
+        return {"mitigation_strategies": strategies}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve mitigation strategies: {str(e)}")
+
+@app.get("/responsible-ai/checklist")
+async def get_bias_checklist(category: Optional[str] = None):
+    """Get bias detection and mitigation checklist"""
+    try:
+        library = BiasResourceLibrary()
+        checklist = library.get_checklist(category)
+        return {"checklist": checklist}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve checklist: {str(e)}")
+
+@app.post("/responsible-ai/bias-report")
+async def generate_bias_report(detected_biases: List[str]):
+    """Generate a comprehensive bias report"""
+    try:
+        library = BiasResourceLibrary()
+        report = library.generate_bias_report(detected_biases)
+        return {"bias_report": report}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate bias report: {str(e)}")
+
+@app.get("/responsible-ai/search")
+async def search_bias_info(query: str):
+    """Search bias information by keyword"""
+    try:
+        library = BiasResourceLibrary()
+        results = library.search_bias_info(query)
+        return {"search_results": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+@app.post("/responsible-ai/dataset-validation/{dataset_id}")
+async def validate_dataset(dataset_id: str):
+    """Validate dataset and generate a Data Card with visual statistics."""
+    try:
+        from visualization_utils import create_class_distribution_plot, pil_to_base64, draw_bounding_boxes
+        dataset_path = Path(f"datasets/{dataset_id}")
+        if not dataset_path.exists() or not dataset_path.is_dir():
+            raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+
+        # Load config
+        config_file = dataset_path / "dataset_config.json"
+        task_type = "image_classification"
+        dataset_name = dataset_path.name
+        if config_file.exists():
+            try:
+                with open(config_file, "r") as f:
+                    config = json.load(f)
+                    task_type = config.get("task_type", task_type)
+                    dataset_name = config.get("dataset_name", dataset_name)
+            except: pass
+
+        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff'}
+        missing_data = []
+        invalid_labels = []
+        data_anomalies = []
+        class_distribution = {}
+        sample_images = []
+
+        is_coco = (task_type in ["object_detection", "instance_segmentation"])
+
+        if is_coco:
+            # Load COCO annotations - look in annotations/, root, or recursively (e.g. train/valid/test folders)
+            json_files = []
+            ann_dir = dataset_path / "annotations"
+            if ann_dir.is_dir():
+                json_files = list(ann_dir.glob("*.json"))
+            
+            if not json_files:
+                json_files = list(dataset_path.glob("**/*.json"))
+                
+            # Filter out dataset_config.json
+            json_files = [jf for jf in json_files if jf.name != "dataset_config.json"]
+
+            target_json = None
+            target_json_path = None
+            for jf in json_files:
+                try:
+                    with open(jf, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        if all(k in data for k in ["images", "annotations", "categories"]):
+                            target_json = data
+                            target_json_path = jf
+                            break
+                except: continue
+
+            if target_json:
+                cat_id_to_name = {cat["id"]: cat.get("name", str(cat["id"])) for cat in target_json["categories"]}
+                image_id_to_file = {img["id"]: img["file_name"] for img in target_json["images"]}
+                
+                # Distribution
+                for ann in target_json["annotations"]:
+                    cat_id = ann.get("category_id")
+                    if cat_id in cat_id_to_name:
+                        cname = cat_id_to_name[cat_id]
+                        class_distribution[cname] = class_distribution.get(cname, 0) + 1
+                    else:
+                        invalid_labels.append(f"Annotation with unknown category_id: {cat_id}")
+
+                # Sample images with boxes
+                sampled_classes = set()
+                for img_info in target_json["images"]:
+                    if len(sampled_classes) >= len(cat_id_to_name): break
+                    img_id = img_info["id"]
+                    file_name = img_info["file_name"]
+                    
+                    # Find if this image has an annotation of a class we haven't sampled yet
+                    anns_for_img = [a for a in target_json["annotations"] if a.get("image_id") == img_id]
+                    if not anns_for_img: continue
+                    
+                    cat_id = anns_for_img[0].get("category_id")
+                    cname = cat_id_to_name.get(cat_id, "Unknown")
+                    
+                    if cname not in sampled_classes:
+                        # Try finding the image:
+                        # 1. Relative to the JSON directory (common for train/test splits inside folders)
+                        # 2. Directly in the dataset folder
+                        # 3. In the images/ folder
+                        img_file_path = None
+                        possible_paths = []
+                        if target_json_path:
+                            possible_paths.append(target_json_path.parent / file_name)
+                        possible_paths.append(dataset_path / file_name)
+                        possible_paths.append(dataset_path / "images" / file_name)
+                        
+                        for p in possible_paths:
+                            if p.exists():
+                                img_file_path = p
+                                break
+                                
+                        if img_file_path is not None:
+                            try:
+                                pil_img = Image.open(img_file_path).convert("RGB")
+                                detections = []
+                                for a in anns_for_img:
+                                    if "bbox" in a:
+                                        x, y, w, h = a["bbox"]
+                                        c_id = a.get("category_id")
+                                        c_n = cat_id_to_name.get(c_id, "Unknown")
+                                        detections.append({
+                                            "box": [x, y, x+w, y+h],
+                                            "class_name": c_n,
+                                            "confidence": 100.0
+                                        })
+                                if detections:
+                                    pil_img = draw_bounding_boxes(pil_img, detections)
+                                    
+                                # Resize for frontend display
+                                pil_img.thumbnail((400, 400))
+                                b64_img = pil_to_base64(pil_img, format="JPEG")
+                                sample_images.append({
+                                    "class_name": cname,
+                                    "image_base64": b64_img
+                                })
+                                sampled_classes.add(cname)
+                            except Exception as e:
+                                data_anomalies.append(f"Failed to load/annotate image {file_name}: {str(e)}")
+                        else:
+                            missing_data.append(f"Image referenced in annotations not found: {file_name}")
+
+            else:
+                missing_data.append("Could not find a valid COCO annotation JSON file.")
+
+        else:
+            # Classification folder structure
+            classes = [d.name for d in dataset_path.iterdir() if d.is_dir() and not d.name.startswith('.')]
+            if not classes:
+                missing_data.append("No class folders found in dataset directory.")
+            else:
+                for c in classes:
+                    c_path = dataset_path / c
+                    images = [f for f in c_path.iterdir() if f.is_file() and f.suffix.lower() in image_extensions]
+                    class_distribution[c] = len(images)
+                    if len(images) == 0:
+                        missing_data.append(f"Class folder '{c}' is empty.")
+                    else:
+                        # Grab 1 sample image
+                        try:
+                            pil_img = Image.open(images[0]).convert("RGB")
+                            pil_img.thumbnail((400, 400))
+                            b64_img = pil_to_base64(pil_img, format="JPEG")
+                            sample_images.append({
+                                "class_name": c,
+                                "image_base64": b64_img
+                            })
+                        except Exception as e:
+                            data_anomalies.append(f"Corrupted image in class '{c}': {images[0].name}")
+
+        total_samples = sum(class_distribution.values())
+        num_classes = len(class_distribution)
+
+        # Balance check
+        is_balanced = True
+        balance_ratio = 1.0
+        if num_classes > 0 and total_samples > 0:
+            counts = list(class_distribution.values())
+            max_c = max(counts)
+            min_c = min(counts)
+            if min_c == 0:
+                is_balanced = False
+                balance_ratio = 0.0
+            else:
+                balance_ratio = min_c / max_c
+                if balance_ratio < 0.5:
+                    is_balanced = False
+
+        # Generate Data Card
+        generator = DataCardGenerator()
+        generator.set_dataset_overview(
+            dataset_name=dataset_name,
+            task_type=task_type,
+            total_samples=total_samples,
+            num_classes=num_classes,
+            format_type="COCO" if is_coco else "Folder Structure"
+        )
+        generator.set_validation_summary(
+            missing_data=missing_data,
+            invalid_labels=invalid_labels,
+            data_anomalies=data_anomalies,
+            is_balanced=is_balanced,
+            balance_ratio=balance_ratio
+        )
+        generator.set_class_distribution(class_distribution)
+        
+        considerations = [
+            "Am I using a representative dataset? (Ensure your dataset is sampled in a way that represents your users.)",
+            "Is there real-world / human bias in my data? (Consider historical biases that might be present in labels.)",
+            "Data validation helps mitigate missing features or wrongly assigned labels."
+        ]
+        generator.set_fairness_considerations(considerations)
+        generator.set_intended_use(f"Training for {task_type}")
+        
+        data_card_md = generator.generate_data_card()
+
+        # Distribution plot base64
+        dist_plot_b64 = None
+        if class_distribution:
+            try:
+                plot_path = create_class_distribution_plot(class_distribution, title=f"{dataset_name} Distribution")
+                with open(plot_path, "rb") as f:
+                    dist_plot_b64 = base64.b64encode(f.read()).decode()
+            except: pass
+
+        return {
+            "status": "success",
+            "data_card_markdown": data_card_md,
+            "distribution_plot_base64": dist_plot_b64,
+            "sample_images": sample_images
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Validation failed: {str(e)}")
 

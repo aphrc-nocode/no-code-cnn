@@ -9,7 +9,7 @@ library(httr)
 library(base64enc)
 
 # Configuration
-API_URL <- "http://localhost:8001"  # FastAPI backend URL
+API_URL <- Sys.getenv("API_URL", "http://host.docker.internal:8090")  # FastAPI backend URL  # FastAPI backend URL
 
 # Increase maximum file upload size to 500MB (default is 5MB)
 options(shiny.maxRequestSize = 500*1024^2)
@@ -557,6 +557,45 @@ link_dataset_to_job <- function(job_id, dataset_id) {
   })
 }
 
+check_class_balance <- function(dataset_id) {
+  tryCatch({
+    response <- make_request(paste0(API_URL, "/responsible-ai/class-balance"), method = "POST", body = toJSON(list(dataset_id = dataset_id), auto_unbox = TRUE))
+    if (response$status == 200) {
+      return(response$content)
+    } else {
+      return(paste("Error:", response$status, response$content))
+    }
+  }, error = function(e) {
+    return(paste("Error:", e$message))
+  })
+}
+
+check_fairness <- function(job_id, dataset_id, sensitive_attributes) {
+  tryCatch({
+    response <- make_request(paste0(API_URL, "/responsible-ai/fairness-analysis"), method = "POST", body = toJSON(list(job_id = job_id, dataset_id = dataset_id, sensitive_attributes = sensitive_attributes), auto_unbox = TRUE))
+    if (response$status == 200) {
+      return(response$content)
+    } else {
+      return(paste("Error:", response$status, response$content))
+    }
+  }, error = function(e) {
+    return(paste("Error:", e$message))
+  })
+}
+
+generate_model_card <- function(job_id) {
+  tryCatch({
+    response <- make_request(paste0(API_URL, "/responsible-ai/generate-model-card"), method = "POST", body = toJSON(list(job_id = job_id), auto_unbox = TRUE))
+    if (response$status == 200) {
+      return(response$content)
+    } else {
+      return(paste("Error:", response$status, response$content))
+    }
+  }, error = function(e) {
+    return(paste("Error:", e$message))
+  })
+}
+
 # UI
 ui <- dashboardPage(
   dashboardHeader(title = "No-Code AI Platform"),
@@ -569,7 +608,8 @@ ui <- dashboardPage(
       menuItem("Make Predictions", tabName = "predict", icon = icon("eye")),
       menuItem("View Jobs", tabName = "jobs", icon = icon("list")),
       menuItem("View Datasets", tabName = "datasets", icon = icon("database")),
-      menuItem("Delete Job", tabName = "delete", icon = icon("trash"))
+      menuItem("Delete Job", tabName = "delete", icon = icon("trash")),
+      menuItem("Responsible AI", tabName = "responsible_ai", icon = icon("balance-scale"))
     )
   ),
   
@@ -722,7 +762,14 @@ ui <- dashboardPage(
                 selectInput("upload_job_dropdown", "Select Job for Dataset Upload", choices = list()),
                 actionButton("refresh_upload_jobs", "Refresh Jobs", class = "btn-info"),
                 br(), br(),
-                checkboxInput("is_coco_format_upload", "COCO Format Dataset (Object Detection)", value = FALSE)
+                textInput("dataset_name", "Dataset Name (Important for Data Cards)", placeholder="e.g., Medical Scans v1"),
+                selectInput("dataset_task_type", "Dataset Task Type", 
+                           choices = list(
+                             "Image Classification" = "image_classification",
+                             "Object Detection (COCO format)" = "object_detection",
+                             "Instance Segmentation (COCO format)" = "instance_segmentation",
+                             "Semantic Segmentation" = "semantic_segmentation"
+                           ))
               ),
               column(6,
                 h4("File Upload"),
@@ -733,7 +780,7 @@ ui <- dashboardPage(
                 tags$ul(
                   tags$li("ZIP files with image folders"),
                   tags$li("For Classification: folders with class subfolders"),
-                  tags$li("For Object Detection: COCO format structure")
+                  tags$li("For Object/Instance: COCO format structure")
                 )
               )
             ),
@@ -855,8 +902,43 @@ ui <- dashboardPage(
           box(
             title = "Available Datasets", status = "success", solidHeader = TRUE, width = 12,
             actionButton("refresh_datasets", "Refresh Datasets", class = "btn-success"),
-            br(), br(),
+            p(style = "margin-top: 8px; color: #888;", "Click a row to view its Data Card & validation report."),
+            br(),
             DT::dataTableOutput("datasets_table")
+          )
+        ),
+        fluidRow(
+          box(
+            title = uiOutput("datacard_box_title"), status = "info", solidHeader = TRUE, width = 12,
+            id = "datacard_box",
+            conditionalPanel(
+              condition = "output.datacard_visible == true",
+              tabsetPanel(id = "datacard_tabs",
+                tabPanel("Data Card",
+                  div(style = "padding: 15px;",
+                    uiOutput("datacard_markdown")
+                  )
+                ),
+                tabPanel("Class Distribution",
+                  div(style = "padding: 15px; text-align: center;",
+                    uiOutput("datacard_distribution_plot_ui")
+                  )
+                ),
+                tabPanel("Sample Images",
+                  div(style = "padding: 15px;",
+                    uiOutput("datacard_sample_images")
+                  )
+                )
+              )
+            ),
+            conditionalPanel(
+              condition = "output.datacard_visible != true",
+              div(style = "padding: 20px; text-align: center; color: #999;",
+                tags$i(class = "fa fa-mouse-pointer", style = "font-size: 24px;"),
+                br(), br(),
+                p("Click on a dataset row above to generate its Data Card and validation report.")
+              )
+            )
           )
         )
       ),
@@ -876,6 +958,39 @@ ui <- dashboardPage(
             actionButton("delete_job_btn", "Delete Selected Job", class = "btn-danger btn-lg"),
             br(), br(),
             verbatimTextOutput("delete_output")
+          )
+        )
+      ),
+      
+      # Responsible AI Tab
+      tabItem(tabName = "responsible_ai",
+        fluidRow(
+          box(
+            title = "Class Balance Analysis", status = "primary", solidHeader = TRUE, width = 12,
+            textInput("rai_dataset_id", "Dataset ID", placeholder = "Enter Dataset ID"),
+            actionButton("check_class_balance_btn", "Analyze Class Balance", class = "btn-primary"),
+            br(), br(),
+            verbatimTextOutput("class_balance_output")
+          )
+        ),
+        fluidRow(
+          box(
+            title = "Fairness Analysis", status = "warning", solidHeader = TRUE, width = 12,
+            textInput("rai_fairness_job_id", "Job ID", placeholder = "Enter trained Job ID"),
+            textInput("rai_fairness_dataset_id", "Dataset ID", placeholder = "Enter evaluation Dataset ID"),
+            textInput("rai_sensitive_attrs", "Sensitive Attributes (comma separated)", placeholder = "e.g., gender, race"),
+            actionButton("check_fairness_btn", "Analyze Fairness", class = "btn-warning"),
+            br(), br(),
+            verbatimTextOutput("fairness_output")
+          )
+        ),
+        fluidRow(
+          box(
+            title = "Generate Model Card", status = "success", solidHeader = TRUE, width = 12,
+            textInput("rai_mc_job_id", "Job ID", placeholder = "Enter trained Job ID"),
+            actionButton("generate_mc_btn", "Generate Model Card", class = "btn-success"),
+            br(), br(),
+            verbatimTextOutput("model_card_output")
           )
         )
       )
@@ -1017,14 +1132,119 @@ server <- function(input, output, session) {
     updateSelectInput(session, "pending_job_dropdown", choices = choices)
   })
   
+  # Reactive to store the current datasets dataframe (must be declared before observers)
+  datasets_df_store <- reactiveVal(NULL)
+  
+  # ---- Data Card: initialize visibility as FALSE ----
+  output$datacard_visible <- reactive({ FALSE })
+  outputOptions(output, "datacard_visible", suspendWhenHidden = FALSE)
+  
+  output$datacard_box_title <- renderUI({ "Data Card & Validation Report" })
+  
   observeEvent(input$refresh_datasets_dropdown, {
     # Update both the datasets table and the dropdown (similar to Gradio implementation)
     output$datasets_table <- DT::renderDataTable({
-      list_available_datasets()
-    }, options = list(scrollX = TRUE))
+      df <- list_available_datasets()
+      datasets_df_store(df)
+      df
+    }, selection = 'single', options = list(scrollX = TRUE))
     
     choices <- get_datasets_for_dropdown()
     updateSelectInput(session, "dataset_dropdown", choices = choices)
+  })
+  
+  # ---- Data Card: triggered by clicking a row in the datasets table ----
+  observeEvent(input$datasets_table_rows_selected, {
+    row_idx <- input$datasets_table_rows_selected
+    if (is.null(row_idx) || length(row_idx) == 0) return()
+    
+    # Get the current datasets dataframe
+    df <- datasets_df_store()
+    if (is.null(df) || nrow(df) == 0) return()
+    if (row_idx > nrow(df)) return()
+    
+    dataset_id <- df$ID[row_idx]
+    dataset_name <- df$Name[row_idx]
+    
+    output$datacard_box_title <- renderUI({
+      paste0("Data Card: ", dataset_name)
+    })
+    
+    showNotification(
+      paste0("Generating Data Card for '", dataset_name, "'..."),
+      type = "message", duration = 5
+    )
+    
+    tryCatch({
+      url <- paste0(API_URL, "/responsible-ai/dataset-validation/", dataset_id)
+      response <- POST(url)
+      
+      if (status_code(response) == 200) {
+        result <- content(response, "parsed")
+        
+        output$datacard_visible <- reactive({ TRUE })
+        outputOptions(output, "datacard_visible", suspendWhenHidden = FALSE)
+        
+        # Render Markdown using commonmark (ships with R, no extra package needed)
+        output$datacard_markdown <- renderUI({
+          md_text <- result$data_card_markdown
+          if (is.null(md_text) || md_text == "") {
+            return(tags$p("No data card content returned."))
+          }
+          html_text <- tryCatch({
+            commonmark::markdown_html(md_text)
+          }, error = function(e) {
+            paste0("<pre>", md_text, "</pre>")
+          })
+          HTML(html_text)
+        })
+        
+        # Render Distribution Plot as base64 img tag (no temp files needed)
+        output$datacard_distribution_plot_ui <- renderUI({
+          if (!is.null(result$distribution_plot_base64) && result$distribution_plot_base64 != "") {
+            tags$img(
+              src = paste0("data:image/png;base64,", result$distribution_plot_base64),
+              style = "max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 4px;"
+            )
+          } else {
+            tags$p("No distribution plot available.", style = "color: #999;")
+          }
+        })
+        
+        # Render Sample Images
+        output$datacard_sample_images <- renderUI({
+          imgs <- result$sample_images
+          if (is.null(imgs) || length(imgs) == 0) {
+            return(tags$p("No sample images available.", style = "color: #999;"))
+          }
+          
+          img_tags <- lapply(imgs, function(img) {
+            tags$div(
+              class = "col-md-4",
+              style = "margin-bottom: 20px;",
+              tags$div(
+                style = "border: 1px solid #ddd; border-radius: 6px; padding: 8px; text-align: center; background: #fafafa;",
+                tags$img(
+                  src = paste0("data:image/jpeg;base64,", img$image_base64),
+                  style = "max-width: 100%; height: auto; border-radius: 4px;"
+                ),
+                tags$h4(img$class_name, style = "margin-top: 8px; color: #333;")
+              )
+            )
+          })
+          
+          tags$div(class = "row", img_tags)
+        })
+        
+        showNotification("Data Card generated successfully!", type = "message")
+      } else {
+        err <- content(response, "parsed")
+        detail <- if (!is.null(err$detail)) err$detail else "Unknown error"
+        showNotification(paste("Error:", detail), type = "error")
+      }
+    }, error = function(e) {
+      showNotification(paste("Connection error:", e$message), type = "error")
+    })
   })
   
   observeEvent(input$refresh_trainable_jobs, {
@@ -1079,17 +1299,25 @@ server <- function(input, output, session) {
       paste0("Uploading ", file_name, " (", file_size_mb, "MB) to job ", input$upload_job_dropdown, "...\nThis may take several minutes for large files.\n\n")
       
       tryCatch({
-        # Choose the correct endpoint based on dataset type
-        if (input$is_coco_format_upload) {
-          # COCO format object detection dataset
-          upload_url <- paste0(API_URL, "/upload-detection-dataset/", input$upload_job_dropdown)
+        task_type <- input$dataset_task_type
+        # Add dataset_name to URL
+        dataset_name_param <- if(!is.null(input$dataset_name) && input$dataset_name != "") {
+          paste0("&dataset_name=", URLencode(input$dataset_name))
         } else {
-          # Regular classification dataset
-          upload_url <- paste0(API_URL, "/upload-dataset/", input$upload_job_dropdown)
+          ""
+        }
+        
+        # Choose the correct endpoint based on dataset type
+        if (task_type %in% c("object_detection", "instance_segmentation")) {
+          # COCO format dataset
+          upload_url <- paste0(API_URL, "/upload-detection-dataset/", input$upload_job_dropdown, "?task_type=", task_type, dataset_name_param)
+        } else {
+          # Regular classification or semantic segmentation
+          upload_url <- paste0(API_URL, "/upload-dataset/", input$upload_job_dropdown, "?task_type=", task_type, dataset_name_param)
         }
         
         # Create multipart form data with timeout for large files
-        if (input$is_coco_format_upload) {
+        if (task_type %in% c("object_detection", "instance_segmentation")) {
           # For COCO format, use the detection endpoint (no additional parameters needed)
           response <- POST(
             upload_url,
@@ -1145,7 +1373,7 @@ server <- function(input, output, session) {
               "✅ Dataset uploaded and linked successfully!\n",
               "Job ID: ", job_id, "\n",
               "File: ", file_name, " (", file_size_mb, "MB)\n",
-              "Format: ", if(input$is_coco_format_upload) "COCO Object Detection" else "Image Classification", "\n",
+              "Format: ", task_type, "\n",
               "Upload Message: ", message, "\n",
               "\n🚀 Your dataset is now ready for training! Go to the 'Start Training' section below."
             )
@@ -1459,8 +1687,10 @@ server <- function(input, output, session) {
   observeEvent(input$refresh_datasets, {
     # Update the datasets table in the datasets tab
     output$datasets_table <- DT::renderDataTable({
-      list_available_datasets()
-    }, options = list(scrollX = TRUE))
+      df <- list_available_datasets()
+      datasets_df_store(df)
+      df
+    }, selection = 'single', options = list(scrollX = TRUE))
     
     # Also update the dataset dropdown in the train model tab (cross-tab functionality)
     choices <- get_datasets_for_dropdown()
@@ -1479,12 +1709,35 @@ server <- function(input, output, session) {
     })
   })
   
+  # Responsible AI Handlers
+  observeEvent(input$check_class_balance_btn, {
+    output$class_balance_output <- renderText({
+      check_class_balance(input$rai_dataset_id)
+    })
+  })
+  
+  observeEvent(input$check_fairness_btn, {
+    output$fairness_output <- renderText({
+      check_fairness(input$rai_fairness_job_id, input$rai_fairness_dataset_id, as.list(strsplit(input$rai_sensitive_attrs, ",\\s*")[[1]]))
+    })
+  })
+  
+  observeEvent(input$generate_mc_btn, {
+    output$model_card_output <- renderText({
+      generate_model_card(input$rai_mc_job_id)
+    })
+  })
+
   # Initialize data on startup
   observe({
     output$api_status <- renderText(get_api_status())
     output$dashboard_jobs_table <- DT::renderDataTable(list_all_jobs(), options = list(scrollX = TRUE))
     output$jobs_table <- DT::renderDataTable(list_all_jobs(), options = list(scrollX = TRUE))
-    output$datasets_table <- DT::renderDataTable(list_available_datasets(), options = list(scrollX = TRUE))
+    output$datasets_table <- DT::renderDataTable({
+      df <- list_available_datasets()
+      datasets_df_store(df)
+      df
+    }, selection = 'single', options = list(scrollX = TRUE))
     
     # Initialize dropdowns
     updateSelectInput(session, "pending_job_dropdown", choices = get_jobs_for_dropdown("pending"))

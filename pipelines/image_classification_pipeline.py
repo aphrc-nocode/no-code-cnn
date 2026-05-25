@@ -19,6 +19,7 @@ from pipelines.base_pipeline import BasePipeline
 from models.classification import model_factory
 from datasets_module.classification.dataloaders import create_dataloaders
 from metrics.classification.metrics import calculate_classification_metrics, get_confusion_matrix, generate_classification_report
+from responsible_ai import ClassBalanceAnalyzer
 
 class ImageClassificationPipeline(BasePipeline):
     """Pipeline for image classification tasks"""
@@ -647,6 +648,24 @@ class ImageClassificationPipeline(BasePipeline):
             
             # Calculate metrics
             metrics_dict = calculate_classification_metrics(all_targets, all_preds, all_scores)
+            
+            # Add responsible AI metrics - class balance analysis
+            try:
+                class_balance_analyzer = ClassBalanceAnalyzer()
+                class_balance_results = class_balance_analyzer.analyze_class_distribution(all_targets, classes)
+                class_balance_recommendations = class_balance_analyzer.get_balance_recommendations()
+                
+                # Add to metrics
+                metrics_dict['class_balance'] = class_balance_results
+                metrics_dict['class_balance_recommendations'] = class_balance_recommendations
+                
+                if job_id:
+                    await self._update_job_log(job_id, f"Class balance analysis completed. Imbalance ratio: {class_balance_results.get('imbalance_ratio', 0):.2f}")
+            except Exception as e:
+                # Log error but don't fail evaluation
+                if job_id:
+                    await self._update_job_log(job_id, f"Class balance analysis failed: {str(e)}")
+                metrics_dict['class_balance_error'] = str(e)
             
             # Log the evaluation metrics
             if job_id:
