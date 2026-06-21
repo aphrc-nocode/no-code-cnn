@@ -86,28 +86,28 @@ class DataCardGenerator:
         
         issues = 0
         if self.validation_summary.get('missing_data'):
-            card.append("### ⚠️ Missing Data Found")
+            card.append("### Missing Data Found")
             for item in self.validation_summary['missing_data']:
                 card.append(f"- {item}")
             card.append("")
             issues += 1
             
         if self.validation_summary.get('invalid_labels'):
-            card.append("### ⚠️ Invalid Labels Found")
+            card.append("### Invalid Labels Found")
             for item in self.validation_summary['invalid_labels']:
                 card.append(f"- {item}")
             card.append("")
             issues += 1
             
         if self.validation_summary.get('data_anomalies'):
-            card.append("### ⚠️ Data Anomalies")
+            card.append("### Data Anomalies")
             for item in self.validation_summary['data_anomalies']:
                 card.append(f"- {item}")
             card.append("")
             issues += 1
             
         if issues == 0:
-            card.append("✅ No missing data, invalid labels, or anomalies detected.")
+            card.append("No missing data, invalid labels, or anomalies detected.")
             card.append("")
         
         # Class Distribution
@@ -115,10 +115,10 @@ class DataCardGenerator:
         
         is_balanced = self.validation_summary.get('is_balanced', True)
         if is_balanced:
-            card.append("✅ **Balanced Dataset:** The classes are reasonably balanced.")
+            card.append("**Balanced Dataset:** The classes are reasonably balanced.")
         else:
             ratio = self.validation_summary.get('balance_ratio', 0)
-            card.append(f"⚠️ **Unbalanced Dataset:** There is significant imbalance between classes (Min/Max Ratio: {ratio:.2f}). This may lead to model bias towards majority classes.")
+            card.append(f"**Unbalanced Dataset:** There is significant imbalance between classes (Min/Max Ratio: {ratio:.2f}). This may lead to model bias towards majority classes.")
         card.append("")
         
         if self.class_distribution:

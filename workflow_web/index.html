@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VisoNode</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">VN</span>
+          <div>
+            <div class="brand-title">
+              <h1>VisoNode</h1>
+              <span class="version-badge" id="appVersion">v...</span>
+            </div>
+          </div>
+        </div>
+        <div class="run-controls">
+          <button class="icon-button secondary" id="saveWorkflow" title="Save workflow">
+            <i data-lucide="save"></i>
+          </button>
+          <button class="icon-button secondary" id="exportWorkflow" title="Export workflow JSON">
+            <i data-lucide="download"></i>
+          </button>
+          <button class="button secondary" id="stopWorkflow">
+            <i data-lucide="square"></i>
+            Stop
+          </button>
+          <button class="button primary" id="startWorkflow">
+            <i data-lucide="play"></i>
+            Run
+          </button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="palette">
+          <div class="panel-heading">
+            <span>Nodes</span>
+            <small>Drag on canvas</small>
+          </div>
+          <button class="palette-item" data-type="input">
+            <span class="palette-icon"><i data-lucide="file-input"></i></span>
+            <span>Input</span>
+          </button>
+          <button class="palette-item" data-type="detector">
+            <span class="palette-icon"><i data-lucide="scan-search"></i></span>
+            <span>Object Detection</span>
+          </button>
+          <button class="palette-item" data-type="segmenter">
+            <span class="palette-icon"><i data-lucide="scissors"></i></span>
+            <span>Object Segmentation</span>
+          </button>
+          <button class="palette-item" data-type="classifier">
+            <span class="palette-icon"><i data-lucide="badge-check"></i></span>
+            <span>Object Classification</span>
+          </button>
+          <button class="palette-item" data-type="filter">
+            <span class="palette-icon"><i data-lucide="filter"></i></span>
+            <span>Class Filter</span>
+          </button>
+          <button class="palette-item" data-type="preview">
+            <span class="palette-icon"><i data-lucide="monitor-play"></i></span>
+            <span>OpenCV Preview</span>
+          </button>
+          <button class="palette-item" data-type="alert">
+            <span class="palette-icon"><i data-lucide="bell-ring"></i></span>
+            <span>Alert Output</span>
+          </button>
+
+          <div class="sample-card">
+            <strong>Sample workflow</strong>
+            <p>Input -> Detection, Segmentation, or Classification -> Filter -> Preview -> Alert</p>
+            <button class="button compact secondary" id="resetWorkflow">
+              <i data-lucide="refresh-cw"></i>
+              Reset
+            </button>
+          </div>
+        </aside>
+
+        <section class="canvas-section">
+          <div class="canvas-toolbar">
+            <div>
+              <strong>Workflow</strong>
+              <span id="workflowStatus">Idle</span>
+            </div>
+            <div class="metrics">
+              <span><b id="fpsValue">0</b> fps</span>
+              <span><b id="objectCount">0</b> objects</span>
+              <span><b id="deviceValue">CPU</b></span>
+            </div>
+          </div>
+          <div class="workflow-canvas" id="workflowCanvas">
+            <svg id="edgeLayer" aria-hidden="true"></svg>
+            <div id="nodeLayer"></div>
+          </div>
+        </section>
+
+        <aside class="inspector">
+          <section class="inspector-panel">
+            <div class="panel-heading">
+              <span>Inspector</span>
+              <small id="selectedNodeLabel">Input</small>
+            </div>
+            <form id="nodeForm"></form>
+          </section>
+
+          <section class="event-panel">
+            <div class="panel-heading">
+              <span>Events</span>
+              <small>Last detections</small>
+            </div>
+            <ul id="eventLog"></ul>
+          </section>
+        </aside>
+      </main>
+
+      <section class="terminal-panel" id="terminalPanel" data-collapsed="false">
+        <header class="terminal-header" id="terminalHeader">
+          <span class="terminal-title">
+            <i data-lucide="terminal"></i>
+            Python backend
+          </span>
+          <span class="terminal-status" id="terminalStatus">Connected</span>
+          <div class="terminal-actions">
+            <button class="mini-button" id="terminalOpen" title="Open real terminal">
+              <i data-lucide="external-link"></i>
+            </button>
+            <button class="mini-button" id="terminalClear" title="Clear terminal output">
+              <i data-lucide="eraser"></i>
+            </button>
+            <button class="mini-button" id="terminalToggle" title="Collapse / expand terminal">
+              <i data-lucide="chevron-down"></i>
+            </button>
+          </div>
+        </header>
+        <div class="terminal-body" id="terminalBody"></div>
+      </section>
+    </div>
+
+    <div class="context-menu" id="nodeContextMenu" hidden>
+      <button data-action="rename"><i data-lucide="pencil"></i>Rename</button>
+      <button data-action="toggle"><i data-lucide="power"></i><span data-label="toggle">Disable</span></button>
+      <div class="context-menu-sep"></div>
+      <button data-action="delete" class="danger"><i data-lucide="trash-2"></i>Delete</button>
+    </div>
+  </body>
+</html>

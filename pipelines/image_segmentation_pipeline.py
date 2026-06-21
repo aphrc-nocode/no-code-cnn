@@ -297,8 +297,9 @@ class ImageSegmentationPipeline(BasePipeline):
                 model.load_state_dict(best_model_state)
             
             # Save the model
-            os.makedirs("models", exist_ok=True)
-            model_path = f"models/{job_id}.pth"
+            models_base_dir = os.getenv("MODELS_DIR", "logs/models")
+            os.makedirs(models_base_dir, exist_ok=True)
+            model_path = os.path.join(models_base_dir, f"{job_id}.pth")
             
             # Save necessary components
             torch.save({

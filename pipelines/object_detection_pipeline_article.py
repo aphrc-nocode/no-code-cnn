@@ -123,7 +123,7 @@ class ObjectDetectionPipeline(BasePipeline):
                 batch_size=self.batch_size,
                 shuffle=True,
                 collate_fn=collate_fn,
-                num_workers=4
+                num_workers=int(os.getenv("DATALOADER_WORKERS", "0"))
             )
             print(f"Training dataset loaded: {len(train_dataset)} images")
         
@@ -140,7 +140,7 @@ class ObjectDetectionPipeline(BasePipeline):
                 batch_size=self.batch_size,
                 shuffle=False,
                 collate_fn=collate_fn,
-                num_workers=4
+                num_workers=int(os.getenv("DATALOADER_WORKERS", "0"))
             )
             print(f"Validation dataset loaded: {len(val_dataset)} images")
         

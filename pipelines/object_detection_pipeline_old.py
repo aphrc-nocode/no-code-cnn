@@ -341,8 +341,9 @@ class ObjectDetectionPipeline(BasePipeline):
                 local_model_path = str(final_model_path)
             else:
                 # Fallback to local storage if MLflow run isn't active
-                os.makedirs("models", exist_ok=True)
-                local_model_path = f"models/{job_id}.pth"
+                models_base_dir = os.getenv("MODELS_DIR", "logs/models")
+                os.makedirs(models_base_dir, exist_ok=True)
+                local_model_path = os.path.join(models_base_dir, f"{job_id}.pth")
                 torch.save({
                     'model_state_dict': model.state_dict(),
                     'class_to_idx': class_to_idx,

@@ -192,9 +192,12 @@ class ImageClassificationDataset(Dataset):
 
 def create_dataloaders(dataset_path: str, transform, batch_size: int = 32, 
                       val_split: float = 0.2, test_split: float = 0.1,
-                      num_workers: int = 4, job_id: str = None, 
+                      num_workers: int = None, job_id: str = None, 
                       use_saved_splits: bool = False,
                       shuffle: bool = True):
+    if num_workers is None:
+        import os
+        num_workers = int(os.getenv("DATALOADER_WORKERS", "0"))
     """Create training, validation and test dataloaders
     
     Args:

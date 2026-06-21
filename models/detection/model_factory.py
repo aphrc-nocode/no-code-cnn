@@ -29,6 +29,14 @@ def create_faster_rcnn_model(num_classes: int, pretrained: bool = True) -> nn.Mo
     # Number of classes must be equal to your label number
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
     
+    # Freeze backbone if running on CPU or if explicitly configured via env to save memory
+    import os
+    freeze_backbone = os.getenv("FREEZE_BACKBONE", "true").lower() == "true"
+    if freeze_backbone or not torch.cuda.is_available():
+        print("Freezing Faster R-CNN backbone to save memory and speed up training on CPU...")
+        for param in model.backbone.parameters():
+            param.requires_grad = False
+    
     print(f"Created Faster R-CNN with {num_classes} classes")
     print(f"Input features for classifier: {in_features}")
 

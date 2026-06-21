@@ -12,6 +12,7 @@ import json
 import sys
 from datetime import datetime
 import torch
+torch.set_num_threads(2)
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Dataset
 import torch.nn as nn
@@ -24,6 +25,12 @@ import logging
 from mlflow_server import start_mlflow_server, get_mlflow_ui_url
 import os
 import mlflow
+from enum import Enum
+
+import minio_utils
+
+DATASETS_BUCKET = os.getenv("MINIO_DATASETS_BUCKET", "datasets")
+MODELS_BUCKET = os.getenv("MINIO_MODELS_BUCKET", "models")
 import zipfile
 import shutil
 import traceback
@@ -144,6 +151,7 @@ class TrainingJob(BaseModel):
     model_path: Optional[str] = None
     logs: List[str] = []    
     linked_dataset_id: Optional[str] = None  # <-- Add this field
+    history: List[Dict[str, Any]] = []  # <-- Store epoch-by-epoch training metrics
 
 
 # ==================== Pipeline Factory ====================
@@ -255,11 +263,232 @@ class JobManager:
         
         # Initialize MLflow
         setup_mlflow()
+        
+        # Recover jobs from completed checkpoints
+        self._recover_jobs()
+        
+    def save_job_metadata(self, job: TrainingJob):
+        """Save job metadata locally and upload to MinIO"""
+        try:
+            models_base_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
+            job_dir = models_base_dir / job.id
+            job_dir.mkdir(parents=True, exist_ok=True)
+            meta_file = job_dir / "job_metadata.json"
+            
+            # Serialize using Pydantic's JSON generator
+            job_json = job.json()
+            with open(meta_file, "w") as f:
+                f.write(job_json)
+                
+            # Upload to MinIO
+            minio_utils.upload_file(MODELS_BUCKET, f"{job.id}/job_metadata.json", str(meta_file))
+        except Exception as e:
+            print(f"Warning: Failed to save job metadata for {job.id}: {e}")
+
+    def _recover_jobs(self):
+        """Recursively scan logs/models for saved checkpoints and recover job details, falling back to MinIO"""
+        models_base_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
+        if models_base_dir.exists():
+            # Helper to infer task type from architecture string/enum
+            def get_task_type_for_architecture(arch: str) -> TaskType:
+                classification_archs = {"resnet18", "resnet50", "vgg16", "efficientnet", "mobilenet"}
+                detection_archs = {"faster_rcnn", "ssd", "retinanet", "yolo", "detr_resnet50", "detr_resnet101", "yolos_small", "yolos_base", "owlv2_base"}
+                segmentation_archs = {"fcn", "deeplabv3", "mask_rcnn", "unet"}
+                
+                arch_str = str(arch).lower()
+                if arch_str in classification_archs:
+                    return TaskType.IMAGE_CLASSIFICATION
+                elif arch_str in detection_archs:
+                    return TaskType.OBJECT_DETECTION
+                elif arch_str in segmentation_archs:
+                    return TaskType.IMAGE_SEGMENTATION
+                else:
+                    return TaskType.IMAGE_CLASSIFICATION
+
+            # Scan for all pth files under models_base_dir
+            for pth_file in models_base_dir.rglob("*.pth"):
+                if not pth_file.is_file():
+                    continue
+                
+                # Determine job ID
+                if pth_file.parent != models_base_dir:
+                    job_id = pth_file.parent.name
+                else:
+                    job_id = pth_file.stem
+                
+                if job_id in self.jobs:
+                    continue
+                
+                try:
+                    # Load the checkpoint dictionary (keys only/weights only = False for config data)
+                    checkpoint = torch.load(pth_file, map_location="cpu", weights_only=False)
+                    if not isinstance(checkpoint, dict):
+                        continue
+                    
+                    checkpoint_config = checkpoint.get("config")
+                    if not checkpoint_config:
+                        continue
+                    
+                    # Check config format
+                    if isinstance(checkpoint_config, dict):
+                        arch_str = checkpoint_config.get("architecture")
+                        if not arch_str:
+                            continue
+                        
+                        try:
+                            architecture = ModelArchitecture(arch_str)
+                        except ValueError:
+                            print(f"Skipping checkpoint {pth_file} due to unknown architecture: {arch_str}")
+                            continue
+                        
+                        task_type_str = checkpoint_config.get("task_type")
+                        if task_type_str:
+                            try:
+                                task_type = TaskType(task_type_str)
+                            except ValueError:
+                                task_type = get_task_type_for_architecture(arch_str)
+                        else:
+                            task_type = get_task_type_for_architecture(arch_str)
+                        
+                        name = checkpoint_config.get("name", f"Recovered {architecture.value}")
+                        
+                        # Construct configuration dict with required fields
+                        config_dict = {
+                            "name": name,
+                            "task_type": task_type,
+                            "architecture": architecture,
+                        }
+                        
+                        # Extract remaining fields supported by PipelineConfig
+                        fields = getattr(PipelineConfig, "model_fields", getattr(PipelineConfig, "__fields__", {}))
+                        for k, v in checkpoint_config.items():
+                            if k not in config_dict and k in fields:
+                                config_dict[k] = v
+                                
+                        pipeline_config = PipelineConfig(**config_dict)
+                    else:
+                        # If config is not a dictionary but could be an object (or class)
+                        arch = getattr(checkpoint_config, "architecture", None)
+                        if not arch:
+                            continue
+                        
+                        try:
+                            architecture = ModelArchitecture(arch)
+                        except ValueError:
+                            continue
+                            
+                        task_type = getattr(checkpoint_config, "task_type", None)
+                        if task_type:
+                            try:
+                                task_type = TaskType(task_type)
+                            except ValueError:
+                                task_type = get_task_type_for_architecture(str(architecture))
+                        else:
+                            task_type = get_task_type_for_architecture(str(architecture))
+                            
+                        name = getattr(checkpoint_config, "name", f"Recovered {architecture.value}")
+                        
+                        config_dict = {
+                            "name": name,
+                            "task_type": task_type,
+                            "architecture": architecture,
+                        }
+                        
+                        # Copy other fields
+                        fields = getattr(PipelineConfig, "model_fields", getattr(PipelineConfig, "__fields__", {}))
+                        for field_name in fields:
+                            if field_name not in config_dict and hasattr(checkpoint_config, field_name):
+                                config_dict[field_name] = getattr(checkpoint_config, field_name)
+                                
+                        pipeline_config = PipelineConfig(**config_dict)
+                    
+                    # Check for metrics
+                    metrics = {}
+                    if "metrics" in checkpoint:
+                        metrics = checkpoint["metrics"]
+                        
+                    # Recover training history if stored in checkpoint
+                    history = checkpoint.get("history", [])
+                    
+                    # Retrieve the file modification time as recovery timestamp
+                    mtime = datetime.fromtimestamp(pth_file.stat().st_mtime)
+                    
+                    job = TrainingJob(
+                        id=job_id,
+                        pipeline_config=pipeline_config,
+                        status=TrainingStatus.COMPLETED,
+                        created_at=mtime,
+                        started_at=mtime,
+                        completed_at=mtime,
+                        metrics=metrics,
+                        model_path=str(pth_file),
+                        logs=[f"Model recovered successfully from local checkpoint: {pth_file.name}"],
+                        history=history
+                    )
+                    
+                    self.jobs[job_id] = job
+                    
+                    # Recover linked_dataset_id from persistent file
+                    link_file = pth_file.parent / "linked_dataset.json"
+                    if link_file.exists():
+                        try:
+                            with open(link_file, 'r') as f:
+                                link_data = json.load(f)
+                            job.linked_dataset_id = link_data.get("dataset_id")
+                            print(f"  Recovered linked_dataset_id={job.linked_dataset_id}")
+                        except Exception as e:
+                            print(f"  Warning: Failed to recover dataset link: {e}")
+                    
+                    print(f"Recovered job {job_id} ({architecture.value}) from {pth_file}")
+                    self.save_job_metadata(job)
+                    
+                except Exception as e:
+                    print(f"Warning: Failed to recover job {job_id} from {pth_file}: {e}")
+
+        # Recover additional jobs from MinIO metadata
+        try:
+            client = minio_utils.get_minio_client()
+            if client.bucket_exists(MODELS_BUCKET):
+                objects = client.list_objects(MODELS_BUCKET, recursive=True)
+                for obj in objects:
+                    if obj.object_name.endswith("job_metadata.json"):
+                        parts = obj.object_name.split("/")
+                        if len(parts) >= 2:
+                            job_id = parts[0]
+                            if job_id in self.jobs:
+                                continue
+                            
+                            # Download metadata file
+                            local_job_dir = models_base_dir / job_id
+                            local_job_dir.mkdir(parents=True, exist_ok=True)
+                            local_meta_path = local_job_dir / "job_metadata.json"
+                            
+                            if minio_utils.download_file(MODELS_BUCKET, obj.object_name, str(local_meta_path)):
+                                try:
+                                    with open(local_meta_path, "r") as f:
+                                        job_data = json.load(f)
+                                    
+                                    # Reconstruct datetimes
+                                    if job_data.get("created_at"):
+                                        job_data["created_at"] = datetime.fromisoformat(job_data["created_at"])
+                                    if job_data.get("started_at"):
+                                        job_data["started_at"] = datetime.fromisoformat(job_data["started_at"])
+                                    if job_data.get("completed_at"):
+                                        job_data["completed_at"] = datetime.fromisoformat(job_data["completed_at"])
+                                        
+                                    job = TrainingJob(**job_data)
+                                    self.jobs[job_id] = job
+                                    print(f"Recovered job {job_id} from MinIO metadata")
+                                except Exception as parse_err:
+                                    print(f"Error parsing recovered job {job_id} from MinIO: {parse_err}")
+        except Exception as e:
+            print(f"Warning: Failed to recover jobs from MinIO: {e}")
     
     def create_job(self, config: PipelineConfig) -> TrainingJob:
         """Create a new training job"""
         job = TrainingJob(pipeline_config=config)
         self.jobs[job.id] = job
+        self.save_job_metadata(job)
         return job
     
     async def start_job(self, job_id: str, dataset_path: str):
@@ -268,16 +497,28 @@ class JobManager:
         if not job:
             raise ValueError(f"Job {job_id} not found")
         
+        # Ensure dataset is local by lazy downloading from MinIO
+        local_dataset_path = Path(dataset_path)
+        if not local_dataset_path.exists() or not local_dataset_path.is_dir() or not any(local_dataset_path.iterdir()):
+            dataset_id = local_dataset_path.name
+            if minio_utils.exists(DATASETS_BUCKET, dataset_id):
+                print(f"Dataset '{dataset_id}' not found locally for training. Downloading from MinIO...")
+                minio_utils.download_directory(DATASETS_BUCKET, dataset_id, str(local_dataset_path))
+            else:
+                raise ValueError(f"Dataset '{dataset_id}' does not exist locally or in MinIO")
+
         # Ensure models directory exists
-        Path("models").mkdir(exist_ok=True)
+        models_base_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
+        models_base_dir.mkdir(parents=True, exist_ok=True)
         
         # Create model directory for this job
-        job_model_dir = Path(f"models/{job_id}")
+        job_model_dir = models_base_dir / job_id
         job_model_dir.mkdir(exist_ok=True)
         
         # Set job status to running
         job.status = TrainingStatus.RUNNING
         job.started_at = datetime.now()
+        self.save_job_metadata(job)
         
         # Create pipeline for this job
         pipeline = PipelineFactory.create_pipeline(job.pipeline_config)
@@ -299,7 +540,18 @@ class JobManager:
             if result["status"] == "completed":
                 job.model_path = result["model_path"]
                 if "metrics" in result:
-                    job.metrics.update(result["metrics"])
+                    if isinstance(result["metrics"], dict):
+                        job.metrics.update(result["metrics"])
+                    elif isinstance(result["metrics"], list) and result["metrics"]:
+                        # For object detection, save the final epoch's metrics as the job final metrics
+                        job.metrics.update(result["metrics"][-1])
+                        
+                # Update history
+                if "history" in result:
+                    job.history = result["history"]
+                elif "metrics" in result and isinstance(result["metrics"], list):
+                    job.history = result["metrics"]
+                    
                 job.logs.append(f"Training completed successfully. Model saved to {result['model_path']}")
                 
                 # Clear model from cache if it exists
@@ -318,6 +570,20 @@ class JobManager:
             # Clean up
             if job_id in self.running_jobs:
                 del self.running_jobs[job_id]
+            # Save final job state & upload to MinIO
+            job = self.jobs.get(job_id)
+            if job:
+                self.save_job_metadata(job)
+                # If training completed successfully, sync local model folder to MinIO
+                if job.status == TrainingStatus.COMPLETED:
+                    try:
+                        models_base_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
+                        local_job_model_dir = models_base_dir / job_id
+                        if local_job_model_dir.exists():
+                            minio_utils.upload_directory(MODELS_BUCKET, job_id, str(local_job_model_dir))
+                            print(f"Synced model directory for {job_id} to MinIO")
+                    except Exception as e:
+                        print(f"Warning: Failed to sync model directory to MinIO for {job_id}: {e}")
     
     def get_job(self, job_id: str) -> Optional[TrainingJob]:
         """Get job by ID"""
@@ -331,6 +597,14 @@ class JobManager:
         """Load a model from a saved checkpoint"""
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
+        # Lazy download model from MinIO if local file doesn't exist
+        if model_path and not Path(model_path).exists():
+            job_id = Path(model_path).parent.name
+            if minio_utils.exists(MODELS_BUCKET, job_id):
+                print(f"Local model path '{model_path}' not found. Downloading model files from MinIO...")
+                local_dir = Path(model_path).parent
+                minio_utils.download_directory(MODELS_BUCKET, job_id, str(local_dir))
+
         # Try to load from MLflow if available
         try:
             import mlflow
@@ -349,6 +623,24 @@ class JobManager:
             # MLflow not available, use local file
             pass
     
+        # Try to read configuration from local file checkpoint to align config properties (like num_classes)
+        if Path(model_path).exists():
+            try:
+                # Load with weights_only=False just for config dictionary extraction
+                checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+                if isinstance(checkpoint, dict) and 'config' in checkpoint:
+                    chk_config = checkpoint['config']
+                    if isinstance(chk_config, dict):
+                        for k, v in chk_config.items():
+                            if hasattr(pipeline_config, k):
+                                setattr(pipeline_config, k, v)
+                    elif hasattr(chk_config, 'num_classes'):
+                        pipeline_config.num_classes = chk_config.num_classes
+                        if hasattr(chk_config, 'architecture'):
+                            pipeline_config.architecture = chk_config.architecture
+            except Exception as e:
+                print(f"Warning: Failed to preload config from checkpoint: {e}")
+
         # Create pipeline to get model architecture
         pipeline = PipelineFactory.create_pipeline(pipeline_config)
         model = pipeline.create_model()
@@ -387,6 +679,14 @@ class JobManager:
     
     def _get_class_map(self, model_path: str) -> Dict:
         """Get class mapping from saved model"""
+        # Lazy download model from MinIO if local file doesn't exist
+        if model_path and not Path(model_path).exists():
+            job_id = Path(model_path).parent.name
+            if minio_utils.exists(MODELS_BUCKET, job_id):
+                print(f"Local model path '{model_path}' not found for class map. Downloading from MinIO...")
+                local_dir = Path(model_path).parent
+                minio_utils.download_directory(MODELS_BUCKET, job_id, str(local_dir))
+
         # Try to get class mapping from MLflow
         try:
             import mlflow
@@ -420,9 +720,13 @@ class JobManager:
         # Fall back to local file - use weights_only=False since this is our own checkpoint
         try:
             checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
-            if isinstance(checkpoint, dict) and 'class_to_idx' in checkpoint:
-                # Create a reverse mapping from index to class name
-                return {str(idx): cls for cls, idx in checkpoint['class_to_idx'].items()}
+            if isinstance(checkpoint, dict):
+                if 'class_to_idx' in checkpoint:
+                    # Create a reverse mapping from index to class name
+                    return {str(idx): cls for cls, idx in checkpoint['class_to_idx'].items()}
+                elif 'config' in checkpoint and isinstance(checkpoint['config'], dict) and 'class_names' in checkpoint['config']:
+                    class_names = checkpoint['config']['class_names']
+                    return {str(idx): cls for idx, cls in enumerate(class_names)}
         except Exception as e:
             print(f"Warning: Failed to load class mapping from {model_path}: {e}")
         return {}
@@ -433,6 +737,13 @@ class JobManager:
         if not job or job.status != TrainingStatus.COMPLETED:
             raise ValueError("Model not ready for prediction")
             
+        # Check and download model from MinIO if missing locally
+        if job.model_path and not Path(job.model_path).exists():
+            if minio_utils.exists(MODELS_BUCKET, job_id):
+                print(f"Model file '{job.model_path}' not found locally. Downloading from MinIO...")
+                local_dir = Path(job.model_path).parent
+                minio_utils.download_directory(MODELS_BUCKET, job_id, str(local_dir))
+
         if not job.model_path or not Path(job.model_path).exists():
             raise ValueError(f"Model file not found: {job.model_path}")
         
@@ -602,16 +913,43 @@ class JobManager:
         if job_id in self.loaded_models:
             del self.loaded_models[job_id]
             
-        # Delete model file if exists
+        # Delete model file/directory if exists
         job = self.jobs[job_id]
-        if job.model_path and Path(job.model_path).exists():
-            Path(job.model_path).unlink()
+        if job.model_path:
+            model_p = Path(job.model_path)
+            if model_p.exists():
+                if model_p.is_file():
+                    model_p.unlink()
+                    # Also delete parent directory if it's the job_id folder and now empty
+                    parent_dir = model_p.parent
+                    if parent_dir.name == job_id and parent_dir.exists():
+                        try:
+                            parent_dir.rmdir()
+                        except OSError:
+                            pass
+                elif model_p.is_dir():
+                    import shutil
+                    shutil.rmtree(model_p)
+        
+        # Clean up job models directory if empty or exists
+        models_base_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
+        job_model_dir = models_base_dir / job_id
+        if job_model_dir.exists():
+            import shutil
+            shutil.rmtree(job_model_dir)
             
         # Delete dataset if exists
         dataset_path = Path(f"datasets/{job_id}")
         if dataset_path.exists():
             import shutil
             shutil.rmtree(dataset_path)
+            
+        # Delete from MinIO
+        try:
+            minio_utils.delete_prefix(MODELS_BUCKET, job_id)
+            minio_utils.delete_prefix(DATASETS_BUCKET, job_id)
+        except Exception as e:
+            print(f"Warning: Failed to delete job {job_id} artifacts from MinIO: {e}")
             
         # Remove from jobs dict
         del self.jobs[job_id]
@@ -741,6 +1079,621 @@ async def get_pipeline_status(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
     return job
 
+@app.get("/pipelines/{job_id}/evaluate")
+async def evaluate_pipeline(job_id: str):
+    """Evaluate a trained model on its test split and return detailed metrics and samples."""
+    import base64
+    import io
+    import json
+    from collections import Counter
+    from pathlib import Path
+    from PIL import Image
+    import torch
+    
+    # Get the job
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+        
+    if job.status != TrainingStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Evaluation is only available for completed models")
+        
+    # Lazy download dataset from MinIO if missing locally
+    dataset_id = job.linked_dataset_id or job_id
+    dataset_path_check = Path(f"datasets/{dataset_id}")
+    if not dataset_path_check.exists() or not dataset_path_check.is_dir() or not any(dataset_path_check.iterdir() if dataset_path_check.exists() else []):
+        if minio_utils.exists(DATASETS_BUCKET, dataset_id):
+            print(f"Dataset '{dataset_id}' not found locally for evaluation. Downloading from MinIO...")
+            minio_utils.download_directory(DATASETS_BUCKET, dataset_id, str(dataset_path_check))
+        
+    # Handle Image Classification
+    if job.pipeline_config.task_type == TaskType.IMAGE_CLASSIFICATION:
+        # Resolve dataset path
+        dataset_id = job.linked_dataset_id or job_id
+        dataset_path = Path(f"datasets/{dataset_id}")
+        if not dataset_path.exists() or not dataset_path.is_dir():
+            found_dataset = False
+            for d in Path("datasets").iterdir():
+                if d.is_dir() and not d.name.startswith('.') and d.name != '__pycache__':
+                    cfg_file = d / "dataset_config.json"
+                    if cfg_file.exists():
+                        try:
+                            with open(cfg_file, 'r') as f:
+                                cfg = json.load(f)
+                            if cfg.get("task_type") == "image_classification":
+                                dataset_path = d
+                                dataset_id = d.name
+                                found_dataset = True
+                                break
+                        except:
+                            pass
+            if not found_dataset:
+                for d in Path("datasets").iterdir():
+                    if d.is_dir() and not d.name.startswith('.') and d.name != '__pycache__':
+                        dataset_path = d
+                        dataset_id = d.name
+                        break
+                        
+        if not dataset_path.exists() or not dataset_path.is_dir():
+            raise HTTPException(status_code=400, detail=f"Dataset path not found: {dataset_path}")
+            
+        # Load splits file
+        splits_path = Path("dataset_splits") / job_id / "dataset_splits.json"
+        if not splits_path.exists():
+            splits_path = Path("models") / job_id / "splits" / "dataset_splits.json"
+            
+        test_indices = []
+        if splits_path.exists():
+            try:
+                with open(splits_path, 'r') as f:
+                    splits = json.load(f)
+                test_indices = splits.get("test", [])
+                if not test_indices:
+                    test_indices = splits.get("val", [])
+            except Exception as e:
+                print(f"Warning: Failed to load split file: {e}")
+                
+        # Load dataset
+        try:
+            from datasets_module.classification.dataloaders import ImageClassificationDataset
+            dataset = ImageClassificationDataset(dataset_path)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load dataset: {str(e)}")
+            
+        if not test_indices:
+            test_indices = list(range(len(dataset)))
+            
+        # Safely bound-check test_indices
+        test_indices = [idx for idx in test_indices if idx < len(dataset)]
+        if not test_indices:
+            raise HTTPException(status_code=400, detail="No valid test samples found for evaluation")
+            
+        # Ensure model is cached/loaded
+        if job_id not in job_manager.loaded_models:
+            try:
+                model = job_manager._load_model(job.model_path, job.pipeline_config)
+                class_map = job_manager._get_class_map(job.model_path)
+                job_manager.loaded_models[job_id] = (model, class_map)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
+                
+        model, class_map = job_manager.loaded_models[job_id]
+        
+        samples_results = []
+        incorrect_pairs = []
+        classes = dataset.classes
+        
+        for idx in test_indices:
+            img_path, class_idx = dataset.samples[idx]
+            filename = Path(img_path).name
+            
+            # Read image
+            try:
+                with open(img_path, 'rb') as f:
+                    img = Image.open(f).convert('RGB')
+            except Exception as e:
+                print(f"Error opening image {img_path}: {e}")
+                continue
+                
+            # Run prediction
+            try:
+                pred_result = await job_manager.predict(job_id, img)
+            except Exception as e:
+                print(f"Error predicting image {img_path}: {e}")
+                continue
+                
+            predictions = pred_result.get("predictions", [])
+            if not predictions:
+                continue
+                
+            top_pred = predictions[0]
+            pred_label = top_pred["class_name"]
+            pred_confidence = top_pred["confidence"]
+            
+            # Ground truth label
+            true_label = class_map.get(str(class_idx), dataset.classes[class_idx])
+            correct = (pred_label == true_label)
+            
+            if not correct:
+                incorrect_pairs.append((true_label, pred_label))
+                
+            # Base64 thumbnail
+            try:
+                thumb = img.copy()
+                thumb.thumbnail((160, 160))
+                buffered = io.BytesIO()
+                thumb.save(buffered, format="JPEG")
+                img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                base64_image = f"data:image/jpeg;base64,{img_base64}"
+            except Exception as e:
+                base64_image = ""
+                print(f"Error creating thumbnail for {img_path}: {e}")
+                
+            # Top 3 predictions format
+            top_3 = []
+            for p in predictions[:3]:
+                top_3.append({
+                    "class_name": p["class_name"],
+                    "confidence": p["confidence"]
+                })
+                
+            samples_results.append({
+                "filename": filename,
+                "base64_image": base64_image,
+                "true_label": true_label,
+                "predicted_label": pred_label,
+                "confidence": pred_confidence,
+                "correct": correct,
+                "top_3_predictions": top_3,
+                "all_predictions": predictions
+            })
+            
+        total_evaluated = len(samples_results)
+        if total_evaluated == 0:
+            raise HTTPException(status_code=400, detail="Failed to run evaluation on any of the test samples")
+            
+        correct_count = sum(1 for s in samples_results if s["correct"])
+        incorrect_count = total_evaluated - correct_count
+        accuracy = correct_count / total_evaluated
+        
+        # Calculate confusion matrix & precision/recall/F1 per class
+        class_metrics_dict = {}
+        for cls in classes:
+            class_metrics_dict[cls] = {
+                "class_name": cls,
+                "count": 0,
+                "correct": 0,
+                "fp": 0,
+                "fn": 0
+            }
+            
+        for s in samples_results:
+            t_lbl = s["true_label"]
+            p_lbl = s["predicted_label"]
+            
+            if t_lbl in class_metrics_dict:
+                class_metrics_dict[t_lbl]["count"] += 1
+                if s["correct"]:
+                    class_metrics_dict[t_lbl]["correct"] += 1
+                else:
+                    class_metrics_dict[t_lbl]["fn"] += 1
+                    
+            if not s["correct"] and p_lbl in class_metrics_dict:
+                class_metrics_dict[p_lbl]["fp"] += 1
+                
+        class_metrics_list = []
+        lowest_precision_class = "None"
+        lowest_recall_class = "None"
+        lowest_precision_val = 1.01
+        lowest_recall_val = 1.01
+        
+        for cls, metrics in class_metrics_dict.items():
+            cnt = metrics["count"]
+            corr = metrics["correct"]
+            fp = metrics["fp"]
+            fn = metrics["fn"]
+            
+            precision = corr / (corr + fp) if (corr + fp) > 0 else 0.0
+            recall = corr / (corr + fn) if (corr + fn) > 0 else 0.0
+            f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+            
+            class_metrics_list.append({
+                "class_name": cls,
+                "count": cnt,
+                "correct": corr,
+                "precision": round(precision, 4),
+                "recall": round(recall, 4),
+                "f1_score": round(f1, 4)
+            })
+            
+            if cnt > 0:
+                if precision < lowest_precision_val:
+                    lowest_precision_val = precision
+                    lowest_precision_class = cls
+                if recall < lowest_recall_val:
+                    lowest_recall_val = recall
+                    lowest_recall_class = cls
+                    
+        if incorrect_pairs:
+            confusion_counts = Counter(incorrect_pairs)
+            (t_conf, p_conf), count_conf = confusion_counts.most_common(1)[0]
+            top_confusion = f"'{t_conf}' as '{p_conf}' ({count_conf})"
+        else:
+            top_confusion = "None"
+            
+        return {
+            "task_type": "image_classification",
+            "accuracy": round(accuracy, 4),
+            "correct_count": correct_count,
+            "incorrect_count": incorrect_count,
+            "lowest_precision_class": lowest_precision_class,
+            "lowest_recall_class": lowest_recall_class,
+            "top_confusion": top_confusion,
+            "class_metrics": class_metrics_list,
+            "samples": samples_results
+        }
+        
+    elif job.pipeline_config.task_type == TaskType.OBJECT_DETECTION:
+        # Load splits file
+        splits_path = Path("dataset_splits") / job_id / "dataset_splits.json"
+        if not splits_path.exists():
+            splits_path = Path("models") / job_id / "splits" / "dataset_splits.json"
+            
+        test_indices = []
+        images_dir = None
+        annotations_path = None
+        
+        if splits_path.exists():
+            try:
+                with open(splits_path, 'r') as f:
+                    splits = json.load(f)
+                test_indices = splits.get("test", [])
+                if not test_indices:
+                    test_indices = splits.get("val", [])
+                
+                images_dir = splits.get("dataset_path")
+                annotations_path = splits.get("annotations_path")
+            except Exception as e:
+                print(f"Warning: Failed to load split file: {e}")
+                
+        # Resolve path fallback if split file has invalid paths or doesn't exist
+        dataset_id = job.linked_dataset_id or job_id
+        dataset_path = Path(f"datasets/{dataset_id}")
+        
+        # Robust dataset lookup fallback
+        if not dataset_path.exists() or not list(dataset_path.glob("**/*.json")):
+            found_dataset = False
+            for d in Path("datasets").iterdir():
+                if d.is_dir() and not d.name.startswith('.') and d.name != '__pycache__':
+                    cfg_file = d / "dataset_config.json"
+                    if cfg_file.exists():
+                        try:
+                            with open(cfg_file, 'r') as f:
+                                cfg = json.load(f)
+                            if cfg.get("task_type") == "object_detection":
+                                dataset_path = d
+                                dataset_id = d.name
+                                found_dataset = True
+                                break
+                        except:
+                            pass
+            if not found_dataset:
+                for d in Path("datasets").iterdir():
+                    if d.is_dir() and not d.name.startswith('.') and d.name != '__pycache__':
+                        json_files = list(d.glob("**/*.json"))
+                        json_files = [f for f in json_files if f.name != "dataset_config.json"]
+                        if json_files:
+                            dataset_path = d
+                            dataset_id = d.name
+                            break
+                            
+        # Find all JSON annotation files in the dataset path (excluding config)
+        annotation_candidates = list(dataset_path.glob("**/*.json"))
+        annotation_candidates = [f for f in annotation_candidates if f.name != "dataset_config.json"]
+        
+        if not images_dir or not Path(images_dir).exists() or not annotations_path or not Path(annotations_path).exists():
+            if annotation_candidates:
+                def priority_score(path: Path):
+                    p_name = path.parent.name.lower()
+                    f_name = path.name.lower()
+                    score = 0
+                    if "test" in p_name or "test" in f_name:
+                        score += 10
+                    elif "val" in p_name or "val" in f_name:
+                        score += 5
+                    elif "annotations" in p_name or "annotations" in f_name:
+                        score += 3
+                    return score
+                    
+                annotation_candidates.sort(key=priority_score, reverse=True)
+                annotations_path = annotation_candidates[0]
+                images_dir = annotations_path.parent
+                
+        if not annotations_path or not Path(annotations_path).exists():
+            raise HTTPException(status_code=400, detail=f"Annotations JSON file not found in {dataset_path}")
+            
+        if not images_dir or not Path(images_dir).exists():
+            images_dir = dataset_path
+            
+        # Load dataset
+        try:
+            from datasets_module.detection.dataloaders import ObjectDetectionDataset
+            dataset = ObjectDetectionDataset(images_dir, annotations_path)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load dataset: {str(e)}")
+            
+        if not test_indices:
+            test_indices = list(range(len(dataset)))
+            
+        test_indices = [idx for idx in test_indices if idx < len(dataset)]
+        test_indices = test_indices[:5]  # Limit to 5 images to ensure quick evaluation on CPU
+        if not test_indices:
+            raise HTTPException(status_code=400, detail="No valid test samples found for evaluation")
+            
+        # Ensure model is cached/loaded
+        if job_id not in job_manager.loaded_models:
+            try:
+                model = job_manager._load_model(job.model_path, job.pipeline_config)
+                class_map = job_manager._get_class_map(job.model_path)
+                job_manager.loaded_models[job_id] = (model, class_map)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
+                
+        model, class_map = job_manager.loaded_models[job_id]
+        
+        sorted_cat_keys = sorted(dataset.categories.keys())
+        class_names = [dataset.categories[k] for k in sorted_cat_keys]
+        
+        samples_results = []
+        detections_list = []
+        targets_list = []
+        
+        from visualization_utils import draw_bounding_boxes
+        
+        for idx in test_indices:
+            # Load image and annotations
+            img, target = dataset[idx]
+            img_info = dataset.images[dataset.image_ids[idx]]
+            filename = img_info["file_name"]
+            
+            # Predict
+            try:
+                img_path = Path(dataset.images_dir / filename)
+                if not img_path.exists():
+                    potential_paths = list(dataset.images_dir.glob(f"**/{filename}"))
+                    if potential_paths:
+                        img_path = potential_paths[0]
+                
+                with open(img_path, 'rb') as f:
+                    pil_img = Image.open(f).convert('RGB')
+            except Exception as e:
+                print(f"Error loading image {filename}: {e}")
+                continue
+                
+            try:
+                pred_result = await job_manager.predict(job_id, pil_img)
+            except Exception as e:
+                print(f"Error predicting image {filename}: {e}")
+                continue
+                
+            formatted_detections = pred_result.get("detections", [])
+            
+            target_boxes = target["boxes"]
+            target_labels = target["labels"]
+            
+            # Remap predicted labels from 1-indexed (Faster R-CNN: 0=background)
+            # to 0-indexed (matching dataset labels) and fix class names
+            pred_boxes = []
+            pred_labels = []  # Will hold 0-indexed labels
+            pred_scores = []
+            for det in formatted_detections:
+                pred_boxes.append(det["box"])
+                raw_label = det["class_id"]
+                # Faster R-CNN outputs 1-indexed labels (0=background)
+                # Dataset uses 0-indexed labels, so subtract 1
+                mapped_label = max(0, raw_label - 1)
+                pred_labels.append(mapped_label)
+                pred_scores.append(det["confidence"] / 100.0)
+                # Fix class name using dataset categories
+                if mapped_label < len(class_names):
+                    det["class_name"] = class_names[mapped_label]
+                    det["class_id"] = mapped_label
+                
+            if pred_boxes:
+                boxes_tensor = torch.tensor(pred_boxes, dtype=torch.float32)
+                labels_tensor = torch.tensor(pred_labels, dtype=torch.int64)
+                scores_tensor = torch.tensor(pred_scores, dtype=torch.float32)
+            else:
+                boxes_tensor = torch.zeros((0, 4), dtype=torch.float32)
+                labels_tensor = torch.zeros((0), dtype=torch.int64)
+                scores_tensor = torch.zeros((0), dtype=torch.float32)
+                
+            detections_list.append({
+                'boxes': boxes_tensor,
+                'labels': labels_tensor,
+                'scores': scores_tensor
+            })
+            targets_list.append({
+                'boxes': target_boxes,
+                'labels': target_labels
+            })
+            
+            tp_count = 0
+            fp_count = 0
+            fn_count = 0
+            
+            if len(pred_scores) > 0:
+                matched_targets = [False] * len(target_labels)
+                for p_idx, (p_box, p_lbl) in enumerate(zip(pred_boxes, pred_labels)):
+                    best_iou = 0
+                    best_t_idx = -1
+                    for t_idx, (t_box, t_lbl) in enumerate(zip(target_boxes, target_labels)):
+                        if t_lbl.item() != p_lbl or matched_targets[t_idx]:
+                            continue
+                        bi = [max(p_box[0], t_box[0]), max(p_box[1], t_box[1]), min(p_box[2], t_box[2]), min(p_box[3], t_box[3])]
+                        iw = bi[2] - bi[0]
+                        ih = bi[3] - bi[1]
+                        if iw > 0 and ih > 0:
+                            ua = (p_box[2] - p_box[0]) * (p_box[3] - p_box[1]) + (t_box[2] - t_box[0]) * (t_box[3] - t_box[1]) - iw * ih
+                            iou = (iw * ih) / ua
+                            if iou > best_iou:
+                                best_iou = iou
+                                best_t_idx = t_idx
+                    if best_iou >= 0.5:
+                        tp_count += 1
+                        matched_targets[best_t_idx] = True
+                    else:
+                        fp_count += 1
+                fn_count = len(target_labels) - sum(matched_targets)
+            else:
+                fn_count = len(target_labels)
+                
+            # Define image correctness based on F1-score (harmonic mean of Precision & Recall)
+            if len(target_labels) > 0:
+                precision = tp_count / (tp_count + fp_count) if (tp_count + fp_count) > 0 else 0.0
+                recall = tp_count / len(target_labels)
+                f1_val = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+                correct = (f1_val >= 0.5)
+            else:
+                correct = (len(pred_labels) == 0)
+                
+            # Draw ground truth boxes in RED
+            from PIL import ImageDraw, ImageFont
+            annotated_img = pil_img.copy()
+            draw_ctx = ImageDraw.Draw(annotated_img)
+            img_w, img_h = annotated_img.size
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", max(12, int(min(img_w, img_h) * 0.025)))
+            except (OSError, IOError):
+                font = ImageFont.load_default()
+            
+            for t_box, t_lbl in zip(target_boxes, target_labels):
+                bx = t_box.tolist()
+                x1, y1, x2, y2 = [max(0, min(v, img_w if i % 2 == 0 else img_h)) for i, v in enumerate(bx)]
+                lbl_name = class_names[t_lbl.item()] if t_lbl.item() < len(class_names) else f"class_{t_lbl.item()}"
+                label_text = f"GT: {lbl_name}"
+                # Draw red box
+                for i in range(3):
+                    draw_ctx.rectangle([x1 - i, y1 - i, x2 + i, y2 + i], outline="#FF0000", width=1)
+                # Draw label background
+                text_bbox = draw_ctx.textbbox((0, 0), label_text, font=font)
+                tw, th = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]
+                ly = y1 - th - 4 if y1 - th - 4 >= 0 else y2
+                draw_ctx.rectangle([x1, ly, x1 + tw + 4, ly + th + 4], fill="#FF0000")
+                draw_ctx.text((x1 + 2, ly + 2), label_text, fill="white", font=font)
+            
+            # Draw predicted boxes in GREEN
+            for det in formatted_detections:
+                conf = det.get("confidence", 0)
+                if conf < 50:  # 50% threshold
+                    continue
+                bx = det["box"]
+                x1, y1, x2, y2 = [max(0, min(v, img_w if i % 2 == 0 else img_h)) for i, v in enumerate(bx)]
+                cls_name = det.get("class_name", "Unknown")
+                label_text = f"{cls_name}: {conf:.1f}%"
+                for i in range(3):
+                    draw_ctx.rectangle([x1 - i, y1 - i, x2 + i, y2 + i], outline="#00FF00", width=1)
+                text_bbox = draw_ctx.textbbox((0, 0), label_text, font=font)
+                tw, th = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]
+                ly = y2
+                draw_ctx.rectangle([x1, ly, x1 + tw + 4, ly + th + 4], fill="#00FF00")
+                draw_ctx.text((x1 + 2, ly + 2), label_text, fill="black", font=font)
+            
+            try:
+                thumb = annotated_img.copy()
+                thumb.thumbnail((200, 200))
+                buffered = io.BytesIO()
+                thumb.save(buffered, format="JPEG")
+                img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                base64_image = f"data:image/jpeg;base64,{img_base64}"
+            except Exception as e:
+                base64_image = ""
+                print(f"Error creating thumbnail for {filename}: {e}")
+                
+            top_3 = []
+            for p in formatted_detections[:3]:
+                top_3.append({
+                    "class_name": p["class_name"],
+                    "confidence": p["confidence"]
+                })
+                
+            # Descriptive summaries for UI display
+            target_class_counts = Counter([class_names[lbl.item()] for lbl in target_labels])
+            true_lbl_summary = ", ".join([f"{count} {cls}" for cls, count in target_class_counts.items()]) if target_class_counts else "None"
+            
+            pred_class_names = [det["class_name"] for det in formatted_detections if det.get("confidence", 0) >= 50]
+            pred_class_counts = Counter(pred_class_names)
+            pred_lbl_summary = ", ".join([f"{count} {cls}" for cls, count in pred_class_counts.items()]) if pred_class_counts else "None"
+            
+            # Determine dominant class names for dropdown filtering (which matches individual classes)
+            true_lbl_name = target_class_counts.most_common(1)[0][0] if target_class_counts else "Background"
+            pred_lbl_name = pred_class_counts.most_common(1)[0][0] if pred_class_counts else "Background"
+            
+            samples_results.append({
+                "filename": filename,
+                "base64_image": base64_image,
+                "true_label": true_lbl_name,
+                "predicted_label": pred_lbl_name,
+                "true_label_summary": true_lbl_summary,
+                "predicted_label_summary": pred_lbl_summary,
+                "confidence": formatted_detections[0]["confidence"] if len(formatted_detections) > 0 else 0.0,
+                "correct": correct,
+                "top_3_predictions": top_3
+            })
+            
+        from metrics.detection.metrics import calculate_detection_metrics
+        try:
+            metrics = calculate_detection_metrics(detections_list, targets_list)
+        except Exception as e:
+            print(f"Error calculating metrics: {e}")
+            metrics = {"mAP": 0.0, "AP50": 0.0, "AP75": 0.0}
+            
+        mAP = metrics.get("mAP", 0.0)
+        AP50 = metrics.get("AP50", 0.0)
+        AP75 = metrics.get("AP75", 0.0)
+        
+        class_metrics_list = []
+        top_class_name = "None"
+        top_class_ap = -1.0
+        
+        for i, cls in enumerate(class_names):
+            cnt = sum(len((t["labels"] == i).nonzero()) for t in targets_list)
+            det_cnt = sum(len((d["labels"] == i).nonzero()) for d in detections_list)
+            ap = metrics.get(f"AP_class_{i}", 0.0)
+            
+            class_metrics_list.append({
+                "class_name": cls,
+                "count": int(cnt),
+                "correct": int(det_cnt),
+                "precision": round(ap, 4),
+                "recall": round(ap, 4),
+                "f1_score": round(ap, 4)
+            })
+            
+            if ap > top_class_ap:
+                top_class_ap = ap
+                top_class_name = cls
+                
+        total_targets_cnt = sum(len(t["labels"]) for t in targets_list)
+        total_preds_cnt = sum(len(d["labels"]) for d in detections_list)
+        
+        top_confusion = f"'{top_class_name}' ({round(top_class_ap * 100)}% AP)" if top_class_ap >= 0 else "None"
+        
+        return {
+            "task_type": "object_detection",
+            "accuracy": round(mAP, 4),
+            "correct_count": round(AP50 * 100),
+            "incorrect_count": round(AP75 * 100),
+            "lowest_precision_class": str(total_targets_cnt),
+            "lowest_recall_class": str(total_preds_cnt),
+            "top_confusion": top_confusion,
+            "class_metrics": class_metrics_list,
+            "samples": samples_results
+        }
+        
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported task type: {job.pipeline_config.task_type}")
+
 @app.get("/pipelines", response_model=List[TrainingJob])
 async def list_pipelines():
     """List all training jobs"""
@@ -860,7 +1813,7 @@ async def upload_dataset_file(
                 f.write(content)
             smart_extract_zip(zip_path, dataset_dir)
             zip_path.unlink()  # Remove zip after extraction
-            return {"message": f"Extracted {file.filename} to {dataset_dir}"}
+            response_data = {"message": f"Extracted {file.filename} to {dataset_dir}"}
 
         elif file_type == "annotation" and file.filename.lower().endswith(".json"):
             # Save annotation file to annotations/ or root
@@ -870,7 +1823,7 @@ async def upload_dataset_file(
             with open(file_path, "wb") as f:
                 content = await file.read()
                 f.write(content)
-            return {"message": f"Uploaded annotation {file.filename} to {annotations_dir}"}
+            response_data = {"message": f"Uploaded annotation {file.filename} to {annotations_dir}"}
 
         else:
             # Default: treat as image, requires class_name
@@ -882,12 +1835,27 @@ async def upload_dataset_file(
             with open(file_path, "wb") as f:
                 content = await file.read()
                 f.write(content)
-            return {"message": f"Uploaded {file.filename} to {class_name} directory"}
+            response_data = {"message": f"Uploaded {file.filename} to {class_name} directory"}
+
+        # Sync the uploaded dataset folder to MinIO
+        try:
+            minio_utils.upload_directory(DATASETS_BUCKET, job_id, str(dataset_dir))
+            print(f"Synced dataset directory {job_id} to MinIO")
+        except Exception as e:
+            print(f"Warning: Failed to sync dataset {job_id} to MinIO on upload: {e}")
+
+        return response_data
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/predict/{job_id}")
-async def predict(job_id: str, file: UploadFile = File(...), confidence_threshold: float = Form(0.5)):
+async def predict(
+    job_id: str, 
+    file: UploadFile = File(...), 
+    confidence_threshold: float = Form(0.5),
+    explain_method: Optional[str] = Form("none"),
+    explain_box_index: Optional[int] = Form(-1)
+):
     """Make predictions using a trained model"""
     import time
     start_time = time.time()
@@ -895,6 +1863,8 @@ async def predict(job_id: str, file: UploadFile = File(...), confidence_threshol
     try:
         print(f"Prediction request for job_id: {job_id}")
         print(f"Confidence threshold received: {confidence_threshold}")
+        print(f"Explain method requested: {explain_method}")
+        print(f"Explain box index requested: {explain_box_index}")
         
         # Check if job exists
         job = job_manager.get_job(job_id)
@@ -951,7 +1921,7 @@ async def predict(job_id: str, file: UploadFile = File(...), confidence_threshol
         
         # Import visualization utilities
         from visualization_utils import (
-            draw_bounding_boxes, draw_segmentation_mask, 
+            draw_bounding_boxes, draw_segmentation_mask, draw_instance_segmentation,
             pil_to_base64, log_prediction_results
         )
         
@@ -1013,15 +1983,220 @@ async def predict(job_id: str, file: UploadFile = File(...), confidence_threshol
                 else:
                     prediction_result["annotated_image"] = pil_to_base64(image)
             else:
-                # For instance segmentation, just return original for now
-                # TODO: Implement instance segmentation visualization
-                prediction_result["annotated_image"] = pil_to_base64(image)
+                # For instance segmentation
+                instances = prediction_result.get("instances", [])
+                if instances:
+                    annotated_image = draw_instance_segmentation(image, instances)
+                    prediction_result["annotated_image"] = pil_to_base64(annotated_image)
+                    print(f"Created instance segmentation overlay with {len(instances)} instances")
+                else:
+                    prediction_result["annotated_image"] = pil_to_base64(image)
                 
         elif job.pipeline_config.task_type == TaskType.IMAGE_CLASSIFICATION:
             # For classification, just return the original image
             prediction_result["annotated_image"] = pil_to_base64(image)
             
-        print("Returning prediction result with annotations")
+        # Generate XAI explanation if requested
+        explanation_image_b64 = None
+        if explain_method and explain_method != "none":
+            try:
+                print(f"Generating XAI explanation using method: {explain_method}...")
+                import matplotlib
+                matplotlib.use('Agg')
+                import matplotlib.pyplot as plt
+                import cv2
+                
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                model = job_manager._load_model(job.model_path, job.pipeline_config)
+                
+                # Check if we should explain a specific box coordinates
+                target_image = image
+                title_suffix = ""
+                
+                if explain_box_index is not None and explain_box_index >= 0:
+                    detections = prediction_result.get("detections", [])
+                    if detections and explain_box_index < len(detections):
+                        det = detections[explain_box_index]
+                        box = det.get("box", [])
+                        class_name = det.get("class_name", "Unknown")
+                        conf = det.get("confidence", 0.0)
+                        
+                        if len(box) == 4:
+                            x1, y1, x2, y2 = box
+                            w, h = image.size
+                            
+                            # Handle scaling if box coordinates are outside image size
+                            if max(x1, x2) > w * 1.5 or max(y1, y2) > h * 1.5:
+                                scale_x = w / 800.0
+                                scale_y = h / 800.0
+                                x1, y1, x2, y2 = x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y
+                                
+                            x1 = max(0, min(x1, w - 1))
+                            y1 = max(0, min(y1, h - 1))
+                            x2 = max(0, min(x2, w - 1))
+                            y2 = max(0, min(y2, h - 1))
+                            
+                            if x2 > x1 and y2 > y1:
+                                target_image = image.crop((x1, y1, x2, y2))
+                                title_suffix = f" (Box #{explain_box_index}: {class_name} [{conf:.1f}%])"
+                                print(f"Cropped target image to bounding box: {x1, y1, x2, y2}")
+                
+                # Check if it is classification to run specific algorithms
+                is_classification = (job.pipeline_config.task_type == TaskType.IMAGE_CLASSIFICATION)
+                
+                if is_classification:
+                    try:
+                        if explain_method == "gradcam":
+                            from responsible_ai.gradcam import GradCAM
+                            explainer = GradCAM(model, device=device)
+                            transform = job_manager._get_transform(job.pipeline_config)
+                            img_tensor = transform(target_image)
+                            exp_result = explainer.explain_image(img_tensor)
+                            fig = exp_result["figure"]
+                            
+                            buf = io.BytesIO()
+                            fig.savefig(buf, format="png", bbox_inches="tight")
+                            buf.seek(0)
+                            explanation_image_b64 = base64.b64encode(buf.read()).decode()
+                            plt.close(fig)
+                            print("Grad-CAM generation successful")
+                            
+                        elif explain_method == "lime":
+                            from responsible_ai.explainability import LimeExplainer
+                            explainer = LimeExplainer(model, device=device)
+                            img_size = job.pipeline_config.image_size
+                            image_resized = target_image.resize(img_size)
+                            img_np = np.array(image_resized)
+                            
+                            exp_result = explainer.explain_image(img_np, num_samples=500)
+                            fig = exp_result["figure"]
+                            
+                            buf = io.BytesIO()
+                            fig.savefig(buf, format="png", bbox_inches="tight")
+                            buf.seek(0)
+                            explanation_image_b64 = base64.b64encode(buf.read()).decode()
+                            plt.close(fig)
+                            print("LIME generation successful")
+                            
+                        elif explain_method == "shap":
+                            from responsible_ai.explainability import ShapExplainer
+                            explainer = ShapExplainer(model, device=device)
+                            transform = job_manager._get_transform(job.pipeline_config)
+                            img_tensor = transform(target_image)
+                            
+                            background = torch.randn(5, img_tensor.shape[0], img_tensor.shape[1], img_tensor.shape[2])
+                            explainer.fit_background(background, num_samples=5)
+                            
+                            exp_result = explainer.explain_image(img_tensor)
+                            fig = exp_result["figure"]
+                            
+                            buf = io.BytesIO()
+                            fig.savefig(buf, format="png", bbox_inches="tight")
+                            buf.seek(0)
+                            explanation_image_b64 = base64.b64encode(buf.read()).decode()
+                            plt.close(fig)
+                            print("SHAP generation successful")
+                    except Exception as class_xai_err:
+                        print(f"Classification specific XAI failed: {class_xai_err}. Falling back to universal saliency map...")
+                
+                # If not classification, or if classification explainer failed/did not run, run backbone-based feature saliency map
+                if explanation_image_b64 is None:
+                    print("Running backbone-based feature activation saliency map...")
+                    model.to(device)
+                    model.eval()
+                    
+                    # 1. Register forward hook on last conv layer of backbone/model
+                    last_conv_layer = None
+                    if hasattr(model, 'backbone'):
+                        for name, module in model.backbone.named_modules():
+                            if isinstance(module, nn.Conv2d):
+                                last_conv_layer = module
+                    if last_conv_layer is None:
+                        for name, module in model.named_modules():
+                            if isinstance(module, nn.Conv2d):
+                                last_conv_layer = module
+                    
+                    if last_conv_layer is None:
+                        raise ValueError("No convolutional layer found in model for feature mapping")
+                    
+                    print(f"Found convolutional layer for activation mapping: {last_conv_layer}")
+                    
+                    activations = None
+                    def hook_fn(module, input, output):
+                        nonlocal activations
+                        activations = output
+                    
+                    hook_handle = last_conv_layer.register_forward_hook(hook_fn)
+                    
+                    # 2. Run forward pass
+                    from torchvision.transforms import ToTensor
+                    transform = ToTensor()
+                    img_rgb = target_image.convert("RGB")
+                    img_tensor = transform(img_rgb).unsqueeze(0).to(device)
+                    
+                    try:
+                        with torch.no_grad():
+                            _ = model(img_tensor)
+                    finally:
+                        hook_handle.remove()
+                    
+                    if activations is None:
+                        raise ValueError("Failed to capture activations from last convolutional layer")
+                    
+                    # 3. Process activations to get saliency heatmap
+                    # activations has shape (1, C, H_feat, W_feat)
+                    saliency = torch.mean(activations, dim=1).squeeze(0)
+                    saliency = torch.clamp(saliency, min=0)
+                    saliency = saliency.cpu().numpy()
+                    if saliency.max() > 0:
+                        saliency = (saliency - saliency.min()) / (saliency.max() - saliency.min() + 1e-8)
+                    else:
+                        saliency = np.zeros_like(saliency)
+                    
+                    # Resize to match target image size
+                    original_size = (target_image.width, target_image.height)
+                    saliency_resized = cv2.resize(saliency, original_size)
+                    saliency_resized = cv2.GaussianBlur(saliency_resized, (5, 5), 0)
+                    if saliency_resized.max() > 0:
+                        saliency_resized = (saliency_resized - saliency_resized.min()) / (saliency_resized.max() - saliency_resized.min() + 1e-8)
+                    
+                    # 4. Create overlay image
+                    img_np = np.array(img_rgb)
+                    heatmap_colored = cv2.applyColorMap((saliency_resized * 255).astype(np.uint8), cv2.COLORMAP_JET)
+                    heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
+                    overlay = cv2.addWeighted(img_np, 0.6, heatmap_colored, 0.4, 0)
+                    
+                    # 5. Create matplotlib figure
+                    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+                    axes[0].imshow(img_np)
+                    axes[0].set_title('Original' + title_suffix)
+                    axes[0].axis('off')
+                    
+                    axes[1].imshow(saliency_resized, cmap='jet')
+                    axes[1].set_title(f'Saliency Heatmap ({explain_method.upper()})')
+                    axes[1].axis('off')
+                    
+                    axes[2].imshow(overlay)
+                    axes[2].set_title('Saliency Overlay')
+                    axes[2].axis('off')
+                    
+                    plt.tight_layout()
+                    
+                    buf = io.BytesIO()
+                    fig.savefig(buf, format="png", bbox_inches="tight")
+                    buf.seek(0)
+                    explanation_image_b64 = base64.b64encode(buf.read()).decode()
+                    plt.close(fig)
+                    print("Universal feature activation map generation successful")
+                    
+            except Exception as e:
+                print(f"XAI explanation generation failed: {e}")
+                import traceback
+                traceback.print_exc()
+
+        prediction_result["explanation_image"] = explanation_image_b64
+        
+        print("Returning prediction result with annotations and explanations")
         return prediction_result
     
     except HTTPException as e:
@@ -1193,6 +2368,12 @@ async def link_dataset_to_job(job_id: str, dataset_id: str):
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
         
         dataset_path = DATASETS_DIR / dataset_id
+        # Lazy download dataset from MinIO if missing locally
+        if not dataset_path.exists() or not dataset_path.is_dir():
+            if minio_utils.exists(DATASETS_BUCKET, dataset_id):
+                print(f"Dataset '{dataset_id}' not found locally for linking. Downloading from MinIO...")
+                minio_utils.download_directory(DATASETS_BUCKET, dataset_id, str(dataset_path))
+                
         print(f"Linking dataset: {dataset_id}")
         print(f"Dataset path: {dataset_path}")
         print(f"Dataset path exists: {dataset_path.exists()}")
@@ -1205,6 +2386,18 @@ async def link_dataset_to_job(job_id: str, dataset_id: str):
             raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
         
         job.linked_dataset_id = dataset_id
+        
+        # Persist the link to disk so it survives container restarts
+        try:
+            models_base_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
+            link_file = models_base_dir / job_id / "linked_dataset.json"
+            link_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(link_file, 'w') as f:
+                json.dump({"dataset_id": dataset_id}, f)
+            print(f"Persisted linked_dataset_id={dataset_id} to {link_file}")
+        except Exception as e:
+            print(f"Warning: Failed to persist dataset link: {e}")
+        
         return {"message": f"Successfully linked dataset {dataset_id} to job {job_id}"}
     except HTTPException as e:
         raise e
@@ -1252,6 +2445,13 @@ async def upload_detection_dataset(job_id: str, task_type: str = "object_detecti
         # Delete the temporary zip file
         zip_path.unlink()
         
+        # Sync the uploaded dataset folder to MinIO
+        try:
+            minio_utils.upload_directory(DATASETS_BUCKET, job_id, str(dataset_dir))
+            print(f"Synced detection dataset directory {job_id} to MinIO")
+        except Exception as e:
+            print(f"Warning: Failed to sync detection dataset {job_id} to MinIO on upload: {e}")
+
         return {
             "message": f"Object detection dataset uploaded and extracted successfully to {dataset_dir}",
             "dataset_id": job_id,
@@ -1289,6 +2489,12 @@ async def analyze_class_balance(request: ClassBalanceRequest):
         if dataset_id:
             # Auto-extract labels from dataset directory structure
             dataset_path = Path(f"datasets/{dataset_id}")
+            # Lazy download dataset from MinIO if missing locally
+            if not dataset_path.exists() or not dataset_path.is_dir():
+                if minio_utils.exists(DATASETS_BUCKET, dataset_id):
+                    print(f"Dataset '{dataset_id}' not found locally for class balance analysis. Downloading from MinIO...")
+                    minio_utils.download_directory(DATASETS_BUCKET, dataset_id, str(dataset_path))
+                    
             if not dataset_path.exists() or not dataset_path.is_dir():
                 raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
 
@@ -1433,6 +2639,99 @@ async def analyze_fairness(request: FairnessAnalysisRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fairness analysis failed: {str(e)}")
 
+def _get_dataset_details(dataset_id: str) -> Dict[str, Any]:
+    """Helper to fetch dataset metadata for model cards"""
+    dataset_path = Path("datasets") / dataset_id
+    
+    # Lazy download dataset from MinIO if missing locally
+    if not dataset_path.exists():
+        if minio_utils.exists(DATASETS_BUCKET, dataset_id):
+            print(f"Dataset '{dataset_id}' not found locally for dataset details. Downloading from MinIO...")
+            minio_utils.download_directory(DATASETS_BUCKET, dataset_id, str(dataset_path))
+            
+    details = {
+        "name": dataset_id.replace('_', ' ').title(),
+        "size": "N/A",
+        "num_classes": "N/A",
+        "source": "Local Upload",
+        "preprocessing": "Resize to input dimensions"
+    }
+    
+    if not dataset_path.exists():
+        return details
+        
+    # Read config if it exists
+    config_file = dataset_path / "dataset_config.json"
+    if config_file.exists():
+        try:
+            with open(config_file, "r") as f:
+                config = json.load(f)
+                if "dataset_name" in config:
+                    details["name"] = config["dataset_name"]
+                if "preprocessing" in config:
+                    details["preprocessing"] = config["preprocessing"]
+        except Exception as e:
+            print(f"Error reading dataset config: {e}")
+            
+    # Check if COCO
+    is_coco = False
+    annotations_dir = dataset_path / "annotations"
+    if annotations_dir.exists() and annotations_dir.is_dir():
+        is_coco = True
+    else:
+        json_files = list(dataset_path.glob("*.json"))
+        for json_file in json_files:
+            try:
+                with open(json_file, 'r') as f:
+                    content = json.load(f)
+                    if all(key in content for key in ["images", "annotations", "categories"]):
+                        is_coco = True
+                        break
+            except:
+                continue
+                
+    # Class lists and size
+    classes = [c.name for c in dataset_path.iterdir() if c.is_dir() and not c.name == "annotations"]
+    item_count = 0
+    
+    if is_coco:
+        image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.gif']
+        for ext in image_extensions:
+            item_count += len(list(dataset_path.glob(f"**/*{ext}")))
+        if item_count == 0:
+            import glob
+            for ext in image_extensions:
+                found_images = glob.glob(str(dataset_path) + f"/**/*{ext}", recursive=True)
+                item_count += len(found_images)
+                
+        # Fetch classes from JSON annotations
+        if not classes:
+            coco_jsons = list(annotations_dir.glob("*.json")) if annotations_dir.exists() else list(dataset_path.glob("*.json"))
+            for json_file in coco_jsons:
+                try:
+                    with open(json_file, 'r') as f:
+                        content = json.load(f)
+                        if "categories" in content:
+                            classes = [cat["name"] for cat in content["categories"]]
+                            break
+                except:
+                    continue
+    else:
+        # Standard folder structure
+        if classes:
+            image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.gif']
+            for cls in classes:
+                class_path = dataset_path / cls
+                if class_path.exists():
+                    image_files = [f for f in class_path.iterdir() 
+                                 if f.is_file() and any(f.name.lower().endswith(ext) for ext in image_extensions)]
+                    item_count += len(image_files)
+                    
+    details["size"] = f"{item_count} samples" if item_count > 0 else "N/A"
+    details["num_classes"] = len(classes) if classes else "N/A"
+    
+    return details
+
 class ModelCardRequest(BaseModel):
     model_name: str
     model_architecture: str
@@ -1453,6 +2752,16 @@ async def generate_model_card(request: ModelCardRequest):
             fairness_results=request.fairness_results
         )
         
+        # Populate actual dataset details if available
+        dataset_details = _get_dataset_details(request.dataset_name)
+        generator.set_dataset_info(
+            dataset_name=dataset_details["name"],
+            dataset_size=dataset_details["size"],
+            num_classes=dataset_details["num_classes"],
+            data_source=dataset_details["source"],
+            data_preprocessing=dataset_details["preprocessing"]
+        )
+        
         model_card = generator.generate_model_card()
         json_card = generator.generate_json_model_card()
         
@@ -1461,6 +2770,55 @@ async def generate_model_card(request: ModelCardRequest):
             "model_card_json": json_card
         }
     except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Model card generation failed: {str(e)}")
+
+@app.get("/pipelines/{job_id}/model-card")
+async def get_pipeline_model_card(job_id: str):
+    """Generate and retrieve a model card for a completed training job"""
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    if job.status != TrainingStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Model card can only be generated for completed jobs")
+    
+    # Resolve dataset name
+    dataset_name = "Unknown Dataset"
+    if job.linked_dataset_id:
+        dataset_name = job.linked_dataset_id
+    elif job.pipeline_config.name:
+        dataset_name = f"Dataset for {job.pipeline_config.name}"
+        
+    try:
+        generator = ModelCardGenerator()
+        generator.auto_populate_from_training(
+            model_name=job.pipeline_config.name,
+            model_architecture=job.pipeline_config.architecture.value if hasattr(job.pipeline_config.architecture, 'value') else str(job.pipeline_config.architecture),
+            dataset_name=dataset_name,
+            training_metrics=job.metrics or {"accuracy": 0.0},
+            fairness_results=None
+        )
+        
+        # Populate actual dataset details if available
+        if job.linked_dataset_id:
+            dataset_details = _get_dataset_details(job.linked_dataset_id)
+            generator.set_dataset_info(
+                dataset_name=dataset_details["name"],
+                dataset_size=dataset_details["size"],
+                num_classes=dataset_details["num_classes"],
+                data_source=dataset_details["source"],
+                data_preprocessing=dataset_details["preprocessing"]
+            )
+            
+        model_card = generator.generate_model_card()
+        json_card = generator.generate_json_model_card()
+        
+        return {
+            "model_card_markdown": model_card,
+            "model_card_json": json_card
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Model card generation failed: {str(e)}")
 
 @app.get("/responsible-ai/bias-types")
@@ -1526,8 +2884,17 @@ async def search_bias_info(query: str):
 async def validate_dataset(dataset_id: str):
     """Validate dataset and generate a Data Card with visual statistics."""
     try:
-        from visualization_utils import create_class_distribution_plot, pil_to_base64, draw_bounding_boxes
+        from visualization_utils import (
+            create_class_distribution_plot, pil_to_base64, 
+            draw_bounding_boxes, draw_instance_segmentation
+        )
         dataset_path = Path(f"datasets/{dataset_id}")
+        # Lazy download dataset from MinIO if missing locally
+        if not dataset_path.exists() or not dataset_path.is_dir():
+            if minio_utils.exists(DATASETS_BUCKET, dataset_id):
+                print(f"Dataset '{dataset_id}' not found locally for validation. Downloading from MinIO...")
+                minio_utils.download_directory(DATASETS_BUCKET, dataset_id, str(dataset_path))
+                
         if not dataset_path.exists() or not dataset_path.is_dir():
             raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
 
@@ -1577,8 +2944,27 @@ async def validate_dataset(dataset_id: str):
                             break
                 except: continue
 
+            # Find active category IDs across all JSON annotation files in the dataset
+            active_cat_ids = set()
+            for jf in json_files:
+                try:
+                    with open(jf, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        if "annotations" in data:
+                            for ann in data["annotations"]:
+                                if "category_id" in ann:
+                                    active_cat_ids.add(ann["category_id"])
+                except: continue
+
             if target_json:
-                cat_id_to_name = {cat["id"]: cat.get("name", str(cat["id"])) for cat in target_json["categories"]}
+                if not active_cat_ids:
+                    active_cat_ids = {cat["id"] for cat in target_json["categories"]}
+                    
+                cat_id_to_name = {
+                    cat["id"]: cat.get("name", str(cat["id"])) 
+                    for cat in target_json["categories"] 
+                    if cat["id"] in active_cat_ids
+                }
                 image_id_to_file = {img["id"]: img["file_name"] for img in target_json["images"]}
                 
                 # Distribution
@@ -1630,13 +3016,19 @@ async def validate_dataset(dataset_id: str):
                                         x, y, w, h = a["bbox"]
                                         c_id = a.get("category_id")
                                         c_n = cat_id_to_name.get(c_id, "Unknown")
-                                        detections.append({
+                                        det = {
                                             "box": [x, y, x+w, y+h],
                                             "class_name": c_n,
                                             "confidence": 100.0
-                                        })
+                                        }
+                                        if task_type == "instance_segmentation" and "segmentation" in a:
+                                            det["polygon"] = a["segmentation"]
+                                        detections.append(det)
                                 if detections:
-                                    pil_img = draw_bounding_boxes(pil_img, detections)
+                                    if task_type == "instance_segmentation":
+                                        pil_img = draw_instance_segmentation(pil_img, detections)
+                                    else:
+                                        pil_img = draw_bounding_boxes(pil_img, detections)
                                     
                                 # Resize for frontend display
                                 pil_img.thumbnail((400, 400))
@@ -1738,7 +3130,8 @@ async def validate_dataset(dataset_id: str):
             "status": "success",
             "data_card_markdown": data_card_md,
             "distribution_plot_base64": dist_plot_b64,
-            "sample_images": sample_images
+            "sample_images": sample_images,
+            "class_distribution": class_distribution
         }
 
     except Exception as e:

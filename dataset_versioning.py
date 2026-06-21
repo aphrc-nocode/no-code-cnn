@@ -20,6 +20,11 @@ import shutil
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+import minio_utils
+
+DATASETS_BUCKET = os.getenv("MINIO_DATASETS_BUCKET", "datasets")
+
+
 class DatasetVersion:
     """Represents a single version of a dataset"""
     
@@ -86,7 +91,7 @@ class DatasetVersion:
 
 
 class DatasetVersionManager:
-    """Manages dataset versions and caching"""
+    """Manages dataset versions and caching with MinIO persistence"""
     
     def __init__(self, base_dir: str = "datasets"):
         self.base_dir = Path(base_dir)
@@ -95,12 +100,21 @@ class DatasetVersionManager:
         
         # Create required directories if they don't exist
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.base_dir.mkdir(parents=True, exist_ok=True)
         
         # Load or initialize versions registry
         self.versions = self._load_versions()
     
     def _load_versions(self) -> Dict[str, Dict[str, Any]]:
         """Load versions registry from file or initialize if it doesn't exist"""
+        # Proactively download versions.json from MinIO if it exists
+        try:
+            if minio_utils.exists(DATASETS_BUCKET, "versions.json"):
+                minio_utils.download_file(DATASETS_BUCKET, "versions.json", str(self.versions_file))
+                logger.info("Successfully synced versions.json from MinIO")
+        except Exception as e:
+            logger.warning(f"Could not download versions.json from MinIO, using local cache: {e}")
+
         if self.versions_file.exists():
             try:
                 with open(self.versions_file, "r") as f:
@@ -111,9 +125,16 @@ class DatasetVersionManager:
         return {}
     
     def _save_versions(self) -> None:
-        """Save versions registry to file"""
-        with open(self.versions_file, "w") as f:
-            json.dump(self.versions, f, indent=2)
+        """Save versions registry to file and upload to MinIO"""
+        try:
+            with open(self.versions_file, "w") as f:
+                json.dump(self.versions, f, indent=2)
+            
+            # Upload to MinIO
+            minio_utils.upload_file(DATASETS_BUCKET, "versions.json", str(self.versions_file))
+            logger.info("Successfully uploaded versions.json to MinIO")
+        except Exception as e:
+            logger.error(f"Error saving versions registry: {e}")
     
     def _calculate_checksum(self, dataset_path: Union[str, Path]) -> str:
         """Calculate a checksum for a dataset directory"""
@@ -231,6 +252,13 @@ class DatasetVersionManager:
         self.versions[job_id] = version.to_dict()
         self._save_versions()
         
+        # Sync directory to MinIO
+        try:
+            minio_utils.upload_directory(DATASETS_BUCKET, job_id, str(dataset_path))
+            logger.info(f"Successfully uploaded dataset '{job_id}' to MinIO")
+        except Exception as e:
+            logger.error(f"Failed to sync dataset '{job_id}' to MinIO: {e}")
+        
         return version
     
     def find_similar_dataset(
@@ -268,8 +296,8 @@ class DatasetVersionManager:
                     break
             
             if param_match:
-                # Check if the dataset directory still exists
-                if (self.base_dir / job_id).exists():
+                # Check if the dataset directory still exists locally or in MinIO
+                if (self.base_dir / job_id).exists() or minio_utils.exists(DATASETS_BUCKET, job_id):
                     return job_id
         
         return None
@@ -304,8 +332,8 @@ class DatasetVersionManager:
             if source and data["source"] != source:
                 continue
             
-            # Check if directory exists
-            if (self.base_dir / job_id).exists():
+            # Check if directory exists locally or in MinIO
+            if (self.base_dir / job_id).exists() or minio_utils.exists(DATASETS_BUCKET, job_id):
                 versions.append(DatasetVersion.from_dict(data))
         
         # Sort by creation timestamp (newest first)
@@ -325,9 +353,14 @@ class DatasetVersionManager:
         source_path = self.base_dir / job_id
         target_path = self.base_dir / new_job_id
         
+        # Ensure source dataset is local. If not, download it from MinIO.
         if not source_path.exists():
-            logger.error(f"Source dataset does not exist: {source_path}")
-            return None
+            if minio_utils.exists(DATASETS_BUCKET, job_id):
+                logger.info(f"Downloading source dataset '{job_id}' from MinIO to local cache for copying...")
+                minio_utils.download_directory(DATASETS_BUCKET, job_id, str(source_path))
+            else:
+                logger.error(f"Source dataset does not exist locally or in MinIO: {source_path}")
+                return None
         
         if target_path.exists():
             logger.error(f"Target path already exists: {target_path}")
@@ -344,6 +377,12 @@ class DatasetVersionManager:
                 self.versions[new_job_id] = version_data
                 self._save_versions()
             
+            # Upload the new copied dataset to MinIO
+            try:
+                minio_utils.upload_directory(DATASETS_BUCKET, new_job_id, str(target_path))
+            except Exception as e:
+                logger.error(f"Failed to upload copied dataset '{new_job_id}' to MinIO: {e}")
+                
             return new_job_id
         except Exception as e:
             logger.error(f"Error copying dataset: {str(e)}")
@@ -361,23 +400,23 @@ class DatasetVersionManager:
         """
         dataset_path = self.base_dir / job_id
         
-        if not dataset_path.exists():
-            logger.warning(f"Dataset path does not exist: {dataset_path}")
-            # Remove from registry if it exists
-            if job_id in self.versions:
-                del self.versions[job_id]
-                self._save_versions()
-            return True
-        
+        # Delete from MinIO first
         try:
-            shutil.rmtree(dataset_path)
-            
-            # Remove from registry
-            if job_id in self.versions:
-                del self.versions[job_id]
-                self._save_versions()
-            
-            return True
+            minio_utils.delete_prefix(DATASETS_BUCKET, job_id)
         except Exception as e:
-            logger.error(f"Error deleting dataset: {str(e)}")
-            return False
+            logger.error(f"Failed to delete dataset '{job_id}' from MinIO: {e}")
+
+        # Delete locally if exists
+        if dataset_path.exists():
+            try:
+                shutil.rmtree(dataset_path)
+            except Exception as e:
+                logger.error(f"Error deleting local dataset folder: {str(e)}")
+        
+        # Remove from registry
+        if job_id in self.versions:
+            del self.versions[job_id]
+            self._save_versions()
+            
+        return True
+

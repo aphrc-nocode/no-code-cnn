@@ -53,8 +53,11 @@ class ImageClassificationDataset(Dataset):
         return img, target
 
 def create_dataloaders(dataset_path: str, transform, batch_size: int = 32, 
-                      val_split: float = 0.2, num_workers: int = 4, task_type: str = "image_classification", 
+                      val_split: float = 0.2, num_workers: int = None, task_type: str = "image_classification", 
                       segmentation_type: str = "semantic"):
+    if num_workers is None:
+        import os
+        num_workers = int(os.getenv("DATALOADER_WORKERS", "0"))
     """Create training and validation dataloaders based on task type"""
     
     # Import the specific dataloader based on task type

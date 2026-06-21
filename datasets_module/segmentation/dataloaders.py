@@ -143,7 +143,31 @@ class InstanceSegmentationDataset(Dataset):
             self.annotations = json.load(f)
         
         # Create class ID to name mapping
-        self.categories = {cat["id"]: cat["name"] for cat in self.annotations["categories"]}
+        categories = {cat["id"]: cat["name"] for cat in self.annotations["categories"]}
+        
+        # Scan all JSON files in the dataset folder to determine active category IDs (with at least 1 annotation)
+        active_cat_ids = set()
+        json_files = list(self.dataset_path.glob("**/*.json"))
+        if not json_files:
+            json_files = [self.annotations_file]
+            
+        for jf in json_files:
+            if jf.name == "dataset_config.json":
+                continue
+            try:
+                with open(jf, "r") as f:
+                    data = json.load(f)
+                    if "annotations" in data:
+                        for ann in data["annotations"]:
+                            if "category_id" in ann:
+                                active_cat_ids.add(ann["category_id"])
+            except:
+                pass
+                
+        if not active_cat_ids:
+            active_cat_ids = set(categories.keys())
+            
+        self.categories = {cat_id: cat_name for cat_id, cat_name in categories.items() if cat_id in active_cat_ids}
         
         # Create a mapping from original category IDs to consecutive zero-indexed IDs
         # This ensures category IDs are consecutive integers starting from 1 (0 is background)
@@ -284,8 +308,11 @@ class InstanceSegmentationDataset(Dataset):
         return image, target
 
 def create_dataloaders(dataset_path: str, transform=None, batch_size: int = 4, 
-                      val_split: float = 0.2, num_workers: int = 4, 
+                      val_split: float = 0.2, num_workers: int = None, 
                       segmentation_type: str = "semantic"):
+    if num_workers is None:
+        import os
+        num_workers = int(os.getenv("DATALOADER_WORKERS", "0"))
     """
     Create train and validation dataloaders for image segmentation
     

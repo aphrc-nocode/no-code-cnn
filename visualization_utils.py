@@ -59,11 +59,13 @@ def draw_bounding_boxes(
     print(f"Image size for bounding box drawing: {img_width}x{img_height}")
     
     # Try to load a font, fall back to default if not available
+    # Scale font size dynamically based on image resolution
+    dynamic_font_size = max(font_size, int(min(img_width, img_height) * 0.025))
     try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", dynamic_font_size)
     except (OSError, IOError):
         try:
-            font = ImageFont.truetype("arial.ttf", font_size)
+            font = ImageFont.truetype("arial.ttf", dynamic_font_size)
         except (OSError, IOError):
             font = ImageFont.load_default()
     
@@ -213,6 +215,186 @@ def draw_segmentation_mask(
     result = Image.alpha_composite(img_with_mask, overlay)
     
     return result.convert('RGB')
+
+
+def draw_instance_segmentation(
+    image: Image.Image,
+    instances: List[Dict[str, Any]],
+    confidence_threshold: float = 0.5,
+    alpha: float = 0.4,
+    box_thickness: int = 2,
+    font_size: int = 12
+) -> Image.Image:
+    """
+    Draw instance segmentation masks and bounding boxes on an image.
+    
+    Args:
+        image: PIL Image to draw on
+        instances: List of instance dictionaries with keys:
+                   - 'box': bounding box coordinates [x1, y1, x2, y2]
+                   - 'class_name': name of class
+                   - 'confidence': confidence score (0 to 100)
+                   - 'polygon': list of polygon coordinate lists (optional)
+                   - 'mask': 2D/3D binary mask array (optional)
+        confidence_threshold: Minimum confidence to display instance
+        alpha: Transparency of mask overlays
+        box_thickness: Bounding box line thickness
+        font_size: Label font size
+        
+    Returns:
+        PIL Image with instance segmentation overlays drawn
+    """
+    # Create copy of the image and convert to RGBA for transparent overlay
+    img_with_instances = image.copy()
+    if img_with_instances.mode != 'RGBA':
+        img_with_instances = img_with_instances.convert('RGBA')
+        
+    img_width, img_height = image.size
+    
+    # Try to load font
+    # Scale font size dynamically based on image resolution
+    dynamic_font_size = max(font_size, int(min(img_width, img_height) * 0.025))
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", dynamic_font_size)
+    except (OSError, IOError):
+        try:
+            font = ImageFont.truetype("arial.ttf", dynamic_font_size)
+        except (OSError, IOError):
+            font = ImageFont.load_default()
+            
+    # Distinct colors
+    colors = [
+        (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255), (0, 255, 255),
+        (128, 0, 0), (0, 128, 0), (0, 0, 128), (128, 128, 0), (128, 0, 128), (0, 128, 128),
+        (255, 165, 0), (255, 192, 203), (165, 42, 42), (221, 160, 221), (152, 251, 152)
+    ]
+    
+    class_colors = {}
+    color_index = 0
+    
+    # Create overlay drawing layer
+    overlay = Image.new('RGBA', img_with_instances.size, (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
+    
+    for instance in instances:
+        confidence = instance.get("confidence", 100.0)
+        if confidence < confidence_threshold * 100:
+            continue
+            
+        class_name = instance.get("class_name", "Unknown")
+        box = instance.get("box", [0, 0, 0, 0])
+        
+        # Determine color for this class
+        if class_name not in class_colors:
+            class_colors[class_name] = colors[color_index % len(colors)]
+            color_index += 1
+        color_rgb = class_colors[class_name]
+        color_hex = f"#{color_rgb[0]:02x}{color_rgb[1]:02x}{color_rgb[2]:02x}"
+        
+        # Scaling check (same as in draw_bounding_boxes)
+        x1, y1, x2, y2 = box
+        scale_x = 1.0
+        scale_y = 1.0
+        if max(x1, x2) > img_width * 1.5 or max(y1, y2) > img_height * 1.5:
+            scale_x = img_width / 800.0
+            scale_y = img_height / 800.0
+            x1, y1, x2, y2 = x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y
+            
+        x1 = max(0, min(x1, img_width - 1))
+        y1 = max(0, min(y1, img_height - 1))
+        x2 = max(0, min(x2, img_width - 1))
+        y2 = max(0, min(y2, img_height - 1))
+        
+        # Draw mask overlay if available
+        # 1. Check for 'polygon' (Ground truth)
+        if "polygon" in instance and instance["polygon"]:
+            polys = instance["polygon"]
+            # Handle list of polygons or single list
+            if polys and not isinstance(polys[0], list):
+                polys = [polys]
+                
+            for poly in polys:
+                if len(poly) >= 6: # need at least 3 points (6 coordinates)
+                    scaled_poly = []
+                    for i in range(0, len(poly), 2):
+                        px = poly[i] * scale_x
+                        py = poly[i+1] * scale_y
+                        scaled_poly.append(max(0, min(px, img_width - 1)))
+                        scaled_poly.append(max(0, min(py, img_height - 1)))
+                    overlay_draw.polygon(scaled_poly, fill=(*color_rgb, int(255 * alpha)), outline=(*color_rgb, 255))
+            print(f"Drew instance segmentation polygon for {class_name}")
+                    
+        # 2. Check for 'mask' (Predictions)
+        elif "mask" in instance and instance["mask"] is not None:
+            mask_arr = np.array(instance["mask"])
+            if mask_arr.ndim == 3:
+                mask_arr = mask_arr[0]
+            # Resize if mask shape doesn't match overlay size
+            if mask_arr.shape != (img_height, img_width):
+                mask_img = Image.fromarray((mask_arr * 255).astype(np.uint8)).resize((img_width, img_height), Image.NEAREST)
+                mask_arr = np.array(mask_img) > 127
+            
+            mask_overlay_arr = np.array(overlay)
+            mask_overlay_arr[mask_arr] = (*color_rgb, int(255 * alpha))
+            overlay = Image.fromarray(mask_overlay_arr, 'RGBA')
+            overlay_draw = ImageDraw.Draw(overlay)
+            print(f"Drew instance segmentation mask for {class_name}")
+            
+    # Composite the overlay onto the RGBA copy of image
+    img_with_instances = Image.alpha_composite(img_with_instances, overlay)
+    
+    # Create final drawing layer for bounding boxes and text (on top of composite)
+    draw = ImageDraw.Draw(img_with_instances)
+    
+    for instance in instances:
+        confidence = instance.get("confidence", 100.0)
+        if confidence < confidence_threshold * 100:
+            continue
+            
+        class_name = instance.get("class_name", "Unknown")
+        box = instance.get("box", [0, 0, 0, 0])
+        color_rgb = class_colors.get(class_name, (255, 0, 0))
+        color_hex = f"#{color_rgb[0]:02x}{color_rgb[1]:02x}{color_rgb[2]:02x}"
+        
+        # Scaling check
+        x1, y1, x2, y2 = box
+        if max(x1, x2) > img_width * 1.5 or max(y1, y2) > img_height * 1.5:
+            scale_x = img_width / 800.0
+            scale_y = img_height / 800.0
+            x1, y1, x2, y2 = x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y
+            
+        x1 = max(0, min(x1, img_width - 1))
+        y1 = max(0, min(y1, img_height - 1))
+        x2 = max(0, min(x2, img_width - 1))
+        y2 = max(0, min(y2, img_height - 1))
+        
+        if x2 <= x1 or y2 <= y1:
+            continue
+            
+        # Draw bounding box
+        for i in range(box_thickness):
+            draw.rectangle([x1 - i, y1 - i, x2 + i, y2 + i], outline=color_hex, width=1)
+            
+        # Draw label
+        label = f"{class_name}: {confidence:.1f}%"
+        text_width, text_height = get_text_size(draw, label, font)
+        
+        label_bg_coords = [
+            x1,
+            y1 - text_height - 4,
+            x1 + text_width + 4,
+            y1
+        ]
+        
+        if label_bg_coords[1] < 0:
+            label_bg_coords[1] = y2
+            label_bg_coords[3] = y2 + text_height + 4
+            
+        draw.rectangle(label_bg_coords, fill=color_hex)
+        draw.text((x1 + 2, label_bg_coords[1] + 2), label, fill="white", font=font)
+        
+    return img_with_instances.convert("RGB")
+
 
 
 def pil_to_base64(image: Image.Image, format: str = "PNG") -> str:

@@ -124,7 +124,7 @@ class ObjectDetectionPipeline(BasePipeline):
                 batch_size=self.batch_size,
                 shuffle=True,
                 collate_fn=collate_fn,
-                num_workers=4
+                num_workers=int(os.getenv("DATALOADER_WORKERS", "0"))
             )
             print(f"Training dataset loaded: {len(train_dataset)} images")
         
@@ -141,7 +141,7 @@ class ObjectDetectionPipeline(BasePipeline):
                 batch_size=self.batch_size,
                 shuffle=False,
                 collate_fn=collate_fn,
-                num_workers=4
+                num_workers=int(os.getenv("DATALOADER_WORKERS", "0"))
             )
             print(f"Validation dataset loaded: {len(val_dataset)} images")
         
@@ -506,7 +506,7 @@ class ObjectDetectionPipeline(BasePipeline):
                 val_image_dir=self.val_image_dir,
                 val_annotation_path=self.val_annotation_path,
                 batch_size=self.batch_size,
-                num_workers=4
+                num_workers=int(os.getenv("DATALOADER_WORKERS", "0"))
             )
             
             # Update num_classes if detected from dataset
@@ -665,8 +665,8 @@ class ObjectDetectionPipeline(BasePipeline):
                 f"Loss: {epoch_metrics.get('train_loss', 0):.4f}"
             )
         
-        # Save only the final model to logs folder
-        model_path = await self._save_model(job_id, f"model_final.pth", save_dir="logs")
+        # Save only the final model to models folder
+        model_path = await self._save_model(job_id, f"model_final.pth", save_dir=os.getenv("MODELS_DIR", "logs/models"), history=training_metrics)
         return {
             'status': 'completed',
             'metrics': training_metrics,
@@ -823,18 +823,21 @@ class ObjectDetectionPipeline(BasePipeline):
         
         return total_loss / num_batches if num_batches > 0 else 0.0
 
-    async def _save_model(self, job_id: str, filename: str, save_dir: str = "logs") -> str:
+    async def _save_model(self, job_id: str, filename: str, save_dir: str = None, history: List[Dict[str, Any]] = None) -> str:
         """
         Save the trained model
         
         Args:
             job_id: Job ID
             filename: Filename for the saved model
-            save_dir: Directory to save the model (default: logs)
+            save_dir: Directory to save the model (default: MODELS_DIR env variable)
+            history: Training history metrics list
             
         Returns:
             Path to the saved model
         """
+        if save_dir is None:
+            save_dir = os.getenv("MODELS_DIR", "logs/models")
         if self.model is None:
             raise ValueError("No model to save")
         
@@ -856,7 +859,8 @@ class ObjectDetectionPipeline(BasePipeline):
                 'job_id': job_id,
                 'device': str(self.device),
                 'num_epochs': self.num_epochs
-            }
+            },
+            'history': history or []
         }, model_path)
         
         print(f"Model saved to {model_path}")

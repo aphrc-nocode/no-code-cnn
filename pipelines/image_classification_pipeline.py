@@ -123,7 +123,8 @@ class ImageClassificationPipeline(BasePipeline):
             
             # We'll use MLflow for model storage primarily
             # Local directory only used as fallback if MLflow fails
-            model_dir = Path(f"models/{job_id}")
+            models_base_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
+            model_dir = models_base_dir / job_id
             model_dir.mkdir(exist_ok=True, parents=True)
             best_model_path = None
             
@@ -377,6 +378,20 @@ class ImageClassificationPipeline(BasePipeline):
             })
             
             # Get MLflow run info to use as model path
+            # Compile history metrics for visualization
+            history = []
+            for i in range(len(train_losses)):
+                epoch_entry = {
+                    "epoch": i + 1,
+                    "train_loss": train_losses[i],
+                    "train_acc": train_accs[i] / 100.0,
+                }
+                if val_losses and i < len(val_losses):
+                    epoch_entry["val_loss"] = val_losses[i]
+                if val_accs and i < len(val_accs):
+                    epoch_entry["val_acc"] = val_accs[i] / 100.0
+                history.append(epoch_entry)
+
             run_info = mlflow.active_run()
             if run_info:
                 # Use our custom MLflow models directory
@@ -389,7 +404,8 @@ class ImageClassificationPipeline(BasePipeline):
                 torch.save({
                     'model_state_dict': model.state_dict(),
                     'class_to_idx': class_to_idx,
-                    'config': self.config.dict()
+                    'config': self.config.dict(),
+                    'history': history
                 }, final_model_path)
                 
                 # Log the local path as an artifact
@@ -403,12 +419,8 @@ class ImageClassificationPipeline(BasePipeline):
                 torch.save({
                     'model_state_dict': model.state_dict(),
                     'class_to_idx': class_to_idx,
-                    'config': self.config.dict()
-                }, final_model_path)
-                torch.save({
-                    'model_state_dict': model.state_dict(),
-                    'class_to_idx': class_to_idx,
-                    'config': self.config.dict()
+                    'config': self.config.dict(),
+                    'history': history
                 }, final_model_path)
             
             # End MLflow run
@@ -430,7 +442,8 @@ class ImageClassificationPipeline(BasePipeline):
                 "final_train_accuracy": train_acc / 100.0,
                 "final_val_loss": val_loss if val_loader else None,
                 "final_val_accuracy": val_acc / 100.0 if val_loader else None,
-                "class_mapping": class_to_idx
+                "class_mapping": class_to_idx,
+                "history": history
             }
                 
         except Exception as e:

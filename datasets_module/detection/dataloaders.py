@@ -73,6 +73,26 @@ class ObjectDetectionDataset(Dataset):
             if 'supercategory' in cat:
                 print(f"    Supercategory: '{cat['supercategory']}'")
         
+        # Determine active category IDs across all JSON annotation files in the dataset folder
+        active_cat_ids = set()
+        dataset_dir = self.annotations_path.parent.parent
+        json_files = list(dataset_dir.glob("**/*.json"))
+        if not json_files:
+            json_files = [self.annotations_path]
+            
+        for jf in json_files:
+            if jf.name == "dataset_config.json":
+                continue
+            try:
+                with open(jf, "r") as f:
+                    data = json.load(f)
+                    if "annotations" in data:
+                        for ann in data["annotations"]:
+                            if "category_id" in ann:
+                                active_cat_ids.add(ann["category_id"])
+            except:
+                pass
+
         # Create class ID to name mapping - filter out supercategories
         self.categories = {}
         for cat in self.annotations["categories"]:
@@ -82,7 +102,7 @@ class ObjectDetectionDataset(Dataset):
             category_name = cat["name"]
             
             # Check if this category is actually used in annotations
-            is_used = any(ann["category_id"] == category_id for ann in self.annotations["annotations"])
+            is_used = category_id in active_cat_ids if active_cat_ids else any(ann["category_id"] == category_id for ann in self.annotations["annotations"])
             
             if is_used:
                 self.categories[category_id] = category_name
@@ -354,9 +374,12 @@ def collate_fn(batch):
 
 def create_dataloaders(dataset_path: str, transform, batch_size: int = 2, 
                       val_split: float = 0.2, test_split: float = 0.1, 
-                      num_workers: int = 4, job_id: str = None,
+                      num_workers: int = None, job_id: str = None,
                       use_saved_splits: bool = False,
                       shuffle: bool = True):
+    if num_workers is None:
+        import os
+        num_workers = int(os.getenv("DATALOADER_WORKERS", "0"))
     """Create training, validation and test dataloaders for object detection"""
     # Add support for persistent splits when using auto-split approach
     # For existing pre-split datasets, we'll use the existing splits
