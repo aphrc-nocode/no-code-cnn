@@ -194,7 +194,7 @@ def create_dataloaders(dataset_path: str, transform, batch_size: int = 32,
                       val_split: float = 0.2, test_split: float = 0.1,
                       num_workers: int = None, job_id: str = None, 
                       use_saved_splits: bool = False,
-                      shuffle: bool = True):
+                      shuffle: bool = True, val_transform = None):
     if num_workers is None:
         import os
         num_workers = int(os.getenv("DATALOADER_WORKERS", "0"))
@@ -210,6 +210,7 @@ def create_dataloaders(dataset_path: str, transform, batch_size: int = 32,
         job_id: Optional job ID to use for saving/loading splits
         use_saved_splits: Whether to use saved splits if available
         shuffle: Whether to shuffle the training dataloader
+        val_transform: Separate transforms to apply to validation and test sets
         
     Returns:
         Tuple of (train_loader, val_loader, test_loader, classes)
@@ -241,6 +242,27 @@ def create_dataloaders(dataset_path: str, transform, batch_size: int = 32,
     val_dataset = Subset(full_dataset, splits['val']) if splits['val'] else None
     test_dataset = Subset(full_dataset, splits['test']) if splits['test'] else None
     
+    if val_transform is not None:
+        class TransformSubset(Dataset):
+            def __init__(self, subset, transform):
+                self.subset = subset
+                self.transform = transform
+            def __getitem__(self, idx):
+                img_path, target = self.subset.dataset.samples[self.subset.indices[idx]]
+                with open(img_path, 'rb') as f:
+                    img = Image.open(f).convert('RGB')
+                if self.transform:
+                    img = self.transform(img)
+                return img, target
+            def __len__(self):
+                return len(self.subset)
+        
+        train_dataset = TransformSubset(train_dataset, transform)
+        if val_dataset:
+            val_dataset = TransformSubset(val_dataset, val_transform)
+        if test_dataset:
+            test_dataset = TransformSubset(test_dataset, val_transform)
+            
     # Create data loaders
     train_loader = DataLoader(
         train_dataset, 

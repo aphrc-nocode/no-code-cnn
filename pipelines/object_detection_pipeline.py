@@ -1035,10 +1035,10 @@ class ObjectDetectionPipeline(BasePipeline):
         
         return model
     
-    def get_transforms(self):
+    def get_transforms(self, train: bool = False):
         """Get data transforms for object detection following the article's approach"""
         # Use the transforms from the article-based COCO dataset
-        return get_transforms(train=True)  # Default to training transforms
+        return get_transforms(train=train)
 
 
 # Factory function for compatibility with main.py

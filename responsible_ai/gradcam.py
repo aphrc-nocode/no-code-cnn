@@ -156,6 +156,12 @@ class GradCAM:
         """
         # Convert image to numpy
         img_np = image.squeeze().cpu().detach().numpy().transpose(1, 2, 0)
+        # Denormalize if normalized (standard ImageNet normalization check: if values are negative or exceed 1.0)
+        if img_np.min() < 0.0 or img_np.max() > 1.0:
+            mean = np.array([0.485, 0.456, 0.406])
+            std = np.array([0.229, 0.224, 0.225])
+            img_np = img_np * std + mean
+            img_np = np.clip(img_np, 0.0, 1.0)
         img_np = (img_np * 255).astype(np.uint8)
         
         # Apply colormap to heatmap
@@ -201,6 +207,12 @@ class GradCAM:
         
         # Original image
         img_np = image.squeeze().cpu().detach().numpy().transpose(1, 2, 0)
+        # Denormalize if normalized (standard ImageNet normalization check: if values are negative or exceed 1.0)
+        if img_np.min() < 0.0 or img_np.max() > 1.0:
+            mean = np.array([0.485, 0.456, 0.406])
+            std = np.array([0.229, 0.224, 0.225])
+            img_np = img_np * std + mean
+            img_np = np.clip(img_np, 0.0, 1.0)
         axes[0].imshow(img_np)
         axes[0].set_title(f'Original\nPred: {prediction} (Conf: {confidence:.2f})')
         axes[0].axis('off')
@@ -417,6 +429,12 @@ class GuidedGradCAM(GradCAM):
         
         # Original image
         img_np = image.squeeze().cpu().detach().numpy().transpose(1, 2, 0)
+        # Denormalize if normalized (standard ImageNet normalization check: if values are negative or exceed 1.0)
+        if img_np.min() < 0.0 or img_np.max() > 1.0:
+            mean = np.array([0.485, 0.456, 0.406])
+            std = np.array([0.229, 0.224, 0.225])
+            img_np = img_np * std + mean
+            img_np = np.clip(img_np, 0.0, 1.0)
         axes[0].imshow(img_np)
         axes[0].set_title(f'Original\nPred: {prediction} (Conf: {confidence:.2f})')
         axes[0].axis('off')

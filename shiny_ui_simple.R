@@ -716,6 +716,7 @@ ui <- dashboardPage(
   dashboardSidebar(
     sidebarMenu(id = "sidebarMenu",
       menuItem("Analytics", tabName = "dashboard", icon = icon("chart-line"), selected = TRUE),
+      menuItem("Visual Pipeline Builder", tabName = "workflow", icon = icon("project-diagram")),
       menuItem("Datasets", tabName = "datasets", icon = icon("database")),
       menuItem("Train Model", tabName = "train", icon = icon("cog")),
       menuItem("Trained Models", tabName = "models", icon = icon("brain")),
@@ -1277,6 +1278,15 @@ ui <- dashboardPage(
     ),
     
     tabItems(
+      # Visual Pipeline Builder Tab
+      tabItem(tabName = "workflow",
+        div(style = "padding: 10px;",
+          h2("Visual Pipeline Builder", style = "margin-top: 0; margin-bottom: 20px; font-weight: bold; color: #1d1d1f;"),
+          p("Design, configure, train, and test your deep learning pipelines visually.", style = "color: #555; margin-bottom: 15px;"),
+          uiOutput("workflow_iframe_ui")
+        )
+      ),
+      
       # Dashboard Tab (Analytics)
       tabItem(tabName = "dashboard",
         div(style = "padding: 10px;",
@@ -1786,6 +1796,20 @@ ui <- dashboardPage(
 
 # Server
 server <- function(input, output, session) {
+  
+  # Visual Workflow Iframe Render
+  output$workflow_iframe_ui <- renderUI({
+    api_host <- API_URL
+    if (grepl("host.docker.internal", api_host)) {
+      api_host <- gsub("host.docker.internal", "localhost", api_host)
+    }
+    iframe_url <- paste0(api_host, "/workflow/")
+    tags$iframe(
+      src = iframe_url, 
+      style = "width: 100%; height: 85vh; border: none; overflow: hidden; background: transparent;", 
+      scrolling = "no"
+    )
+  })
   
   # Interactive XAI Bounding Box Reactive Variables
   prediction_task_type <- reactiveVal(NULL)

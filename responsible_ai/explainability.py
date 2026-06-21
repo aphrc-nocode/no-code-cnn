@@ -288,6 +288,12 @@ class ShapExplainer:
         # Original image
         plt.subplot(1, 3, 1)
         img_np = image[0].cpu().permute(1, 2, 0).numpy()
+        # Denormalize if normalized (standard ImageNet normalization check: if values are negative or exceed 1.0)
+        if img_np.min() < 0.0 or img_np.max() > 1.0:
+            mean = np.array([0.485, 0.456, 0.406])
+            std = np.array([0.229, 0.224, 0.225])
+            img_np = img_np * std + mean
+            img_np = np.clip(img_np, 0.0, 1.0)
         plt.imshow(img_np)
         plt.title(f'Original (Pred: {prediction}, Conf: {confidence:.2f})')
         plt.axis('off')

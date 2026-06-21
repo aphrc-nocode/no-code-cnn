@@ -32,14 +32,16 @@ class ImageClassificationPipeline(BasePipeline):
             self.run_id = start_run(job_id, self.config.dict())
             
             # First, load dataset to determine actual number of classes
-            transform = self.get_transforms()
+            train_transform = self.get_transforms(train=True)
+            val_transform = self.get_transforms(train=False)
             train_loader, val_loader, test_loader, classes = create_dataloaders(
-                dataset_path, transform, 
+                dataset_path, train_transform, 
                 batch_size=self.config.batch_size,
                 val_split=0.2 if self.config.early_stopping else 0.1,
                 test_split=0.1,
                 job_id=job_id,  # Pass job_id to ensure splits persistence
-                use_saved_splits=False  # Create new splits for this training run
+                use_saved_splits=False,  # Create new splits for this training run
+                val_transform=val_transform
             )
             
             # Update num_classes based on actual dataset BEFORE creating model
@@ -468,12 +470,16 @@ class ImageClassificationPipeline(BasePipeline):
             num_classes=self.config.num_classes
         ).to(self.device)
     
-    def get_transforms(self):
+    def get_transforms(self, train: bool = False):
         """Get data transforms based on configuration"""
         from torchvision import transforms
         
         # Set image size from config
         resize_dim = self.config.image_size
+        if isinstance(resize_dim, (list, tuple)):
+            resize_w, resize_h = resize_dim
+        else:
+            resize_w = resize_h = resize_dim
         
         # ImageNet normalization values
         normalize = transforms.Normalize(
@@ -481,10 +487,10 @@ class ImageClassificationPipeline(BasePipeline):
             std=[0.229, 0.224, 0.225]
         )
         
-        if self.config.augmentation_enabled:
+        if train and self.config.augmentation_enabled:
             # Training transforms with data augmentation
             transform = transforms.Compose([
-                transforms.RandomResizedCrop(resize_dim),
+                transforms.RandomResizedCrop((resize_w, resize_h)),
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomRotation(20),
                 transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
@@ -494,8 +500,8 @@ class ImageClassificationPipeline(BasePipeline):
         else:
             # Validation and testing transforms (no augmentation)
             transform = transforms.Compose([
-                transforms.Resize(int(resize_dim * 1.14)),  # Slightly larger for center crop
-                transforms.CenterCrop(resize_dim),
+                transforms.Resize(int(resize_w * 1.14)),  # Slightly larger for center crop
+                transforms.CenterCrop((resize_w, resize_h)),
                 transforms.ToTensor(),
                 normalize,
             ])

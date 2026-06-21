@@ -56,7 +56,7 @@ class ImageSegmentationPipeline(BasePipeline):
             })
             
             # Create datasets and data loaders
-            transform = self.get_transforms()
+            transform = self.get_transforms(train=True)
             train_loader, val_loader, classes, dataset_num_classes = create_dataloaders(
                 dataset_path, transform, 
                 batch_size=self.config.batch_size,
@@ -353,11 +353,11 @@ class ImageSegmentationPipeline(BasePipeline):
             pretrained=True
         ).to(self.device)
     
-    def get_transforms(self):
+    def get_transforms(self, train: bool = False):
         """Get data transforms for image segmentation"""
         from datasets_module.segmentation.transforms import get_segmentation_transforms
         return get_segmentation_transforms(
-            train=True,
+            train=train,
             segmentation_type=self.config.segmentation_type,
             image_size=self.config.image_size
         )

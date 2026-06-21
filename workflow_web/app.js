@@ -2,203 +2,140 @@ const NODE_WIDTH = 210;
 const NODE_HEIGHT = 88;
 const NODE_PORT_Y = 44;
 const CANVAS_PADDING = 16;
-const INPUT_NODE_ID = "input";
 
 const NODE_ICONS = {
-  input: "file-input",
-  detector: "scan-search",
-  segmenter: "scissors",
-  classifier: "badge-check",
-  filter: "filter",
-  preview: "monitor-play",
-  alert: "bell-ring",
+  dataset: "database",
+  model_config: "sliders",
+  trainer: "cpu",
+  predictor: "eye",
+  evaluator: "bar-chart-2",
+  responsible_ai: "shield",
 };
 
-const DETECTION_MODEL_OPTIONS = [
-  ["yolo26n.pt", "YOLO26 nano"],
-  ["yolo26s.pt", "YOLO26 small"],
-  ["yolo26m.pt", "YOLO26 medium"],
-  ["yolo26l.pt", "YOLO26 large"],
-  ["yolo26x.pt", "YOLO26 extra large"],
-];
-
-const SEGMENTATION_MODEL_OPTIONS = [
-  ["yolo26n-seg.pt", "YOLO26 nano segmentation"],
-  ["yolo26s-seg.pt", "YOLO26 small segmentation"],
-  ["yolo26m-seg.pt", "YOLO26 medium segmentation"],
-  ["yolo26l-seg.pt", "YOLO26 large segmentation"],
-  ["yolo26x-seg.pt", "YOLO26 extra large segmentation"],
-];
-
-const RFDETR_DETECTION_MODEL_OPTIONS = [
-  ["rfdetr-nano", "RF-DETR nano"],
-  ["rfdetr-small", "RF-DETR small"],
-  ["rfdetr-medium", "RF-DETR medium"],
-  ["rfdetr-large", "RF-DETR large"],
-];
-
-const RFDETR_SEGMENTATION_MODEL_OPTIONS = [
-  ["rfdetr-seg-nano", "RF-DETR-Seg nano"],
-  ["rfdetr-seg-small", "RF-DETR-Seg small"],
-  ["rfdetr-seg-medium", "RF-DETR-Seg medium"],
-  ["rfdetr-seg-large", "RF-DETR-Seg large"],
-];
-
-const CLASSIFICATION_MODEL_OPTIONS = [
-  ["yolo26n-cls.pt", "YOLO26 nano classification"],
-  ["yolo26s-cls.pt", "YOLO26 small classification"],
-  ["yolo26m-cls.pt", "YOLO26 medium classification"],
-  ["yolo26l-cls.pt", "YOLO26 large classification"],
-  ["yolo26x-cls.pt", "YOLO26 extra large classification"],
-];
-
 const NODE_BLUEPRINTS = {
-  input: {
-    title: "Input",
-    subtitle: "Camera or file source",
-    x: 44,
-    y: 72,
+  dataset: {
+    title: "Dataset",
+    subtitle: "Select dataset source",
+    x: 60,
+    y: 80,
     config: {
-      sourceType: "camera",
-      source: 0,
-      width: 1280,
-      height: 720,
-      filePath: "",
-      loop: true,
+      datasetId: "",
     },
   },
-  detector: {
-    title: "Object Detection",
-    subtitle: "YOLO26 or RF-DETR",
-    x: 332,
-    y: 72,
+  model_config: {
+    title: "Model Config",
+    subtitle: "Hyperparameters",
+    x: 60,
+    y: 280,
     config: {
-      engine: "yolo26",
-      threshold: 0.55,
-      yoloModel: "yolo26n.pt",
-      rfdetrModel: "rfdetr-nano",
-      rfdetrCheckpoint: "",
-      device: "auto",
-      imgsz: 640,
-      end2end: true,
+      name: "Visual Pipeline",
+      task_type: "image_classification",
+      architecture: "resnet18",
+      epochs: 5,
+      batch_size: 8,
+      learning_rate: 0.001,
+      image_size: "224, 224",
+      augmentation_enabled: true,
+      early_stopping: true,
     },
   },
-  segmenter: {
-    title: "Object Segmentation",
-    subtitle: "YOLO26, RF-DETR, or SAM 3 masks",
-    x: 620,
-    y: 72,
+  trainer: {
+    title: "Trainer",
+    subtitle: "Run pipeline training",
+    x: 360,
+    y: 180,
     config: {
-      engine: "yolo26",
-      threshold: 0.55,
-      yoloModel: "yolo26n-seg.pt",
-      rfdetrModel: "rfdetr-seg-nano",
-      rfdetrCheckpoint: "",
-      samCheckpoint: "",
-      concepts: "person",
-      device: "auto",
-      imgsz: 640,
-      end2end: true,
+      jobId: "",
+      status: "idle",
+      logs: [],
+      metrics: {},
     },
   },
-  classifier: {
-    title: "Object Classification",
-    subtitle: "YOLO26 image label",
-    x: 620,
-    y: 236,
+  predictor: {
+    title: "Predictor",
+    subtitle: "Run predictions",
+    x: 660,
+    y: 180,
     config: {
-      engine: "yolo26",
-      threshold: 0.25,
-      yoloModel: "yolo26n-cls.pt",
-      device: "auto",
-      imgsz: 224,
+      predictions: null,
+      annotatedImage: "",
+      explain_method: "none",
+      explanationImage: "",
     },
   },
-  filter: {
-    title: "Class Filter",
-    subtitle: "Only pass selected labels",
-    x: 332,
-    y: 236,
+  evaluator: {
+    title: "Evaluator",
+    subtitle: "Evaluate model performance",
+    x: 660,
+    y: 300,
     config: {
-      classes: "person, car, dog, cat, bottle",
-      minCount: 1,
+      status: "idle",
+      results: null,
+      error: null,
     },
   },
-  preview: {
-    title: "OpenCV Preview",
-    subtitle: "Python display window",
-    x: 44,
-    y: 400,
+  responsible_ai: {
+    title: "Responsible AI",
+    subtitle: "Dataset & Model cards",
+    x: 360,
+    y: 320,
     config: {
-      showBoxes: true,
-      showLabels: true,
-      showMasks: true,
-      maskOpacity: 0.35,
-      useFilter: false,
-    },
-  },
-  alert: {
-    title: "Alert Output",
-    subtitle: "Backend event log",
-    x: 332,
-    y: 400,
-    config: {
-      cooldownSeconds: 5,
-      message: "Detected target object",
+      status: "idle",
+      cardType: "", // "dataset" or "model"
+      reportMarkdown: "",
+      classDistributionPlot: "",
+      error: null,
     },
   },
 };
 
 const DEFAULT_WORKFLOW = {
   nodes: [
-    makeNode("input"),
-    makeNode("detector"),
-    makeNode("filter"),
-    makeNode("preview"),
-    makeNode("alert"),
+    makeNode("dataset", { id: "dataset_1", x: 60, y: 80 }),
+    makeNode("model_config", { id: "model_config_1", x: 60, y: 280 }),
+    makeNode("trainer", { id: "trainer_1", x: 360, y: 180 }),
+    makeNode("predictor", { id: "predictor_1", x: 660, y: 180 }),
   ],
   edges: [
-    [INPUT_NODE_ID, "detector"],
-    ["detector", "filter"],
-    ["filter", "preview"],
-    ["filter", "alert"],
+    ["dataset_1", "trainer_1"],
+    ["model_config_1", "trainer_1"],
+    ["trainer_1", "predictor_1"],
   ],
 };
 
 const state = {
-  workflow: normalizeWorkflow(loadWorkflow()),
-  selectedNodeId: INPUT_NODE_ID,
-  running: false,
-  statusPollTimer: null,
+  workflow: null,
+  selectedNodeId: "trainer_1",
+  availableDatasets: [],
+  pollingTimers: {},
   dragging: null,
   connecting: null,
-  terminalCursor: 0,
-  terminalPollTimer: null,
-  terminalAutoScroll: true,
   contextMenuNodeId: null,
   edgeRenderFrame: null,
-  appVersion: null,
-  runtimeDevices: {
-    nvidiaGpus: [],
-    cudaAvailable: false,
-    devices: [],
-    recommendation: "",
-  },
 };
 
 const els = {};
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   cacheElements();
   bindEvents();
-  updateNodeStatuses();
-  renderInspector();
+  
+  // Load workflow from server or fallback
+  await loadWorkflowFromServer();
+  
+  // Fetch available datasets
+  await fetchAvailableDatasets();
+  
+  // Redraw
+  renderWorkflow();
   renderEdges();
-  fetchAppVersion();
-  pollBackendStatus();
-  fetchRuntimeDevices();
-  startTerminalPolling();
-  logEvent("Workflow ready", "The browser edits graph connections; Python runs the selected input pipeline.");
+  renderInspector();
+  
+  // Start polling any active training jobs
+  resumeActiveTrainerPolling();
+  
+  logEvent("Visual Builder Ready", "Canvas initialized. Select a node to configure it.");
+  
   if (window.lucide) {
     window.lucide.createIcons();
   }
@@ -207,72 +144,18 @@ document.addEventListener("DOMContentLoaded", () => {
 function makeNode(type, overrides = {}) {
   const blueprint = NODE_BLUEPRINTS[type];
   return {
-    id: overrides.id || type,
+    id: overrides.id || `${type}_${Date.now()}`,
     type,
     title: blueprint.title,
     subtitle: blueprint.subtitle,
     x: overrides.x ?? blueprint.x,
     y: overrides.y ?? blueprint.y,
-    enabled: overrides.enabled ?? true,
-    status: "idle",
+    enabled: true,
     config: {
       ...blueprint.config,
       ...(overrides.config || {}),
     },
   };
-}
-
-function normalizeWorkflow(workflow) {
-  for (const node of workflow.nodes || []) {
-    if (node.type === "camera") {
-      node.type = "input";
-      if (node.id === "camera") node.id = INPUT_NODE_ID;
-    }
-  }
-  for (const edge of workflow.edges || []) {
-    if (edge[0] === "camera") edge[0] = INPUT_NODE_ID;
-    if (edge[1] === "camera") edge[1] = INPUT_NODE_ID;
-  }
-
-  for (const node of workflow.nodes || []) {
-    const blueprint = NODE_BLUEPRINTS[node.type];
-    if (!blueprint) continue;
-    node.title = node.customTitle || blueprint.title;
-    node.config = { ...blueprint.config, ...(node.config || {}) };
-    if (node.type === "input") {
-      node.subtitle = inputSubtitle(node);
-      node.config.sourceType = node.config.sourceType || "camera";
-    }
-    if (node.type === "input" && node.config.source === undefined) {
-      node.config.source = /^\d+$/.test(String(node.config.deviceId || "")) ? Number(node.config.deviceId) : 0;
-    }
-    if (node.type !== "input") {
-      node.subtitle = blueprint.subtitle;
-    }
-    if (node.type === "detector" && !["yolo26", "rfdetr"].includes(node.config.engine)) {
-      node.config.engine = "yolo26";
-    }
-    if (node.type === "classifier") {
-      node.config.engine = "yolo26";
-    }
-    if (node.type === "segmenter" && !["yolo26", "sam3", "rfdetr"].includes(node.config.engine)) {
-      node.config.engine = "yolo26";
-    }
-    if (node.type === "segmenter" && node.config.samModel && !node.config.samCheckpoint) {
-      node.config.samCheckpoint = node.config.samModel === "sam3.pt" ? "" : node.config.samModel;
-      delete node.config.samModel;
-    }
-    if (["detector", "segmenter", "classifier"].includes(node.type)) {
-      delete node.config.intervalMs;
-    }
-  }
-  return workflow;
-}
-
-function inputSubtitle(node) {
-  const sourceType = node?.config?.sourceType || "camera";
-  if (sourceType === "file") return "OpenCV file source";
-  return "OpenCV camera capture";
 }
 
 function cacheElements() {
@@ -283,53 +166,34 @@ function cacheElements() {
   els.selectedNodeLabel = document.getElementById("selectedNodeLabel");
   els.workflowStatus = document.getElementById("workflowStatus");
   els.eventLog = document.getElementById("eventLog");
-  els.fpsValue = document.getElementById("fpsValue");
-  els.objectCount = document.getElementById("objectCount");
-  els.deviceValue = document.getElementById("deviceValue");
-  els.appVersion = document.getElementById("appVersion");
-  els.terminalPanel = document.getElementById("terminalPanel");
-  els.terminalHeader = document.getElementById("terminalHeader");
-  els.terminalBody = document.getElementById("terminalBody");
-  els.terminalToggle = document.getElementById("terminalToggle");
-  els.terminalClear = document.getElementById("terminalClear");
-  els.terminalOpen = document.getElementById("terminalOpen");
-  els.terminalStatus = document.getElementById("terminalStatus");
   els.contextMenu = document.getElementById("nodeContextMenu");
 }
 
 function bindEvents() {
-  document.getElementById("startWorkflow").addEventListener("click", startWorkflow);
-  document.getElementById("stopWorkflow").addEventListener("click", stopWorkflow);
   document.getElementById("saveWorkflow").addEventListener("click", saveWorkflow);
-  document.getElementById("exportWorkflow").addEventListener("click", exportWorkflow);
   document.getElementById("resetWorkflow").addEventListener("click", resetWorkflow);
 
-  document.querySelectorAll(".palette-item").forEach((button) => {
-    button.draggable = true;
-    button.addEventListener("click", () => selectNodeByType(button.dataset.type));
-    button.addEventListener("dragstart", (event) => {
-      event.dataTransfer.setData("application/x-node-type", button.dataset.type);
-      event.dataTransfer.effectAllowed = "copy";
+  // Wire up the new Add Node buttons
+  document.querySelectorAll(".add-node-btn").forEach((button) => {
+    button.addEventListener("click", () => {
+      const type = button.dataset.type;
+      const rect = els.workflowCanvas.getBoundingClientRect();
+      // Spawn at center of canvas with a small offset
+      const x = rect.width / 2 - NODE_WIDTH / 2 + (Math.random() * 40 - 20);
+      const y = rect.height / 2 - NODE_HEIGHT / 2 + (Math.random() * 40 - 20);
+      addNodeToCanvas(type, x, y);
     });
   });
 
   els.workflowCanvas.addEventListener("dragover", (event) => {
-    if (!Array.from(event.dataTransfer.types).includes("application/x-node-type")) return;
     event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-  });
-  els.workflowCanvas.addEventListener("drop", (event) => {
-    const type = event.dataTransfer.getData("application/x-node-type");
-    if (!type) return;
-    event.preventDefault();
-    const point = canvasPoint(event);
-    addNodeToCanvas(type, point.x - NODE_WIDTH / 2, point.y - NODE_HEIGHT / 2);
   });
 
   window.addEventListener("resize", renderEdges);
   document.addEventListener("pointermove", onDragMove);
   document.addEventListener("pointermove", onConnectionMove);
   document.addEventListener("pointerup", stopPointerAction);
+  
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       hideContextMenu();
@@ -341,27 +205,6 @@ function bindEvents() {
     if (state.selectedNodeId) removeNode(state.selectedNodeId);
   });
 
-  els.terminalHeader.addEventListener("click", (event) => {
-    if (event.target.closest("button")) return;
-    toggleTerminal();
-  });
-  els.terminalToggle.addEventListener("click", (event) => {
-    event.stopPropagation();
-    toggleTerminal();
-  });
-  els.terminalClear.addEventListener("click", (event) => {
-    event.stopPropagation();
-    els.terminalBody.innerHTML = "";
-  });
-  els.terminalOpen.addEventListener("click", (event) => {
-    event.stopPropagation();
-    openExternalTerminal();
-  });
-  els.terminalBody.addEventListener("scroll", () => {
-    const body = els.terminalBody;
-    state.terminalAutoScroll = body.scrollHeight - body.scrollTop - body.clientHeight < 24;
-  });
-
   els.contextMenu.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-action]");
     if (!button) return;
@@ -370,9 +213,9 @@ function bindEvents() {
     hideContextMenu();
     if (!nodeId) return;
     if (action === "delete") removeNode(nodeId);
-    else if (action === "toggle") toggleNode(nodeId);
     else if (action === "rename") renameNode(nodeId);
   });
+  
   document.addEventListener("pointerdown", (event) => {
     if (!els.contextMenu.contains(event.target)) hideContextMenu();
   });
@@ -380,85 +223,96 @@ function bindEvents() {
   window.addEventListener("resize", hideContextMenu);
 }
 
-function loadWorkflow() {
+async function loadWorkflowFromServer() {
   try {
-    const stored = localStorage.getItem("visonodeWorkflow") || localStorage.getItem("visionWorkflow");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed.nodes) && Array.isArray(parsed.edges)) {
-        return parsed;
+    const response = await fetch("/api/workflow/canvas");
+    if (response.ok) {
+      const data = await response.json();
+      if (Array.isArray(data.nodes) && Array.isArray(data.edges)) {
+        state.workflow = data;
+        if (state.workflow.nodes.length > 0) {
+          state.selectedNodeId = state.workflow.nodes[0].id;
+        }
+        return;
       }
     }
   } catch (error) {
-    console.warn(error);
+    console.warn("Failed to load workflow from server:", error);
   }
-  return structuredClone(DEFAULT_WORKFLOW);
+  state.workflow = structuredClone(DEFAULT_WORKFLOW);
 }
 
-function saveWorkflow() {
-  normalizeWorkflow(state.workflow);
-  localStorage.setItem("visonodeWorkflow", JSON.stringify(state.workflow));
-  logEvent("Workflow saved", "The graph and node settings were stored in this browser.");
-}
-
-function exportWorkflow() {
-  normalizeWorkflow(state.workflow);
-  const payload = JSON.stringify(state.workflow, null, 2);
-  const blob = new Blob([payload], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "visonode-workflow.json";
-  link.click();
-  URL.revokeObjectURL(url);
-  logEvent("Workflow exported", "Downloaded visonode-workflow.json.");
+async function saveWorkflow() {
+  try {
+    const response = await fetch("/api/workflow/canvas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state.workflow),
+    });
+    if (response.ok) {
+      logEvent("Workflow saved", "Successfully saved workflow state to backend server.");
+    } else {
+      throw new Error("Failed to save workflow");
+    }
+  } catch (error) {
+    logEvent("Save failed", error.message || "Failed to save workflow.");
+  }
 }
 
 function resetWorkflow() {
+  Object.values(state.pollingTimers).forEach(timer => clearInterval(timer));
+  state.pollingTimers = {};
+  
   state.workflow = structuredClone(DEFAULT_WORKFLOW);
-  state.selectedNodeId = INPUT_NODE_ID;
+  state.selectedNodeId = "trainer_1";
   saveWorkflow();
-  updateNodeStatuses();
-  renderInspector();
+  renderWorkflow();
   renderEdges();
+  renderInspector();
 }
 
 function renderWorkflow() {
   els.nodeLayer.innerHTML = "";
   for (const node of state.workflow.nodes) {
     const element = document.createElement("article");
-    element.className = `workflow-node ${node.id === state.selectedNodeId ? "selected" : ""}`;
+    const isSelected = node.id === state.selectedNodeId;
+    element.className = `workflow-node ${isSelected ? "selected" : ""}`;
     element.style.transform = `translate(${node.x}px, ${node.y}px)`;
     element.dataset.nodeId = node.id;
     element.dataset.type = node.type;
-    const statusKey = node.enabled ? node.status : "off";
-    const statusLabel = node.enabled ? node.status : "off";
-    const toggleIcon = node.enabled ? "pause" : "play";
-    const toggleTitle = node.enabled ? "Disable node" : "Enable node";
+    
+    let statusLabel = "ready";
+    let statusKey = "ready";
+    if (node.type === "trainer" || node.type === "evaluator" || node.type === "responsible_ai") {
+      statusLabel = node.config.status || "idle";
+      statusKey = statusLabel;
+    }
+    
+    const hasIn = ["trainer", "predictor", "evaluator", "responsible_ai"].includes(node.type);
+    const hasOut = ["dataset", "model_config", "trainer", "predictor"].includes(node.type);
+
     element.innerHTML = `
-      <span class="node-port in" data-port="in" title="Connect input"></span>
+      ${hasIn ? '<span class="node-port in" data-port="in" title="Connect input"></span>' : ''}
       <div class="node-toolbar">
-        <button class="mini-button" data-action="toggle" title="${toggleTitle}"><i data-lucide="${toggleIcon}"></i></button>
         <button class="mini-button danger" data-action="remove" title="Remove node"><i data-lucide="trash-2"></i></button>
       </div>
       <div class="node-icon"><i data-lucide="${NODE_ICONS[node.type] || "box"}"></i></div>
       <div class="node-body">
         <div class="node-title-row">
           <span class="node-title">${escapeHtml(node.title)}</span>
-          <span class="status-pill" data-status="${escapeHtml(statusKey)}">${escapeHtml(statusLabel)}</span>
+          ${["trainer", "evaluator", "responsible_ai"].includes(node.type) ? `<span class="status-pill" data-status="${escapeHtml(statusKey)}">${escapeHtml(statusLabel)}</span>` : ''}
         </div>
         <div class="node-subtitle">${escapeHtml(node.subtitle)}</div>
       </div>
-      <span class="node-port out" data-port="out" title="Drag to connect"></span>
+      ${hasOut ? '<span class="node-port out" data-port="out" title="Drag to connect"></span>' : ''}
     `;
+    
     element.addEventListener("pointerdown", (event) => startDrag(event, node.id));
-    element.querySelector('[data-port="out"]').addEventListener("pointerdown", (event) => {
-      startConnection(event, node.id);
-    });
-    element.querySelector('[data-action="toggle"]').addEventListener("click", (event) => {
-      event.stopPropagation();
-      toggleNode(node.id);
-    });
+    if (hasOut) {
+      element.querySelector('[data-port="out"]').addEventListener("pointerdown", (event) => {
+        startConnection(event, node.id);
+      });
+    }
     element.querySelector('[data-action="remove"]').addEventListener("click", (event) => {
       event.stopPropagation();
       removeNode(node.id);
@@ -486,11 +340,8 @@ function renderEdges() {
     if (!from || !to) return;
     const start = portPoint(fromId, "out");
     const end = portPoint(toId, "in");
-    const startX = start.x;
-    const startY = start.y;
-    const endX = end.x;
-    const endY = end.y;
-    const d = connectionPath(startX, startY, endX, endY);
+    
+    const d = connectionPath(start.x, start.y, end.x, end.y);
     const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
     hitPath.setAttribute("d", d);
     hitPath.setAttribute("fill", "none");
@@ -521,7 +372,7 @@ function renderEdges() {
       state.connecting.currentY
     ));
     path.setAttribute("fill", "none");
-    path.setAttribute("stroke", "#ff6d5a");
+    path.setAttribute("stroke", "#3c8dbc");
     path.setAttribute("stroke-width", "2.5");
     path.setAttribute("stroke-linecap", "round");
     path.setAttribute("stroke-dasharray", "6 6");
@@ -539,478 +390,1056 @@ function renderInspector() {
   const node = selectedNode();
   if (!node) {
     els.selectedNodeLabel.textContent = "No node selected";
-    els.nodeForm.innerHTML = '<div class="empty-inspector">Select a node or drag one from the palette.</div>';
+    els.nodeForm.innerHTML = '<div class="empty-inspector">Select a node to inspect properties.</div>';
     return;
   }
   els.selectedNodeLabel.textContent = node.title;
   els.nodeForm.innerHTML = "";
-  els.nodeForm.appendChild(makeToggleField("enabled", "Enabled", node.enabled, (checked) => {
-    node.enabled = checked;
-    renderWorkflow();
-    updateNodeStatuses();
-  }));
 
-  if (node.type === "input") {
-    els.nodeForm.appendChild(makeSelectField("sourceType", "Input type", node.config.sourceType || "camera", [
-      ["camera", "Camera"],
-      ["file", "File"],
-    ], (value) => {
-      node.config.sourceType = value;
-      node.subtitle = inputSubtitle(node);
+  if (node.type === "dataset") {
+    // Dataset Select list using LOWERCASE fields from FastAPI
+    const choices = [["", "Select a dataset..."]];
+    for (const dataset of state.availableDatasets) {
+      choices.push([dataset.id, `${dataset.name} (${dataset.task_type}, ${dataset.item_count} items)`]);
+    }
+    
+    els.nodeForm.appendChild(makeSelectField("datasetId", "Select Dataset", node.config.datasetId, choices, (value) => {
+      node.config.datasetId = value;
+      const d = state.availableDatasets.find(x => x.id === value);
+      if (d) {
+        node.subtitle = `${d.name} (${d.is_coco_format ? 'COCO' : 'Standard'})`;
+      } else {
+        node.subtitle = "Select dataset source";
+      }
       renderWorkflow();
-      renderInspector();
+      saveWorkflow();
     }));
-
-    if ((node.config.sourceType || "camera") === "file") {
-      els.nodeForm.appendChild(makeFilePathField("filePath", "File path", node.config.filePath, (value) => {
-        node.config.filePath = value;
-      }));
-      els.nodeForm.appendChild(makeToggleField("loop", "Loop file", node.config.loop ?? true, (checked) => {
-        node.config.loop = checked;
-      }));
-    } else {
-      els.nodeForm.appendChild(makeTextField("source", "OpenCV source", node.config.source, (value) => {
-        node.config.source = /^\d+$/.test(value) ? Number(value) : value;
-      }));
-      els.nodeForm.appendChild(makeNumberField("width", "Width", node.config.width, 320, 3840, (value) => {
-        node.config.width = value;
-      }));
-      els.nodeForm.appendChild(makeNumberField("height", "Height", node.config.height, 240, 2160, (value) => {
-        node.config.height = value;
-      }));
+    
+    // Details
+    const d = state.availableDatasets.find(x => x.id === node.config.datasetId);
+    if (d) {
+      const details = document.createElement("div");
+      details.className = "sample-card";
+      details.innerHTML = `
+        <strong>Dataset Properties</strong>
+        <p><b>Task Type:</b> ${d.task_type}</p>
+        <p><b>Total Items:</b> ${d.item_count}</p>
+        <p><b>Classes count:</b> ${d.classes ? d.classes.length : 0}</p>
+        <p><b>Format:</b> ${d.is_coco_format ? 'COCO' : 'Standard'}</p>
+      `;
+      els.nodeForm.appendChild(details);
     }
   }
 
-  if (node.type === "detector") {
-    els.nodeForm.appendChild(makeSelectField("engine", "Engine", node.config.engine || "yolo26", [
-      ["yolo26", "YOLO26 object detection"],
-      ["rfdetr", "RF-DETR object detection"],
+  if (node.type === "model_config") {
+    els.nodeForm.appendChild(makeSelectField("task_type", "Task Type", node.config.task_type, [
+      ["image_classification", "Image Classification"],
+      ["object_detection", "Object Detection"],
+      ["image_segmentation", "Image Segmentation"],
     ], (value) => {
-      node.config.engine = value;
-      if (value === "rfdetr" && !node.config.rfdetrModel) node.config.rfdetrModel = "rfdetr-nano";
+      node.config.task_type = value;
+      if (value === "image_classification") node.config.architecture = "resnet18";
+      else if (value === "object_detection") node.config.architecture = "faster_rcnn";
+      else if (value === "image_segmentation") node.config.architecture = "fcn";
+      saveWorkflow();
       renderInspector();
     }));
-    els.nodeForm.appendChild(makeRangeField("threshold", "Confidence", node.config.threshold, 0.1, 0.95, 0.05, (value) => {
-      node.config.threshold = value;
-    }));
-    if ((node.config.engine || "yolo26") === "rfdetr") {
-      els.nodeForm.appendChild(makeSelectField("rfdetrModel", "RF-DETR model", node.config.rfdetrModel || "rfdetr-nano", RFDETR_DETECTION_MODEL_OPTIONS, (value) => {
-        node.config.rfdetrModel = value;
-      }));
-      els.nodeForm.appendChild(makeFilePathField("rfdetrCheckpoint", "RF-DETR checkpoint path", node.config.rfdetrCheckpoint || "", (value) => {
-        node.config.rfdetrCheckpoint = value;
-      }, {
-        placeholder: "Optional .pth, .pt, or .ckpt checkpoint",
-        dialogKind: "checkpoint",
-      }));
-    } else {
-      els.nodeForm.appendChild(makeSelectField("yoloModel", "YOLO26 model", node.config.yoloModel || "yolo26n.pt", DETECTION_MODEL_OPTIONS, (value) => {
-        node.config.yoloModel = value;
-      }));
+
+    let archs = [];
+    if (node.config.task_type === "image_classification") {
+      archs = [
+        ["resnet18", "ResNet-18"],
+        ["resnet50", "ResNet-50"],
+        ["vgg16", "VGG-16"],
+        ["mobilenet", "MobileNet"],
+        ["efficientnet", "EfficientNet"]
+      ];
+    } else if (node.config.task_type === "object_detection") {
+      archs = [
+        ["faster_rcnn", "Faster R-CNN"],
+        ["ssd", "SSD"],
+        ["yolo", "YOLO"],
+        ["detr_resnet50", "DETR ResNet-50"],
+        ["yolos_small", "YOLOS Small"]
+      ];
+    } else if (node.config.task_type === "image_segmentation") {
+      archs = [
+        ["fcn", "FCN"],
+        ["deeplabv3", "DeepLabV3"],
+        ["unet", "U-Net"]
+      ];
     }
-    els.nodeForm.appendChild(makeSelectField("device", "Device", node.config.device || "auto", runtimeDeviceOptions(), (value) => {
-      node.config.device = value;
+    
+    els.nodeForm.appendChild(makeSelectField("architecture", "Architecture", node.config.architecture, archs, (value) => {
+      node.config.architecture = value;
+      saveWorkflow();
     }));
-    if ((node.config.engine || "yolo26") === "yolo26") {
-      els.nodeForm.appendChild(makeNumberField("imgsz", "Image size", node.config.imgsz || 640, 320, 1280, (value) => {
-        node.config.imgsz = value;
-      }));
-      els.nodeForm.appendChild(makeToggleField("end2end", "End-to-end head", node.config.end2end ?? true, (checked) => {
-        node.config.end2end = checked;
-      }));
+
+    els.nodeForm.appendChild(makeNumberField("epochs", "Epochs", node.config.epochs, 1, 100, (value) => {
+      node.config.epochs = value;
+      saveWorkflow();
+    }));
+    
+    els.nodeForm.appendChild(makeNumberField("batch_size", "Batch Size", node.config.batch_size, 1, 128, (value) => {
+      node.config.batch_size = value;
+      saveWorkflow();
+    }));
+    
+    els.nodeForm.appendChild(makeNumberField("learning_rate", "Learning Rate", node.config.learning_rate, 0.0001, 1, (value) => {
+      node.config.learning_rate = value;
+      saveWorkflow();
+    }, 0.0001));
+
+    els.nodeForm.appendChild(makeTextField("image_size", "Image Size (width, height)", node.config.image_size, (value) => {
+      node.config.image_size = value;
+      saveWorkflow();
+    }));
+
+    els.nodeForm.appendChild(makeToggleField("augmentation_enabled", "Data Augmentation", node.config.augmentation_enabled, (checked) => {
+      node.config.augmentation_enabled = checked;
+      saveWorkflow();
+    }));
+
+    els.nodeForm.appendChild(makeToggleField("early_stopping", "Early Stopping", node.config.early_stopping, (checked) => {
+      node.config.early_stopping = checked;
+      saveWorkflow();
+    }));
+  }
+
+  if (node.type === "trainer") {
+    const inputs = getTrainerInputs(node.id);
+    if (!inputs.datasetNode || !inputs.configNode) {
+      const msg = document.createElement("div");
+      msg.className = "empty-inspector";
+      msg.textContent = "Please connect both a Dataset node and a Model Config node to this Trainer.";
+      els.nodeForm.appendChild(msg);
+      return;
+    }
+
+    const dsId = inputs.datasetNode.config.datasetId;
+    const datasetObj = state.availableDatasets.find(x => x.id === dsId);
+    
+    if (!datasetObj) {
+      const msg = document.createElement("div");
+      msg.className = "empty-inspector";
+      msg.textContent = "Please select a valid dataset inside the connected Dataset node.";
+      els.nodeForm.appendChild(msg);
+      return;
+    }
+
+    const cfg = inputs.configNode.config;
+    
+    const details = document.createElement("div");
+    details.className = "sample-card";
+    details.innerHTML = `
+      <strong>Training Pipeline setup</strong>
+      <p><b>Dataset:</b> ${datasetObj.name}</p>
+      <p><b>Task:</b> ${cfg.task_type}</p>
+      <p><b>Model:</b> ${cfg.architecture}</p>
+      <p><b>Epochs:</b> ${cfg.epochs} | <b>Batch:</b> ${cfg.batch_size}</p>
+    `;
+    els.nodeForm.appendChild(details);
+
+    const statusDiv = document.createElement("div");
+    statusDiv.style.display = "flex";
+    statusDiv.style.alignItems = "center";
+    statusDiv.style.justifyContent = "space-between";
+    statusDiv.style.margin = "8px 0";
+    statusDiv.innerHTML = `
+      <span><b>Status:</b> <span class="status-pill" data-status="${escapeHtml(node.config.status || 'idle')}">${escapeHtml(node.config.status || 'idle')}</span></span>
+      <span>${node.config.jobId ? `Job ID: <code>${node.config.jobId.slice(0, 8)}</code>` : ""}</span>
+    `;
+    els.nodeForm.appendChild(statusDiv);
+
+    const trainBtn = document.createElement("button");
+    trainBtn.type = "button";
+    trainBtn.className = "button primary";
+    trainBtn.style.width = "100%";
+    trainBtn.innerHTML = '<i data-lucide="play"></i> Start Pipeline Training';
+    
+    const isRunning = ["pending", "running"].includes(node.config.status);
+    if (isRunning) {
+      trainBtn.disabled = true;
+      trainBtn.innerHTML = '<i data-lucide="loader-2" class="spin"></i> Training Running...';
+    }
+    
+    trainBtn.addEventListener("click", async () => {
+      trainBtn.disabled = true;
+      trainBtn.innerHTML = 'Starting...';
+      await startPipelineTraining(node.id, datasetObj, cfg);
+    });
+    els.nodeForm.appendChild(trainBtn);
+
+    if (node.config.logs && node.config.logs.length > 0) {
+      const logsLabel = document.createElement("label");
+      logsLabel.innerHTML = "<span>Training Logs</span>";
+      const logsPre = document.createElement("pre");
+      logsPre.style.background = "#222";
+      logsPre.style.color = "#a8ffb2";
+      logsPre.style.padding = "10px";
+      logsPre.style.borderRadius = "3px";
+      logsPre.style.maxHeight = "180px";
+      logsPre.style.overflowY = "auto";
+      logsPre.style.fontSize = "11px";
+      logsPre.style.whiteSpace = "pre-wrap";
+      logsPre.textContent = node.config.logs.join("\n");
+      logsLabel.appendChild(logsPre);
+      els.nodeForm.appendChild(logsLabel);
+      
+      setTimeout(() => { logsPre.scrollTop = logsPre.scrollHeight; }, 10);
+    }
+    
+    if (node.config.metrics && Object.keys(node.config.metrics).length > 0) {
+      const metricsDiv = document.createElement("div");
+      metricsDiv.className = "sample-card";
+      let metricsHtml = "<strong>Validation Metrics</strong>";
+      for (const [k, v] of Object.entries(node.config.metrics)) {
+        metricsHtml += `<p><b>${k}:</b> ${typeof v === "number" ? v.toFixed(4) : v}</p>`;
+      }
+      metricsDiv.innerHTML = metricsHtml;
+      els.nodeForm.appendChild(metricsDiv);
     }
   }
 
-  if (node.type === "segmenter") {
-    els.nodeForm.appendChild(makeSelectField("engine", "Engine", node.config.engine || "yolo26", [
-      ["yolo26", "YOLO26 instance segmentation"],
-      ["rfdetr", "RF-DETR instance segmentation"],
-      ["sam3", "SAM 3 concept segmentation"],
+  if (node.type === "predictor") {
+    const trainerNode = getPredictorInput(node.id);
+    if (!trainerNode) {
+      const msg = document.createElement("div");
+      msg.className = "empty-inspector";
+      msg.textContent = "Please connect a Trainer node to this Predictor.";
+      els.nodeForm.appendChild(msg);
+      return;
+    }
+
+    if (trainerNode.config.status !== "completed") {
+      const msg = document.createElement("div");
+      msg.className = "empty-inspector";
+      msg.textContent = `Model training status is ${trainerNode.config.status || "idle"}. Please wait for it to complete.`;
+      els.nodeForm.appendChild(msg);
+      return;
+    }
+
+    const details = document.createElement("div");
+    details.innerHTML = `<span>Active Model: <code>${trainerNode.config.jobId.slice(0, 8)}</code></span>`;
+    els.nodeForm.appendChild(details);
+
+    els.nodeForm.appendChild(makeSelectField("explain_method", "xAI Explanation Method", node.config.explain_method || "none", [
+      ["none", "None"],
+      ["gradcam", "Grad-CAM (Heatmap)"],
+      ["lime", "LIME Explainer"],
+      ["shap", "SHAP Explainer"]
     ], (value) => {
-      node.config.engine = value;
-      if (value === "rfdetr" && !node.config.rfdetrModel) node.config.rfdetrModel = "rfdetr-seg-nano";
+      node.config.explain_method = value;
+      saveWorkflow();
+    }));
+
+    const fileLabel = document.createElement("label");
+    fileLabel.innerHTML = "<span>Upload Test Image</span>";
+    
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = "image/*";
+    
+    fileInput.addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      
+      const spinner = document.createElement("div");
+      spinner.className = "empty-inspector";
+      spinner.innerHTML = '<i data-lucide="loader-2" class="spin" style="margin-right:8px;"></i> Running prediction...';
+      els.nodeForm.appendChild(spinner);
+      
+      try {
+        await runPipelinePrediction(node.id, trainerNode.config.jobId, file);
+      } catch (err) {
+        logEvent("Prediction error", err.message || "Failed to run prediction");
+      }
       renderInspector();
-    }));
-    els.nodeForm.appendChild(makeRangeField("threshold", "Confidence", node.config.threshold, 0.1, 0.95, 0.05, (value) => {
-      node.config.threshold = value;
-    }));
-    if ((node.config.engine || "yolo26") === "sam3") {
-      els.nodeForm.appendChild(makeTextField("samCheckpoint", "SAM 3 checkpoint path", node.config.samCheckpoint || "", (value) => {
-        node.config.samCheckpoint = value;
-      }));
-      els.nodeForm.appendChild(makeTextAreaField("concepts", "Concept prompts", node.config.concepts || "person", (value) => {
-        node.config.concepts = value;
-      }));
-    } else if ((node.config.engine || "yolo26") === "rfdetr") {
-      els.nodeForm.appendChild(makeSelectField("rfdetrModel", "RF-DETR segmentation model", node.config.rfdetrModel || "rfdetr-seg-nano", RFDETR_SEGMENTATION_MODEL_OPTIONS, (value) => {
-        node.config.rfdetrModel = value;
-      }));
-      els.nodeForm.appendChild(makeFilePathField("rfdetrCheckpoint", "RF-DETR checkpoint path", node.config.rfdetrCheckpoint || "", (value) => {
-        node.config.rfdetrCheckpoint = value;
-      }, {
-        placeholder: "Optional .pth, .pt, or .ckpt checkpoint",
-        dialogKind: "checkpoint",
-      }));
-    } else {
-      els.nodeForm.appendChild(makeSelectField("yoloModel", "YOLO26 segmentation model", node.config.yoloModel || "yolo26n-seg.pt", SEGMENTATION_MODEL_OPTIONS, (value) => {
-        node.config.yoloModel = value;
-      }));
+    });
+    
+    fileLabel.appendChild(fileInput);
+    els.nodeForm.appendChild(fileLabel);
+
+    if (node.config.annotatedImage) {
+      const imgLabel = document.createElement("label");
+      imgLabel.innerHTML = "<span>Prediction Overlay</span>";
+      
+      const img = document.createElement("img");
+      img.src = node.config.annotatedImage;
+      img.style.width = "100%";
+      img.style.borderRadius = "3px";
+      img.style.border = "1px solid var(--line-strong)";
+      imgLabel.appendChild(img);
+      els.nodeForm.appendChild(imgLabel);
     }
-    els.nodeForm.appendChild(makeSelectField("device", "Device", node.config.device || "auto", runtimeDeviceOptions(), (value) => {
-      node.config.device = value;
-    }));
-    if ((node.config.engine || "yolo26") !== "rfdetr") {
-      els.nodeForm.appendChild(makeNumberField("imgsz", "Image size", node.config.imgsz || 640, 320, 1280, (value) => {
-        node.config.imgsz = value;
-      }));
+
+    if (node.config.explanationImage) {
+      const xaiLabel = document.createElement("label");
+      xaiLabel.style.marginTop = "10px";
+      xaiLabel.innerHTML = "<span>xAI Explanation (Heatmap)</span>";
+      
+      const xaiImg = document.createElement("img");
+      xaiImg.src = node.config.explanationImage;
+      xaiImg.style.width = "100%";
+      xaiImg.style.borderRadius = "3px";
+      xaiImg.style.border = "1px solid var(--line-strong)";
+      xaiLabel.appendChild(xaiImg);
+      els.nodeForm.appendChild(xaiLabel);
     }
-    if ((node.config.engine || "yolo26") === "yolo26") {
-      els.nodeForm.appendChild(makeToggleField("end2end", "End-to-end head", node.config.end2end ?? true, (checked) => {
-        node.config.end2end = checked;
-      }));
+
+    if (node.config.predictions) {
+      const resultsDiv = document.createElement("div");
+      resultsDiv.className = "sample-card";
+      resultsDiv.style.marginTop = "10px";
+      
+      let html = "<strong>Prediction Results Log</strong>";
+      const predData = node.config.predictions;
+      
+      if (predData.predictions && Array.isArray(predData.predictions)) {
+        // Classification
+        html += '<ul style="margin: 5px 0; padding-left: 15px; font-size: 11.5px;">';
+        predData.predictions.forEach(p => {
+          html += `<li><b>${escapeHtml(p.class_name)}</b>: ${p.confidence.toFixed(1)}%</li>`;
+        });
+        html += '</ul>';
+      } else if (predData.detections && Array.isArray(predData.detections)) {
+        // Object Detection
+        html += `<p style="margin: 3px 0;"><b>Objects Detected:</b> ${predData.detections.length}</p>`;
+        if (predData.detections.length > 0) {
+          html += '<ul style="margin: 5px 0; padding-left: 15px; font-size: 11.5px;">';
+          predData.detections.forEach(d => {
+            const conf = typeof d.confidence === 'number' ? d.confidence.toFixed(1) : d.confidence;
+            html += `<li><b>${escapeHtml(d.class_name)}</b>: ${conf}% [Box: ${d.box.map(b => Math.round(b)).join(', ')}]</li>`;
+          });
+          html += '</ul>';
+        }
+      } else if (predData.instances && Array.isArray(predData.instances)) {
+        // Instance Segmentation
+        html += `<p style="margin: 3px 0;"><b>Instances Detected:</b> ${predData.instances.length}</p>`;
+        if (predData.instances.length > 0) {
+          html += '<ul style="margin: 5px 0; padding-left: 15px; font-size: 11.5px;">';
+          predData.instances.forEach(ins => {
+            const conf = typeof ins.confidence === 'number' ? (ins.confidence * 100).toFixed(1) : ins.confidence;
+            html += `<li><b>${escapeHtml(ins.class_name || ins.class_id)}</b>: ${conf}%</li>`;
+          });
+          html += '</ul>';
+        }
+      } else if (predData.class_mapping) {
+        // Semantic Segmentation
+        html += `<p style="margin: 3px 0;">Semantic segmentation masks overlayed successfully.</p>`;
+      } else {
+        html += `<pre style="font-size: 9px; max-height: 100px; overflow: auto; background: #eee; padding: 5px; margin-top: 5px;">${escapeHtml(JSON.stringify(predData, null, 2))}</pre>`;
+      }
+      
+      resultsDiv.innerHTML = html;
+      els.nodeForm.appendChild(resultsDiv);
     }
   }
 
-  if (node.type === "classifier") {
-    node.config.engine = "yolo26";
-    els.nodeForm.appendChild(makeRangeField("threshold", "Confidence", node.config.threshold, 0.05, 0.95, 0.05, (value) => {
-      node.config.threshold = value;
-    }));
-    els.nodeForm.appendChild(makeSelectField("yoloModel", "YOLO26 classification model", node.config.yoloModel || "yolo26n-cls.pt", CLASSIFICATION_MODEL_OPTIONS, (value) => {
-      node.config.yoloModel = value;
-    }));
-    els.nodeForm.appendChild(makeSelectField("device", "Device", node.config.device || "auto", runtimeDeviceOptions(), (value) => {
-      node.config.device = value;
-    }));
-    els.nodeForm.appendChild(makeNumberField("imgsz", "Image size", node.config.imgsz || 224, 64, 640, (value) => {
-      node.config.imgsz = value;
-    }));
+  if (node.type === "evaluator") {
+    const trainerNode = getEvaluatorInput(node.id);
+    if (!trainerNode) {
+      const msg = document.createElement("div");
+      msg.className = "empty-inspector";
+      msg.textContent = "Please connect a Trainer node to this Evaluator.";
+      els.nodeForm.appendChild(msg);
+      return;
+    }
+
+    if (trainerNode.config.status !== "completed") {
+      const msg = document.createElement("div");
+      msg.className = "empty-inspector";
+      msg.textContent = `Model training status is ${trainerNode.config.status || "idle"}. Please wait for it to complete.`;
+      els.nodeForm.appendChild(msg);
+      return;
+    }
+
+    const details = document.createElement("div");
+    details.innerHTML = `<span>Active Model: <code>${trainerNode.config.jobId.slice(0, 8)}</code></span>`;
+    els.nodeForm.appendChild(details);
+
+    const runBtn = document.createElement("button");
+    runBtn.type = "button";
+    runBtn.className = "button primary";
+    runBtn.style.width = "100%";
+    runBtn.style.marginTop = "10px";
+    runBtn.innerHTML = '<i data-lucide="play"></i> Run Model Evaluation';
+    
+    const isRunning = node.config.status === "running";
+    if (isRunning) {
+      runBtn.disabled = true;
+      runBtn.innerHTML = '<i data-lucide="loader-2" class="spin"></i> Evaluating...';
+    }
+    
+    runBtn.addEventListener("click", () => {
+      runModelEvaluation(node.id, trainerNode.config.jobId);
+    });
+    els.nodeForm.appendChild(runBtn);
+
+    if (node.config.status === "error" && node.config.error) {
+      const errCard = document.createElement("div");
+      errCard.className = "sample-card";
+      errCard.style.borderColor = "var(--danger)";
+      errCard.style.color = "var(--danger)";
+      errCard.style.marginTop = "10px";
+      errCard.innerHTML = `<strong>Evaluation Error</strong><p>${escapeHtml(node.config.error)}</p>`;
+      els.nodeForm.appendChild(errCard);
+    }
+
+    if (node.config.results) {
+      const res = node.config.results;
+      
+      // Calculate overall macro metrics
+      const classMetrics = res.class_metrics || [];
+      const numClasses = classMetrics.length;
+      let macroPrecision = 0;
+      let macroRecall = 0;
+      let macroF1 = 0;
+      
+      if (numClasses > 0) {
+        let sumPrec = 0;
+        let sumRec = 0;
+        let sumF1 = 0;
+        classMetrics.forEach(m => {
+          sumPrec += m.precision || 0;
+          sumRec += m.recall || 0;
+          sumF1 += m.f1_score || 0;
+        });
+        macroPrecision = sumPrec / numClasses;
+        macroRecall = sumRec / numClasses;
+        macroF1 = sumF1 / numClasses;
+      }
+
+      // 1. Overview Value Boxes
+      const valBoxesDiv = document.createElement("div");
+      let boxes = [];
+      if (res.task_type === "image_classification") {
+        boxes = [
+          { label: "Accuracy", value: `${(res.accuracy * 100).toFixed(1)}%`, color: "var(--primary)" },
+          { label: "Macro F1", value: `${(macroF1 * 100).toFixed(1)}%`, color: "var(--ok)" },
+          { label: "Macro Prec.", value: `${(macroPrecision * 100).toFixed(1)}%`, color: "var(--warning)" },
+          { label: "Macro Rec.", value: `${(macroRecall * 100).toFixed(1)}%`, color: "var(--violet)" }
+        ];
+      } else if (res.task_type === "object_detection") {
+        boxes = [
+          { label: "mAP (mAcc)", value: `${(res.accuracy * 100).toFixed(1)}%`, color: "var(--primary)" },
+          { label: "AP50", value: `${res.correct_count}%`, color: "var(--ok)" },
+          { label: "AP75", value: `${res.incorrect_count}%`, color: "var(--warning)" },
+          { label: "Targets", value: res.lowest_precision_class, color: "var(--info)" }
+        ];
+      }
+      
+      let boxesHtml = `<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 12px; margin-bottom: 12px;">`;
+      boxes.forEach(box => {
+        boxesHtml += `
+          <div style="background: #f9f9f9; border: 1px solid #d2d6de; border-top: 3px solid ${box.color}; border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; box-shadow: var(--shadow-sm);">
+            <span style="font-size: 16px; font-weight: 700; color: #333; line-height: 1.1;">${box.value}</span>
+            <span style="font-size: 9px; font-weight: 700; color: var(--muted); text-transform: uppercase; margin-top: 2px;">${box.label}</span>
+          </div>
+        `;
+      });
+      boxesHtml += `</div>`;
+      valBoxesDiv.innerHTML = boxesHtml;
+      els.nodeForm.appendChild(valBoxesDiv);
+
+      // 2. Heatmap Confusion Matrix (For classification only)
+      if (res.task_type === "image_classification" && res.samples && Array.isArray(res.samples)) {
+        const uniqueClasses = classMetrics.map(m => m.class_name);
+        if (uniqueClasses.length > 0) {
+          const matrixHtml = drawConfusionMatrix(res.samples, uniqueClasses);
+          const matrixDiv = document.createElement("div");
+          matrixDiv.innerHTML = matrixHtml;
+          els.nodeForm.appendChild(matrixDiv);
+        }
+      }
+
+      // 3. Class Performance Bars Plot
+      if (classMetrics.length > 0) {
+        const barPlotHtml = drawClassMetricsPlot(classMetrics, res.task_type);
+        const barPlotDiv = document.createElement("div");
+        barPlotDiv.innerHTML = barPlotHtml;
+        els.nodeForm.appendChild(barPlotDiv);
+      }
+
+      // 4. Raw Report/Details Card
+      const detailsCard = document.createElement("div");
+      detailsCard.className = "sample-card";
+      detailsCard.style.marginTop = "12px";
+      let detailsHtml = "<strong>Detailed Metadata</strong>";
+      
+      if (res.task_type === "image_classification") {
+        detailsHtml += `<p style="margin: 4px 0; font-size: 11px;"><b>Correct/Incorrect Count:</b> ${res.correct_count} / ${res.incorrect_count}</p>`;
+        if (res.lowest_precision_class && res.lowest_precision_class !== "None") {
+          detailsHtml += `<p style="margin: 4px 0; font-size: 11px;"><b>Lowest Precision Class:</b> <span class="status-pill" data-status="failed">${escapeHtml(res.lowest_precision_class)}</span></p>`;
+        }
+        if (res.top_confusion && res.top_confusion !== "None") {
+          detailsHtml += `<p style="margin: 4px 0; font-size: 11px;"><b>Top Confusion:</b> <span style="font-size: 10px; font-family: monospace; color: #a94442;">${escapeHtml(res.top_confusion)}</span></p>`;
+        }
+        if (res.classification_report) {
+          detailsHtml += `<label style="margin-top: 8px;"><span>Classification Report</span></label>`;
+          detailsHtml += `<pre style="font-size: 9.5px; padding: 6px; background: #fafafa; border: 1px solid #ddd; overflow: auto; white-space: pre-wrap; font-family: monospace;">${escapeHtml(res.classification_report)}</pre>`;
+        }
+      } else if (res.task_type === "object_detection") {
+        detailsHtml += `<p style="margin: 4px 0; font-size: 11px;"><b>Total Targets Count:</b> ${res.lowest_precision_class}</p>`;
+        detailsHtml += `<p style="margin: 4px 0; font-size: 11px;"><b>Total Predictions Count:</b> ${res.lowest_recall_class}</p>`;
+        if (res.top_confusion && res.top_confusion !== "None") {
+          detailsHtml += `<p style="margin: 4px 0; font-size: 11px;"><b>Top Class AP:</b> ${escapeHtml(res.top_confusion)}</p>`;
+        }
+      }
+      
+      detailsCard.innerHTML = detailsHtml;
+      els.nodeForm.appendChild(detailsCard);
+    }
   }
 
-  if (node.type === "filter") {
-    els.nodeForm.appendChild(makeTextAreaField("classes", "Allowed classes", node.config.classes, (value) => {
-      node.config.classes = value;
-    }));
-    els.nodeForm.appendChild(makeNumberField("minCount", "Minimum count", node.config.minCount, 1, 100, (value) => {
-      node.config.minCount = value;
-    }));
-  }
+  if (node.type === "responsible_ai") {
+    const { datasetNode, trainerNode, predictorNode } = getRAIInput(node.id);
+    if (!datasetNode && !trainerNode && !predictorNode) {
+      const msg = document.createElement("div");
+      msg.className = "empty-inspector";
+      msg.textContent = "Please connect a Dataset, Trainer, or Predictor node to this Responsible AI node.";
+      els.nodeForm.appendChild(msg);
+      return;
+    }
 
-  if (node.type === "preview") {
-    els.nodeForm.appendChild(makeToggleField("showMasks", "Show masks", node.config.showMasks ?? true, (checked) => {
-      node.config.showMasks = checked;
-    }));
-    els.nodeForm.appendChild(makeRangeField("maskOpacity", "Mask opacity", node.config.maskOpacity ?? 0.35, 0.1, 0.8, 0.05, (value) => {
-      node.config.maskOpacity = value;
-    }));
-    els.nodeForm.appendChild(makeToggleField("showBoxes", "Show boxes", node.config.showBoxes, (checked) => {
-      node.config.showBoxes = checked;
-    }));
-    els.nodeForm.appendChild(makeToggleField("showLabels", "Show labels", node.config.showLabels, (checked) => {
-      node.config.showLabels = checked;
-    }));
-    els.nodeForm.appendChild(makeToggleField("useFilter", "Use class filter", node.config.useFilter ?? false, (checked) => {
-      node.config.useFilter = checked;
-    }));
-  }
+    if (datasetNode) {
+      const dsId = datasetNode.config.datasetId;
+      const dObj = state.availableDatasets.find(x => x.id === dsId);
+      const dsName = dObj ? dObj.name : (dsId || "Not configured");
 
-  if (node.type === "alert") {
-    els.nodeForm.appendChild(makeNumberField("cooldownSeconds", "Cooldown seconds", node.config.cooldownSeconds, 1, 120, (value) => {
-      node.config.cooldownSeconds = value;
-    }));
-    els.nodeForm.appendChild(makeTextAreaField("message", "Alert message", node.config.message, (value) => {
-      node.config.message = value;
-    }));
+      const dsCard = document.createElement("div");
+      dsCard.className = "sample-card";
+      dsCard.style.marginBottom = "10px";
+      dsCard.innerHTML = `
+        <strong>Connected Dataset</strong>
+        <p><b>Name:</b> ${dsName}</p>
+      `;
+      els.nodeForm.appendChild(dsCard);
+
+      const validateBtn = document.createElement("button");
+      validateBtn.type = "button";
+      validateBtn.className = "button primary";
+      validateBtn.style.width = "100%";
+      validateBtn.style.marginBottom = "10px";
+      validateBtn.innerHTML = '<i data-lucide="shield-check"></i> Generate Dataset Card';
+      if (!dsId) {
+        validateBtn.disabled = true;
+        validateBtn.title = "Please select a dataset in the Dataset node first.";
+      }
+      if (node.config.status === "running") {
+        validateBtn.disabled = true;
+      }
+      validateBtn.addEventListener("click", () => {
+        runRAIAnalysis(node.id, "dataset");
+      });
+      els.nodeForm.appendChild(validateBtn);
+    }
+
+    if (trainerNode) {
+      const jobId = trainerNode.config.jobId;
+      const isCompleted = trainerNode.config.status === "completed";
+
+      const trainerCard = document.createElement("div");
+      trainerCard.className = "sample-card";
+      trainerCard.style.marginBottom = "10px";
+      trainerCard.innerHTML = `
+        <strong>Connected Trainer</strong>
+        <p><b>Job ID:</b> ${jobId ? `<code>${jobId.slice(0, 8)}</code>` : "None"}</p>
+        <p><b>Status:</b> ${trainerNode.config.status || "idle"}</p>
+      `;
+      els.nodeForm.appendChild(trainerCard);
+
+      const mCardBtn = document.createElement("button");
+      mCardBtn.type = "button";
+      mCardBtn.className = "button primary";
+      mCardBtn.style.width = "100%";
+      mCardBtn.style.marginBottom = "10px";
+      mCardBtn.innerHTML = '<i data-lucide="file-text"></i> Generate Model Card';
+      if (!isCompleted || !jobId) {
+        mCardBtn.disabled = true;
+        mCardBtn.title = "Trainer must be in completed status first.";
+      }
+      if (node.config.status === "running") {
+        mCardBtn.disabled = true;
+      }
+      mCardBtn.addEventListener("click", () => {
+        runRAIAnalysis(node.id, "model");
+      });
+      els.nodeForm.appendChild(mCardBtn);
+    }
+
+    if (predictorNode) {
+      const predCard = document.createElement("div");
+      predCard.className = "sample-card";
+      predCard.style.marginBottom = "10px";
+      predCard.innerHTML = `
+        <strong>Connected Predictor</strong>
+        <p><b>xAI Method:</b> ${predictorNode.config.explain_method || "none"}</p>
+      `;
+      els.nodeForm.appendChild(predCard);
+
+      if (predictorNode.config.explanationImage) {
+        const xaiLabel = document.createElement("label");
+        xaiLabel.style.marginTop = "10px";
+        xaiLabel.innerHTML = "<span>xAI Explanation Heatmap</span>";
+        
+        const xaiImg = document.createElement("img");
+        xaiImg.src = predictorNode.config.explanationImage;
+        xaiImg.style.width = "100%";
+        xaiImg.style.borderRadius = "3px";
+        xaiImg.style.border = "1px solid var(--line-strong)";
+        xaiLabel.appendChild(xaiImg);
+        els.nodeForm.appendChild(xaiLabel);
+      } else {
+        const noXai = document.createElement("div");
+        noXai.className = "empty-inspector";
+        noXai.style.marginTop = "10px";
+        noXai.textContent = "No xAI explanation heatmap generated yet. Run a prediction on the Predictor node first.";
+        els.nodeForm.appendChild(noXai);
+      }
+    }
+
+    if (node.config.status === "running") {
+      const runDiv = document.createElement("div");
+      runDiv.className = "empty-inspector";
+      runDiv.innerHTML = '<i data-lucide="loader-2" class="spin" style="margin-right:8px;"></i> Running Responsible AI analysis...';
+      els.nodeForm.appendChild(runDiv);
+    }
+
+    if (node.config.status === "error" && node.config.error) {
+      const errCard = document.createElement("div");
+      errCard.className = "sample-card";
+      errCard.style.borderColor = "var(--danger)";
+      errCard.style.color = "var(--danger)";
+      errCard.style.marginTop = "10px";
+      errCard.innerHTML = `<strong>Analysis Error</strong><p>${escapeHtml(node.config.error)}</p>`;
+      els.nodeForm.appendChild(errCard);
+    }
+
+    if (node.config.status === "completed" && node.config.reportMarkdown) {
+      const reportTitle = node.config.cardType === "dataset" ? "Dataset Card Report" : "Model Card Report";
+      const reportHeader = document.createElement("h4");
+      reportHeader.style.marginTop = "15px";
+      reportHeader.style.marginBottom = "5px";
+      reportHeader.style.fontSize = "13px";
+      reportHeader.style.fontWeight = "700";
+      reportHeader.style.color = "var(--primary)";
+      reportHeader.textContent = reportTitle;
+      els.nodeForm.appendChild(reportHeader);
+
+      const reportDiv = document.createElement("div");
+      reportDiv.className = "sample-card";
+      reportDiv.style.background = "#ffffff";
+      reportDiv.style.maxHeight = "350px";
+      reportDiv.style.overflowY = "auto";
+      reportDiv.style.border = "1px solid #d2d6de";
+      reportDiv.style.padding = "10px 12px";
+      reportDiv.style.fontSize = "12px";
+      reportDiv.style.lineHeight = "1.5";
+      
+      reportDiv.innerHTML = parseMarkdownToHtml(node.config.reportMarkdown);
+      els.nodeForm.appendChild(reportDiv);
+
+      if (node.config.cardType === "dataset" && node.config.classDistributionPlot) {
+        const plotLabel = document.createElement("label");
+        plotLabel.style.marginTop = "10px";
+        plotLabel.innerHTML = "<span>Class Distribution Plot</span>";
+        
+        const plotImg = document.createElement("img");
+        plotImg.src = node.config.classDistributionPlot;
+        plotImg.style.width = "100%";
+        plotImg.style.borderRadius = "3px";
+        plotImg.style.border = "1px solid var(--line-strong)";
+        
+        plotLabel.appendChild(plotImg);
+        els.nodeForm.appendChild(plotLabel);
+      }
+    }
   }
 
   if (window.lucide) window.lucide.createIcons();
 }
 
-function makeSelectField(name, label, value, options, onChange) {
-  const wrapper = makeLabel(label);
-  const select = document.createElement("select");
-  select.name = name;
-  for (const optionItem of options) {
-    const [optionValue, optionLabel, disabled = false] = optionItem;
-    const option = document.createElement("option");
-    option.value = optionValue;
-    option.textContent = optionLabel;
-    option.selected = optionValue === value;
-    option.disabled = disabled;
-    select.appendChild(option);
-  }
-  select.addEventListener("change", () => onChange(select.value));
-  wrapper.appendChild(select);
-  return wrapper;
-}
-
-function runtimeDeviceOptions() {
-  const options = [
-    ["auto", "Auto"],
-    ["cpu", "CPU"],
-  ];
-  for (const device of state.runtimeDevices.devices || []) {
-    const memoryGb = device.memoryMb ? ` ${Math.round(device.memoryMb / 1024)}GB` : "";
-    options.push([device.id, `${device.id.toUpperCase()} ${device.name}${memoryGb}`]);
-  }
-  if (!state.runtimeDevices.devices?.length && state.runtimeDevices.nvidiaGpus?.length) {
-    options.push(["cuda-unavailable", "CUDA unavailable - run install-gpu.ps1", true]);
-  }
-  return options;
-}
-
-function makeTextField(name, label, value, onChange) {
-  const wrapper = makeLabel(label);
-  const input = document.createElement("input");
-  input.type = "text";
-  input.name = name;
-  input.value = String(value ?? "");
-  input.addEventListener("input", () => onChange(input.value));
-  wrapper.appendChild(input);
-  return wrapper;
-}
-
-function makeFilePathField(name, label, value, onChange, options = {}) {
-  const wrapper = makeLabel(label);
-  const row = document.createElement("div");
-  row.className = "file-picker-row";
-  const input = document.createElement("input");
-  input.type = "text";
-  input.name = name;
-  input.value = String(value ?? "");
-  input.placeholder = options.placeholder || "Select an image or video file";
-  input.addEventListener("input", () => onChange(input.value));
-
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "mini-button file-picker-button";
-  button.title = "Browse file";
-  button.innerHTML = '<i data-lucide="folder-open"></i>';
-  button.addEventListener("click", async () => {
-    button.disabled = true;
-    try {
-      const payload = await postJson("/api/file-dialog/open", { kind: options.dialogKind || "vision" });
-      if (!payload.path) return;
-      input.value = payload.path;
-      onChange(payload.path);
-      logEvent("File selected", payload.path);
-    } catch (error) {
-      console.error(error);
-      logEvent("Browse failed", error.message || "Unable to open file picker.");
-    } finally {
-      button.disabled = false;
-    }
-  });
-
-  row.append(input, button);
-  wrapper.appendChild(row);
-  return wrapper;
-}
-
-function makeNumberField(name, label, value, min, max, onChange) {
-  const wrapper = makeLabel(label);
-  const input = document.createElement("input");
-  input.type = "number";
-  input.name = name;
-  input.min = String(min);
-  input.max = String(max);
-  input.value = String(value);
-  input.addEventListener("input", () => onChange(Number(input.value)));
-  wrapper.appendChild(input);
-  return wrapper;
-}
-
-function makeRangeField(name, label, value, min, max, step, onChange) {
-  const wrapper = makeLabel(`${label}: ${Number(value).toFixed(2)}`);
-  const input = document.createElement("input");
-  input.type = "range";
-  input.name = name;
-  input.min = String(min);
-  input.max = String(max);
-  input.step = String(step);
-  input.value = String(value);
-  input.addEventListener("input", () => {
-    wrapper.querySelector("span").textContent = `${label}: ${Number(input.value).toFixed(2)}`;
-    onChange(Number(input.value));
-  });
-  wrapper.appendChild(input);
-  return wrapper;
-}
-
-function makeTextAreaField(name, label, value, onChange) {
-  const wrapper = makeLabel(label);
-  const textarea = document.createElement("textarea");
-  textarea.name = name;
-  textarea.value = value;
-  textarea.addEventListener("input", () => onChange(textarea.value));
-  wrapper.appendChild(textarea);
-  return wrapper;
-}
-
-function makeToggleField(name, label, value, onChange) {
-  const wrapper = document.createElement("label");
-  wrapper.className = "checkbox-row";
-  const text = document.createElement("span");
-  text.textContent = label;
-  const input = document.createElement("input");
-  input.type = "checkbox";
-  input.name = name;
-  input.checked = value;
-  input.addEventListener("change", () => onChange(input.checked));
-  wrapper.append(text, input);
-  return wrapper;
-}
-
-function makeLabel(label) {
-  const wrapper = document.createElement("label");
-  const text = document.createElement("span");
-  text.textContent = label;
-  wrapper.appendChild(text);
-  return wrapper;
-}
-
-async function startWorkflow() {
-  if (state.running) return;
-  setStatus("Starting");
-  updateNodeStatuses("starting");
+async function startPipelineTraining(trainerId, datasetObj, cfg) {
   try {
-    normalizeWorkflow(state.workflow);
+    const trainerNode = getNode(trainerId);
+    if (!trainerNode) return;
+    
+    logEvent("Pipeline starting", `Configuring training for ${cfg.name}...`);
+    
+    const num_classes = datasetObj.classes ? datasetObj.classes.length : 2;
+    let image_size = [224, 224];
+    if (cfg.image_size) {
+      const parts = cfg.image_size.split(",").map(p => parseInt(p.trim()));
+      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        image_size = parts;
+      }
+    }
+    
+    const payload = {
+      name: cfg.name,
+      task_type: cfg.task_type,
+      architecture: cfg.architecture,
+      num_classes: num_classes,
+      batch_size: parseInt(cfg.batch_size) || 8,
+      epochs: parseInt(cfg.epochs) || 5,
+      learning_rate: parseFloat(cfg.learning_rate) || 0.001,
+      image_size: image_size,
+      augmentation_enabled: cfg.augmentation_enabled,
+      early_stopping: cfg.early_stopping,
+      patience: 3,
+    };
+    
+    const pipeRes = await fetch("/pipelines", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    
+    if (!pipeRes.ok) throw new Error("Failed to create pipeline configuration");
+    const jobData = await pipeRes.json();
+    const jobId = jobData.id;
+    
+    trainerNode.config.jobId = jobId;
+    trainerNode.config.status = "pending";
+    trainerNode.config.logs = ["Pipeline created. Linking dataset..."];
+    renderWorkflow();
+    renderInspector();
+    
+    const linkRes = await fetch(`/pipelines/${jobId}/dataset/${datasetObj.id}`, {
+      method: "POST"
+    });
+    if (!linkRes.ok) throw new Error("Failed to link dataset to pipeline");
+    
+    trainerNode.config.logs.push("Dataset linked. Starting training task...");
+    renderInspector();
+    
+    const trainRes = await fetch(`/pipelines/${jobId}/train`, {
+      method: "POST"
+    });
+    if (!trainRes.ok) throw new Error("Failed to initiate training task");
+    
+    trainerNode.config.status = "running";
+    trainerNode.config.logs.push("Training job triggered in background.");
     saveWorkflow();
-    const payload = await postJson("/api/workflow/start", { workflow: state.workflow });
-    renderBackendStatus(payload);
-    startStatusPolling();
+    renderWorkflow();
+    renderInspector();
+    
+    startTrainerPolling(trainerId, jobId);
+    
   } catch (error) {
-    console.error(error);
-    setStatus("Error");
-    updateNodeStatuses("error");
-    logEvent("Start failed", error.message || "Unable to start workflow.");
+    const trainerNode = getNode(trainerId);
+    if (trainerNode) {
+      trainerNode.config.status = "error";
+      trainerNode.config.logs.push(`ERROR: ${error.message}`);
+      saveWorkflow();
+      renderWorkflow();
+      renderInspector();
+    }
+    logEvent("Training failed", error.message);
   }
 }
 
-async function stopWorkflow() {
-  try {
-    const payload = await postJson("/api/workflow/stop", {});
-    renderBackendStatus(payload);
-  } catch (error) {
-    console.error(error);
-    logEvent("Stop failed", error.message || "Unable to stop workflow.");
+function startTrainerPolling(trainerId, jobId) {
+  if (state.pollingTimers[trainerId]) {
+    clearInterval(state.pollingTimers[trainerId]);
   }
-}
-
-async function postJson(url, payload) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const body = await response.json();
-  if (!response.ok) {
-    throw new Error(body.error || `${url} failed.`);
-  }
-  return body;
-}
-
-function startStatusPolling() {
-  if (state.statusPollTimer) return;
-  state.statusPollTimer = window.setInterval(pollBackendStatus, 750);
-}
-
-async function pollBackendStatus() {
-  try {
-    const response = await fetch("/api/workflow/status", { cache: "no-store" });
-    if (!response.ok) return;
-    renderBackendStatus(await response.json());
-  } catch (error) {
-    console.warn(error);
-  }
-}
-
-async function fetchRuntimeDevices() {
-  try {
-    const response = await fetch("/api/runtime/devices", { cache: "no-store" });
-    if (!response.ok) return;
-    state.runtimeDevices = await response.json();
-    if (["detector", "segmenter", "classifier"].includes(selectedNode()?.type)) renderInspector();
-  } catch (error) {
-    console.warn(error);
-  }
-}
-
-async function fetchAppVersion() {
-  let payload = null;
-  try {
-    const response = await fetch("/api/app/version", { cache: "no-store" });
-    if (response.ok) payload = await response.json();
-  } catch (error) {
-    console.warn(error);
-  }
-
-  if (!payload) {
+  
+  const timer = setInterval(async () => {
     try {
-      const response = await fetch("/version.json", { cache: "no-store" });
-      if (response.ok) payload = await response.json();
-    } catch (error) {
-      console.warn(error);
+      const response = await fetch(`/pipelines/${jobId}`);
+      if (!response.ok) return;
+      
+      const data = await response.json();
+      const trainerNode = getNode(trainerId);
+      if (!trainerNode) {
+        clearInterval(timer);
+        return;
+      }
+      
+      trainerNode.config.status = data.status.toLowerCase();
+      trainerNode.config.logs = data.logs || [];
+      trainerNode.config.metrics = data.metrics || {};
+      
+      const isFinished = ["completed", "failed", "success"].includes(trainerNode.config.status);
+      if (isFinished) {
+        clearInterval(timer);
+        delete state.pollingTimers[trainerId];
+        
+        if (trainerNode.config.status === "success" || trainerNode.config.status === "completed") {
+          trainerNode.config.status = "completed";
+          logEvent("Training Complete", `Pipeline ${trainerId} completed training successfully!`);
+        } else {
+          logEvent("Training Failed", `Pipeline ${trainerId} failed during training.`);
+        }
+        
+        saveWorkflow();
+        renderWorkflow();
+      }
+      
+      if (state.selectedNodeId === trainerId) {
+        renderInspector();
+      }
+    } catch (e) {
+      console.warn("Error polling job status:", e);
+    }
+  }, 2000);
+  
+  state.pollingTimers[trainerId] = timer;
+}
+
+function resumeActiveTrainerPolling() {
+  for (const node of state.workflow.nodes) {
+    if (node.type === "trainer" && ["pending", "running"].includes(node.config.status) && node.config.jobId) {
+      logEvent("Resuming check", `Resuming status polling for pipeline job ${node.config.jobId}`);
+      startTrainerPolling(node.id, node.config.jobId);
     }
   }
-
-  if (payload) renderAppVersion(payload);
 }
 
-function renderAppVersion(payload) {
-  const version = payload.version || "0.0.0";
-  state.appVersion = version;
-  els.appVersion.textContent = versionLabel(payload);
-
-  const titleParts = [`${payload.app || "VisoNode"} ${version}`];
-  if (payload.commit) {
-    titleParts.push(`commit ${payload.commit}${payload.dirty ? " + local changes" : ""}`);
+async function runPipelinePrediction(predictorId, jobId, file) {
+  const predictorNode = getNode(predictorId);
+  if (!predictorNode) return;
+  
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("confidence_threshold", 0.35);
+  formData.append("explain_method", predictorNode.config.explain_method || "none");
+  
+  const response = await fetch(`/predict/${jobId}`, {
+    method: "POST",
+    body: formData,
+  });
+  
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Prediction failed");
   }
-  els.appVersion.title = titleParts.join(" | ");
+  
+  const data = await response.json();
+  predictorNode.config.predictions = data;
+  
+  if (data.explanation_image) {
+    predictorNode.config.explanationImage = `data:image/png;base64,${data.explanation_image}`;
+  } else {
+    predictorNode.config.explanationImage = "";
+  }
+  
+  if (data.annotated_image) {
+    predictorNode.config.annotatedImage = `data:image/jpeg;base64,${data.annotated_image}`;
+    saveWorkflow();
+    renderInspector();
+  } else {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      predictorNode.config.annotatedImage = e.target.result;
+      saveWorkflow();
+      renderInspector();
+    };
+    reader.readAsDataURL(file);
+  }
+  
+  // Construct a detailed log summary
+  let logDetail = "Processed inference on test file.";
+  if (data.predictions && Array.isArray(data.predictions) && data.predictions.length > 0) {
+    const top = data.predictions[0];
+    logDetail = `Top class: ${top.class_name} (${top.confidence.toFixed(1)}%)`;
+  } else if (data.detections && Array.isArray(data.detections)) {
+    logDetail = `Detected ${data.detections.length} objects.`;
+    if (data.detections.length > 0) {
+      const summary = data.detections.map(d => `${d.class_name} (${d.confidence.toFixed(1)}%)`).slice(0, 3).join(", ");
+      logDetail += ` (${summary}${data.detections.length > 3 ? '...' : ''})`;
+    }
+  } else if (data.instances && Array.isArray(data.instances)) {
+    logDetail = `Segmented ${data.instances.length} instances.`;
+    if (data.instances.length > 0) {
+      const summary = data.instances.map(ins => {
+        const conf = typeof ins.confidence === 'number' ? (ins.confidence * 100).toFixed(1) : ins.confidence;
+        return `${ins.class_name || ins.class_id} (${conf}%)`;
+      }).slice(0, 3).join(", ");
+      logDetail += ` (${summary}${data.instances.length > 3 ? '...' : ''})`;
+    }
+  }
+  
+  logEvent("Prediction successful", logDetail);
+  saveWorkflow();
 }
 
-function versionLabel(payload) {
-  const version = payload.version || "0.0.0";
-  if (!payload.commit) return `v${version}`;
-  return `v${version}+${payload.commit}${payload.dirty ? ".dirty" : ""}`;
+async function runModelEvaluation(evaluatorId, jobId) {
+  const evaluatorNode = getNode(evaluatorId);
+  if (!evaluatorNode) return;
+  
+  evaluatorNode.config.status = "running";
+  evaluatorNode.config.error = null;
+  evaluatorNode.config.results = null;
+  renderWorkflow();
+  renderInspector();
+  
+  try {
+    logEvent("Evaluation starting", `Triggering evaluation task for model ${jobId}...`);
+    const response = await fetch(`/pipelines/${jobId}/evaluate`);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || "Evaluation failed");
+    }
+    const data = await response.json();
+    evaluatorNode.config.status = "completed";
+    evaluatorNode.config.results = data;
+    logEvent("Evaluation complete", `Successfully evaluated job ${jobId}. Accuracy/mAP: ${(data.accuracy * 100).toFixed(1)}%`);
+  } catch (error) {
+    evaluatorNode.config.status = "error";
+    evaluatorNode.config.error = error.message;
+    logEvent("Evaluation failed", error.message);
+  }
+  saveWorkflow();
+  renderWorkflow();
+  renderInspector();
 }
 
-function renderBackendStatus(payload) {
-  state.running = Boolean(payload.running);
-  setStatus(titleCase(payload.state || "idle"));
-  els.fpsValue.textContent = String(payload.fps || 0);
-  els.objectCount.textContent = String(payload.objectCount || 0);
-  els.deviceValue.textContent = payload.device || "CPU";
-  updateNodeStatuses(payload.state === "error" ? "error" : state.running ? "running" : "idle");
-  if (Array.isArray(payload.events) && payload.events.length) {
-    renderEvents(payload.events);
+async function runRAIAnalysis(raiId, type) {
+  const raiNode = getNode(raiId);
+  if (!raiNode) return;
+  
+  const { datasetNode, trainerNode } = getRAIInput(raiId);
+  
+  raiNode.config.status = "running";
+  raiNode.config.error = null;
+  raiNode.config.reportMarkdown = "";
+  raiNode.config.classDistributionPlot = "";
+  renderWorkflow();
+  renderInspector();
+  
+  try {
+    if (type === "dataset" && datasetNode) {
+      const dsId = datasetNode.config.datasetId;
+      logEvent("RAI Data Card starting", `Validating dataset ${dsId}...`);
+      const response = await fetch(`/responsible-ai/dataset-validation/${dsId}`, {
+        method: "POST"
+      });
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || "Dataset validation failed");
+      }
+      const data = await response.json();
+      raiNode.config.status = "completed";
+      raiNode.config.cardType = "dataset";
+      raiNode.config.reportMarkdown = data.data_card_markdown;
+      if (data.distribution_plot_base64) {
+        raiNode.config.classDistributionPlot = `data:image/png;base64,${data.distribution_plot_base64}`;
+      }
+      logEvent("RAI Analysis complete", `Data Card generated successfully for dataset ${dsId}.`);
+    } else if (type === "model" && trainerNode) {
+      const jobId = trainerNode.config.jobId;
+      logEvent("RAI Model Card starting", `Generating model card for job ${jobId}...`);
+      const response = await fetch(`/pipelines/${jobId}/model-card`);
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || "Model card generation failed");
+      }
+      const data = await response.json();
+      raiNode.config.status = "completed";
+      raiNode.config.cardType = "model";
+      raiNode.config.reportMarkdown = data.model_card_markdown;
+      logEvent("RAI Analysis complete", `Model Card generated successfully for job ${jobId}.`);
+    } else {
+      throw new Error("Invalid RAI configuration or missing connection.");
+    }
+  } catch (error) {
+    raiNode.config.status = "error";
+    raiNode.config.error = error.message;
+    logEvent("RAI Analysis failed", error.message);
   }
-  if (state.running && !state.statusPollTimer) {
-    state.statusPollTimer = window.setInterval(pollBackendStatus, 750);
-  }
-  if (!state.running && state.statusPollTimer) {
-    window.clearInterval(state.statusPollTimer);
-    state.statusPollTimer = null;
+  saveWorkflow();
+  renderWorkflow();
+  renderInspector();
+}
+
+async function fetchAvailableDatasets() {
+  try {
+    const response = await fetch("/datasets/available");
+    if (response.ok) {
+      state.availableDatasets = await response.json();
+    }
+  } catch (error) {
+    console.warn("Failed to fetch available datasets:", error);
   }
 }
 
-function renderEvents(events) {
-  els.eventLog.innerHTML = "";
-  for (const event of events.slice(0, 8)) {
-    const item = document.createElement("li");
-    const time = event.time ? `${event.time} ` : "";
-    item.innerHTML = `<strong>${escapeHtml(time + event.title)}</strong><span>${escapeHtml(event.detail)}</span>`;
-    els.eventLog.appendChild(item);
+function addNodeToCanvas(type, x, y) {
+  const node = makeNode(type, { x, y });
+  state.workflow.nodes.push(node);
+  selectNode(node.id);
+  saveWorkflow();
+  renderWorkflow();
+  renderEdges();
+}
+
+function removeNode(id) {
+  const node = getNode(id);
+  if (!node) return;
+  
+  if (state.pollingTimers[id]) {
+    clearInterval(state.pollingTimers[id]);
+    delete state.pollingTimers[id];
+  }
+  
+  state.workflow.nodes = state.workflow.nodes.filter((item) => item.id !== id);
+  state.workflow.edges = state.workflow.edges.filter(([fromId, toId]) => fromId !== id && toId !== id);
+  
+  if (state.selectedNodeId === id) {
+    state.selectedNodeId = state.workflow.nodes[0]?.id || null;
+  }
+  
+  saveWorkflow();
+  renderWorkflow();
+  renderInspector();
+  renderEdges();
+  logEvent("Node removed", `${node.title} was removed.`);
+}
+
+function removeEdge(index) {
+  const [fromId, toId] = state.workflow.edges[index] || [];
+  state.workflow.edges.splice(index, 1);
+  saveWorkflow();
+  renderEdges();
+  renderInspector();
+  if (fromId && toId) {
+    logEvent("Connection removed", `${getNode(fromId)?.title} -> ${getNode(toId)?.title}`);
   }
 }
 
-function logEvent(title, detail) {
-  const item = document.createElement("li");
-  item.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span>`;
-  els.eventLog.prepend(item);
-  while (els.eventLog.children.length > 8) {
-    els.eventLog.lastChild.remove();
+function connectNodes(fromId, toId) {
+  if (!fromId || !toId || fromId === toId) return;
+  
+  const fromNode = getNode(fromId);
+  const toNode = getNode(toId);
+  if (!fromNode || !toNode) return;
+  
+  if (fromNode.type === "dataset" && !["trainer", "responsible_ai"].includes(toNode.type)) {
+    logEvent("Connection Refused", "Dataset nodes must connect to Trainer or Responsible AI nodes.");
+    return;
   }
+  if (fromNode.type === "model_config" && toNode.type !== "trainer") {
+    logEvent("Connection Refused", "Model Config nodes must connect to Trainer nodes.");
+    return;
+  }
+  if (fromNode.type === "trainer" && !["predictor", "evaluator", "responsible_ai"].includes(toNode.type)) {
+    logEvent("Connection Refused", "Trainer nodes must connect to Predictor, Evaluator, or Responsible AI nodes.");
+    return;
+  }
+  if (fromNode.type === "predictor" && toNode.type !== "responsible_ai") {
+    logEvent("Connection Refused", "Predictor nodes must connect to Responsible AI nodes.");
+    return;
+  }
+  
+  const exists = state.workflow.edges.some(([from, to]) => from === fromId && to === toId);
+  if (exists) return;
+  
+  state.workflow.edges.push([fromId, toId]);
+  saveWorkflow();
+  renderEdges();
+  renderInspector();
+  logEvent("Connection added", `${fromNode.title} &rarr; ${toNode.title}`);
 }
 
 function selectNode(id) {
@@ -1024,85 +1453,52 @@ function selectNodeByType(type) {
   if (node) selectNode(node.id);
 }
 
-function toggleNode(id) {
-  const node = getNode(id);
-  if (!node) return;
-  node.enabled = !node.enabled;
-  renderWorkflow();
-  renderInspector();
-  updateNodeStatuses();
-}
-
-function addNodeToCanvas(type, x, y) {
-  const existing = state.workflow.nodes.find((node) => node.type === type);
-  const rect = els.workflowCanvas.getBoundingClientRect();
-  if (existing) {
-    existing.x = clamp(x, CANVAS_PADDING, rect.width - NODE_WIDTH - CANVAS_PADDING);
-    existing.y = clamp(y, CANVAS_PADDING, rect.height - NODE_HEIGHT - CANVAS_PADDING);
-    selectNode(existing.id);
-    renderEdges();
-    saveWorkflow();
-    return;
+function getTrainerInputs(trainerId) {
+  const incoming = state.workflow.edges.filter(edge => edge[1] === trainerId);
+  let datasetNode = null;
+  let configNode = null;
+  for (const edge of incoming) {
+    const fromNode = getNode(edge[0]);
+    if (!fromNode) continue;
+    if (fromNode.type === "dataset") datasetNode = fromNode;
+    else if (fromNode.type === "model_config") configNode = fromNode;
   }
-
-  const node = makeNode(type, {
-    x: clamp(x, CANVAS_PADDING, rect.width - NODE_WIDTH - CANVAS_PADDING),
-    y: clamp(y, CANVAS_PADDING, rect.height - NODE_HEIGHT - CANVAS_PADDING),
-  });
-  state.workflow.nodes.push(node);
-  selectNode(node.id);
-  renderEdges();
-  saveWorkflow();
+  return { datasetNode, configNode };
 }
 
-function removeNode(id) {
-  const node = getNode(id);
-  if (!node) return;
-  state.workflow.nodes = state.workflow.nodes.filter((item) => item.id !== id);
-  state.workflow.edges = state.workflow.edges.filter(([fromId, toId]) => fromId !== id && toId !== id);
-  if (state.selectedNodeId === id) {
-    state.selectedNodeId = state.workflow.nodes[0]?.id || null;
+function getPredictorInput(predictorId) {
+  const edge = state.workflow.edges.find(edge => edge[1] === predictorId);
+  if (!edge) return null;
+  return getNode(edge[0]);
+}
+
+function getEvaluatorInput(evaluatorId) {
+  const edge = state.workflow.edges.find(edge => edge[1] === evaluatorId);
+  if (!edge) return null;
+  return getNode(edge[0]);
+}
+
+function getRAIInput(raiId) {
+  const incoming = state.workflow.edges.filter(edge => edge[1] === raiId);
+  let datasetNode = null;
+  let trainerNode = null;
+  let predictorNode = null;
+  for (const edge of incoming) {
+    const fromNode = getNode(edge[0]);
+    if (!fromNode) continue;
+    if (fromNode.type === "dataset") datasetNode = fromNode;
+    else if (fromNode.type === "trainer") trainerNode = fromNode;
+    else if (fromNode.type === "predictor") predictorNode = fromNode;
   }
-  updateNodeStatuses();
-  renderWorkflow();
-  renderInspector();
-  renderEdges();
-  saveWorkflow();
-  logEvent("Node removed", `${node.title} was removed from the workflow.`);
-}
-
-function removeEdge(index) {
-  const [fromId, toId] = state.workflow.edges[index] || [];
-  state.workflow.edges.splice(index, 1);
-  updateNodeStatuses();
-  renderEdges();
-  saveWorkflow();
-  if (fromId && toId) {
-    logEvent("Connection removed", `${edgeLabel(fromId)} -> ${edgeLabel(toId)}`);
-  }
-}
-
-function connectNodes(fromId, toId) {
-  if (!fromId || !toId || fromId === toId) return;
-  const exists = state.workflow.edges.some(([from, to]) => from === fromId && to === toId);
-  if (exists) return;
-  state.workflow.edges.push([fromId, toId]);
-  updateNodeStatuses();
-  renderEdges();
-  saveWorkflow();
-  logEvent("Connection added", `${edgeLabel(fromId)} -> ${edgeLabel(toId)}`);
-}
-
-function edgeLabel(id) {
-  return getNode(id)?.title || id;
-}
-
-function selectedNode() {
-  return getNode(state.selectedNodeId);
+  return { datasetNode, trainerNode, predictorNode };
 }
 
 function getNode(id) {
   return state.workflow.nodes.find((node) => node.id === id);
+}
+
+function selectedNode() {
+  return getNode(state.selectedNodeId);
 }
 
 function nodeElement(id) {
@@ -1120,58 +1516,10 @@ function portPoint(nodeId, port) {
       y: portRect.top + portRect.height / 2 - canvasRect.top,
     };
   }
-
   return {
     x: node.x + (port === "out" ? NODE_WIDTH : 0),
     y: node.y + NODE_PORT_Y,
   };
-}
-
-function isGraphNodeActive(id) {
-  const node = getNode(id);
-  if (!node?.enabled) return false;
-  if (id === INPUT_NODE_ID) return true;
-  return hasActivePath(INPUT_NODE_ID, id);
-}
-
-function hasActivePath(fromId, toId) {
-  const fromNode = getNode(fromId);
-  const toNode = getNode(toId);
-  if (!fromNode?.enabled || !toNode?.enabled) return false;
-  if (fromId === toId) return true;
-
-  const visited = new Set();
-  const queue = [fromId];
-  while (queue.length) {
-    const currentId = queue.shift();
-    if (currentId === toId) return true;
-    if (visited.has(currentId)) continue;
-    visited.add(currentId);
-
-    for (const [edgeFromId, edgeToId] of state.workflow.edges) {
-      if (edgeFromId !== currentId || visited.has(edgeToId)) continue;
-      const nextNode = getNode(edgeToId);
-      if (nextNode?.enabled) queue.push(edgeToId);
-    }
-  }
-  return false;
-}
-
-function setStatus(status) {
-  els.workflowStatus.textContent = status;
-}
-
-function updateNodeStatuses(status = null) {
-  for (const node of state.workflow.nodes) {
-    if (node.id !== INPUT_NODE_ID && !isGraphNodeActive(node.id)) {
-      node.status = "unlinked";
-    } else if (status) {
-      node.status = status;
-    } else {
-      node.status = state.running ? "running" : "idle";
-    }
-  }
-  renderWorkflow();
 }
 
 function startDrag(event, nodeId) {
@@ -1259,10 +1607,6 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
-function titleCase(value) {
-  return String(value).slice(0, 1).toUpperCase() + String(value).slice(1);
-}
-
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -1271,99 +1615,86 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-/* ===== Terminal ===== */
-function startTerminalPolling() {
-  if (state.terminalPollTimer) return;
-  pollTerminal();
-  state.terminalPollTimer = window.setInterval(pollTerminal, 500);
-}
+function parseTables(text) {
+  const lines = text.split("\n");
+  let inTable = false;
+  let tableRows = [];
+  let result = [];
 
-async function pollTerminal() {
-  try {
-    const response = await fetch(`/api/terminal/logs?since=${state.terminalCursor}`, { cache: "no-store" });
-    if (!response.ok) {
-      setTerminalStatus("disconnected", "Disconnected");
-      return;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith("|") && line.endsWith("|")) {
+      inTable = true;
+      tableRows.push(line);
+    } else {
+      if (inTable) {
+        const htmlTable = renderHtmlTable(tableRows);
+        result.push(htmlTable);
+        tableRows = [];
+        inTable = false;
+      }
+      result.push(lines[i]);
     }
-    const payload = await response.json();
-    setTerminalStatus("connected", "Connected");
-    if (typeof payload.cursor === "number") state.terminalCursor = payload.cursor;
-    if (Array.isArray(payload.lines) && payload.lines.length) {
-      appendTerminalLines(payload.lines);
-    }
-  } catch (error) {
-    setTerminalStatus("disconnected", "Disconnected");
   }
+  if (inTable && tableRows.length > 0) {
+    result.push(renderHtmlTable(tableRows));
+  }
+  return result.join("\n");
 }
 
-async function openExternalTerminal() {
-  try {
-    const response = await fetch("/api/terminal/open", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+function renderHtmlTable(rows) {
+  if (rows.length < 2) return rows.join("\n");
+  const headers = rows[0].split("|").slice(1, -1).map(h => h.trim());
+  const dataRows = rows.slice(2);
+  
+  let html = `<table style="width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 11.5px; border: 1px solid #ddd;">`;
+  html += `<thead><tr style="background: #f4f4f4; border-bottom: 2px solid #ddd;">`;
+  headers.forEach(h => {
+    html += `<th style="padding: 6px 8px; border: 1px solid #ddd; font-weight: 700; text-align: left;">${h}</th>`;
+  });
+  html += `</tr></thead><tbody>`;
+  
+  dataRows.forEach(row => {
+    const cells = row.split("|").slice(1, -1).map(c => c.trim());
+    html += `<tr style="border-bottom: 1px solid #eee;">`;
+    cells.forEach(c => {
+      html += `<td style="padding: 6px 8px; border: 1px solid #ddd;">${c}</td>`;
     });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(payload.error || "Could not open external terminal.");
-    }
-    pollTerminal();
-  } catch (error) {
-    appendTerminalLines([
-      {
-        time: new Date().toLocaleTimeString([], { hour12: false }),
-        text: `ERROR: ${error.message}`,
-      },
-    ]);
+    html += `</tr>`;
+  });
+  
+  html += `</tbody></table>`;
+  return html;
+}
+
+function parseMarkdownToHtml(md) {
+  if (!md) return "";
+  let processed = parseTables(md);
+  return processed
+    .replace(/^# (.*$)/gim, '<h3 style="margin-top: 15px; margin-bottom: 5px; border-bottom: 1px solid #eee; padding-bottom: 3px; font-size: 14px; font-weight: 700; color: #333;">$1</h3>')
+    .replace(/^## (.*$)/gim, '<h4 style="margin-top: 12px; margin-bottom: 5px; font-size: 13px; font-weight: 700; color: #444;">$1</h4>')
+    .replace(/^### (.*$)/gim, '<h5 style="margin-top: 10px; margin-bottom: 3px; font-size: 12px; font-weight: 700; color: #555;">$1</h5>')
+    .replace(/^\* (.*$)/gim, '<li style="margin-left: 15px; font-size: 11.5px; margin-bottom: 3px;">$1</li>')
+    .replace(/^- (.*$)/gim, '<li style="margin-left: 15px; font-size: 11.5px; margin-bottom: 3px;">$1</li>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/`(.*?)`/g, '<code style="background: #f4f4f4; padding: 2px 4px; border-radius: 3px; font-size: 90%; font-family: monospace;">$1</code>')
+    .replace(/\n/g, '<br>');
+}
+
+function logEvent(title, detail) {
+  const item = document.createElement("li");
+  item.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span>`;
+  els.eventLog.prepend(item);
+  while (els.eventLog.children.length > 8) {
+    els.eventLog.lastChild.remove();
   }
 }
 
-function appendTerminalLines(lines) {
-  const fragment = document.createDocumentFragment();
-  for (const line of lines) {
-    const row = document.createElement("div");
-    row.className = `term-line ${classifyTerminalLine(line.text)}`;
-    row.innerHTML = `<span class="term-time">${escapeHtml(line.time || "")}</span><span class="term-text">${escapeHtml(line.text)}</span>`;
-    fragment.appendChild(row);
-  }
-  els.terminalBody.appendChild(fragment);
-  while (els.terminalBody.childElementCount > 800) {
-    els.terminalBody.firstElementChild.remove();
-  }
-  if (state.terminalAutoScroll) {
-    els.terminalBody.scrollTop = els.terminalBody.scrollHeight;
-  }
-}
-
-function classifyTerminalLine(text) {
-  const value = String(text || "");
-  if (/^error\b|^err\b|: error|exception/i.test(value)) return "err";
-  if (/^warn\b|warning/i.test(value)) return "warn";
-  if (/loaded|running|opened|workflow/i.test(value)) return "ok";
-  return "";
-}
-
-function setTerminalStatus(state, label) {
-  if (!els.terminalStatus) return;
-  els.terminalStatus.dataset.state = state;
-  els.terminalStatus.textContent = label;
-}
-
-function toggleTerminal() {
-  const collapsed = els.terminalPanel.dataset.collapsed === "true";
-  els.terminalPanel.dataset.collapsed = collapsed ? "false" : "true";
-  if (!collapsed) return;
-  state.terminalAutoScroll = true;
-  els.terminalBody.scrollTop = els.terminalBody.scrollHeight;
-}
-
-/* ===== Context menu ===== */
 function showContextMenu(clientX, clientY, nodeId) {
   const node = getNode(nodeId);
   if (!node) return;
   state.contextMenuNodeId = nodeId;
-  const toggleLabel = els.contextMenu.querySelector('[data-label="toggle"]');
-  if (toggleLabel) toggleLabel.textContent = node.enabled ? "Disable" : "Enable";
-
   els.contextMenu.hidden = false;
   const rect = els.contextMenu.getBoundingClientRect();
   const x = Math.min(clientX, window.innerWidth - rect.width - 6);
@@ -1382,17 +1713,186 @@ function hideContextMenu() {
 function renameNode(nodeId) {
   const node = getNode(nodeId);
   if (!node) return;
-  const current = node.customTitle || node.title || "";
+  const current = node.title || "";
   const next = window.prompt("Rename node", current);
   if (next === null) return;
   const trimmed = next.trim();
-  if (!trimmed) {
-    delete node.customTitle;
-  } else {
-    node.customTitle = trimmed;
+  if (trimmed) {
+    node.title = trimmed;
+    renderWorkflow();
+    renderInspector();
+    saveWorkflow();
   }
-  node.title = node.customTitle || NODE_BLUEPRINTS[node.type]?.title || node.title;
-  renderWorkflow();
-  renderInspector();
-  saveWorkflow();
+}
+
+function makeSelectField(name, label, value, options, onChange) {
+  const wrapper = makeLabel(label);
+  const select = document.createElement("select");
+  select.name = name;
+  for (const [optionValue, optionLabel] of options) {
+    const option = document.createElement("option");
+    option.value = optionValue;
+    option.textContent = optionLabel;
+    option.selected = optionValue === value;
+    select.appendChild(option);
+  }
+  select.addEventListener("change", () => onChange(select.value));
+  wrapper.appendChild(select);
+  return wrapper;
+}
+
+function makeTextField(name, label, value, onChange) {
+  const wrapper = makeLabel(label);
+  const input = document.createElement("input");
+  input.type = "text";
+  input.name = name;
+  input.value = String(value ?? "");
+  input.addEventListener("input", () => onChange(input.value));
+  wrapper.appendChild(input);
+  return wrapper;
+}
+
+function makeNumberField(name, label, value, min, max, onChange, step = 1) {
+  const wrapper = makeLabel(label);
+  const input = document.createElement("input");
+  input.type = "number";
+  input.name = name;
+  input.min = String(min);
+  input.max = String(max);
+  input.step = String(step);
+  input.value = String(value);
+  input.addEventListener("input", () => onChange(Number(input.value)));
+  wrapper.appendChild(input);
+  return wrapper;
+}
+
+function makeToggleField(name, label, value, onChange) {
+  const wrapper = document.createElement("label");
+  wrapper.className = "checkbox-row";
+  const text = document.createElement("span");
+  text.textContent = label;
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.name = name;
+  input.checked = value;
+  input.addEventListener("change", () => onChange(input.checked));
+  wrapper.append(text, input);
+  return wrapper;
+}
+
+function makeLabel(label) {
+  const wrapper = document.createElement("label");
+  const text = document.createElement("span");
+  text.textContent = label;
+  wrapper.appendChild(text);
+  return wrapper;
+}
+
+function drawConfusionMatrix(samples, classes) {
+  const size = classes.length;
+  const matrix = Array.from({ length: size }, () => Array(size).fill(0));
+  const rowTotals = Array(size).fill(0);
+  
+  samples.forEach(s => {
+    const trueIdx = classes.indexOf(s.true_label);
+    const predIdx = classes.indexOf(s.predicted_label);
+    if (trueIdx !== -1 && predIdx !== -1) {
+      matrix[trueIdx][predIdx]++;
+      rowTotals[trueIdx]++;
+    }
+  });
+
+  let html = `
+    <div class="confusion-matrix-wrapper" style="margin-top: 15px;">
+      <div style="font-weight: 700; font-size: 11px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px;">Confusion Matrix Heatmap</div>
+      <div style="overflow-x: auto; max-width: 100%; border: 1px solid #ddd; border-radius: var(--radius); background: #ffffff;">
+        <table style="border-collapse: collapse; margin: 10px auto; font-size: 10px; text-align: center;">
+          <thead>
+            <tr>
+              <th style="border: none; padding: 2px;"></th>
+              <th style="border: none; padding: 2px; font-weight: 700; color: var(--muted);" colspan="${size + 1}">Predicted Class</th>
+            </tr>
+            <tr>
+              <th style="border: none; padding: 2px;"></th>
+              <th style="border: none; padding: 2px;"></th>
+  `;
+  
+  classes.forEach(c => {
+    html += `<th style="border: 1px solid #ddd; padding: 4px 6px; font-weight: 600; min-width: 45px; max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(c)}">${escapeHtml(c.slice(0, 6))}</th>`;
+  });
+  html += `
+            </tr>
+          </thead>
+          <tbody>
+  `;
+  
+  for (let r = 0; r < size; r++) {
+    html += `<tr>`;
+    if (r === 0) {
+      html += `<td style="border: none; padding: 4px; font-weight: 700; color: var(--muted); vertical-align: middle; width: 15px; white-space: nowrap; writing-mode: vertical-rl; transform: rotate(180deg);" rowspan="${size}">True Class</td>`;
+    }
+    html += `<td style="border: 1px solid #ddd; padding: 4px 6px; font-weight: 600; text-align: right; max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #fafafa;" title="${escapeHtml(classes[r])}">${escapeHtml(classes[r].slice(0, 6))}</td>`;
+    
+    for (let c = 0; c < size; c++) {
+      const val = matrix[r][c];
+      const rowTotal = rowTotals[r] || 1;
+      const pct = val / rowTotal;
+      const bg = val > 0 ? `rgba(60, 141, 188, ${0.1 + pct * 0.9})` : '#ffffff';
+      const color = pct > 0.5 ? '#ffffff' : '#333333';
+      html += `<td style="border: 1px solid #ddd; padding: 6px; background-color: ${bg}; color: ${color}; font-weight: 700;" title="True: ${escapeHtml(classes[r])}, Pred: ${escapeHtml(classes[c])} (${val} times)">${val}</td>`;
+    }
+    html += `</tr>`;
+  }
+  
+  html += `
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  
+  return html;
+}
+
+function drawClassMetricsPlot(classMetrics, taskType) {
+  let html = `
+    <div class="class-metrics-wrapper" style="margin-top: 15px;">
+      <div style="font-weight: 700; font-size: 11px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px;">
+        ${taskType === "object_detection" ? "Average Precision (AP) per Class" : "F1-Score per Class"}
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+  `;
+  
+  classMetrics.forEach(m => {
+    const score = m.f1_score; 
+    const pct = (score * 100).toFixed(1);
+    
+    let progressBg = "var(--primary)";
+    if (score < 0.5) {
+      progressBg = "var(--danger)";
+    } else if (score < 0.75) {
+      progressBg = "var(--warning)";
+    } else {
+      progressBg = "var(--ok)";
+    }
+    
+    html += `
+      <div style="font-size: 11.5px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+          <span style="font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 220px;" title="${escapeHtml(m.class_name)}">${escapeHtml(m.class_name)}</span>
+          <span style="font-weight: 700; color: #555;">${pct}%</span>
+        </div>
+        <div style="background: #e9ecef; border-radius: 3px; height: 6px; width: 100%; overflow: hidden; border: 1px solid #ddd;">
+          <div style="background: ${progressBg}; width: ${pct}%; height: 100%; transition: width 0.3s ease;"></div>
+        </div>
+      </div>
+    `;
+  });
+  
+  html += `
+      </div>
+    </div>
+  `;
+  
+  return html;
 }

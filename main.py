@@ -3139,3 +3139,64 @@ async def validate_dataset(dataset_id: str):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Validation failed: {str(e)}")
 
+
+# ==================== Visual Pipeline Builder Endpoints ====================
+
+WORKFLOW_STATE_FILE = Path(__file__).resolve().parent / "logs" / "workflow_state.json"
+
+@app.get("/api/workflow/canvas")
+async def get_workflow_canvas():
+    """Get the currently saved visual workflow state"""
+    if WORKFLOW_STATE_FILE.exists():
+        try:
+            with open(WORKFLOW_STATE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    # Return default empty workflow if not found
+    return {"nodes": [], "edges": []}
+
+@app.post("/api/workflow/canvas")
+async def save_workflow_canvas(state: dict):
+    """Save the visual workflow state"""
+    try:
+        WORKFLOW_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(WORKFLOW_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+        return {"status": "success", "message": "Workflow saved"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save workflow: {str(e)}")
+
+@app.get("/api/workflow/trained_models")
+async def get_trained_models():
+    """Get all completed trained models grouped by task type"""
+    jobs = job_manager.list_jobs()
+    trained_models = {
+        "image_classification": [],
+        "object_detection": [],
+        "image_segmentation": []
+    }
+    
+    for job in jobs:
+        # Check if job status is completed/success
+        status_lower = str(job.status).lower()
+        if "completed" in status_lower or "success" in status_lower:
+            task_type = str(job.pipeline_config.task_type)
+            if task_type in trained_models:
+                trained_models[task_type].append({
+                    "id": job.id,
+                    "name": job.pipeline_config.name,
+                    "architecture": str(job.pipeline_config.architecture),
+                    "created_at": job.created_at.isoformat() if hasattr(job.created_at, "isoformat") else str(job.created_at),
+                    "metrics": job.metrics
+                })
+                
+    return trained_models
+
+# Expose Visual Pipeline Builder client assets as static folder
+from fastapi.staticfiles import StaticFiles
+workflow_web_dir = Path(__file__).resolve().parent / "workflow_web"
+if workflow_web_dir.exists():
+    app.mount("/workflow", StaticFiles(directory=str(workflow_web_dir), html=True), name="workflow")
+
+
