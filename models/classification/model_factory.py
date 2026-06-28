@@ -5,6 +5,7 @@ This module provides functionality to create various pre-trained models for imag
 import torch
 import torch.nn as nn
 from typing import Optional
+import torchvision.models as models
 
 def create_model(architecture: str, num_classes: int, pretrained: bool = True) -> nn.Module:
     """
@@ -21,19 +22,19 @@ def create_model(architecture: str, num_classes: int, pretrained: bool = True) -
     weights = 'IMAGENET1K_V1' if pretrained else None
     
     if architecture == "resnet18":
-        model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', weights=weights)
+        model = models.resnet18(weights=weights)
         model.fc = nn.Linear(model.fc.in_features, num_classes)
     elif architecture == "resnet50":
-        model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet50', weights=weights)
+        model = models.resnet50(weights=weights)
         model.fc = nn.Linear(model.fc.in_features, num_classes)
     elif architecture == "vgg16":
-        model = torch.hub.load('pytorch/vision:v0.10.0', 'vgg16', weights=weights)
+        model = models.vgg16(weights=weights)
         model.classifier[6] = nn.Linear(model.classifier[6].in_features, num_classes)
     elif architecture == "efficientnet":
-        model = torch.hub.load('pytorch/vision:v0.10.0', 'efficientnet_b0', weights=weights)
+        model = models.efficientnet_b0(weights=weights)
         model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
     elif architecture == "mobilenet":
-        model = torch.hub.load('pytorch/vision:v0.10.0', 'mobilenet_v2', weights=weights)
+        model = models.mobilenet_v2(weights=weights)
         model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
     else:
         raise ValueError(f"Unsupported architecture: {architecture}")

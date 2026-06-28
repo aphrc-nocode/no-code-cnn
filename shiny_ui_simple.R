@@ -144,9 +144,11 @@ start_mlflow <- function() {
   })
 }
 
-list_all_jobs <- function() {
+list_all_jobs <- function(project_id = NULL) {
   tryCatch({
-    response <- make_request(paste0(API_URL, "/pipelines"))
+    url <- paste0(API_URL, "/pipelines")
+    if (!is.null(project_id) && nchar(project_id) > 0) url <- paste0(url, "?project_id=", URLencode(project_id))
+    response <- make_request(url)
     if (response$status == 200) {
       jobs <- fromJSON(response$content, simplifyVector = FALSE)
       
@@ -231,9 +233,11 @@ format_jobs_for_dt <- function(jobs_df) {
   return(jobs_df)
 }
 
-list_trained_models <- function() {
+list_trained_models <- function(project_id = NULL) {
   tryCatch({
-    response <- make_request(paste0(API_URL, "/pipelines"))
+    url <- paste0(API_URL, "/pipelines")
+    if (!is.null(project_id) && nchar(project_id) > 0) url <- paste0(url, "?project_id=", URLencode(project_id))
+    response <- make_request(url)
     if (response$status == 200) {
       jobs <- fromJSON(response$content, simplifyVector = FALSE)
       
@@ -276,12 +280,29 @@ list_trained_models <- function() {
         metrics <- job$metrics
         accuracy <- "N/A"
         loss <- "N/A"
-        if (is.list(metrics)) {
+        
+        # Try to get from metrics
+        if (is.list(metrics) && length(metrics) > 0) {
           acc_val <- metrics$accuracy %||% metrics$val_acc %||% metrics$val_accuracy %||% metrics$train_acc %||% metrics$map_50
           loss_val <- metrics$loss %||% metrics$val_loss %||% metrics$train_loss
           
           if (!is.null(acc_val)) accuracy <- sprintf("%.4f", as.numeric(acc_val))
           if (!is.null(loss_val)) loss <- sprintf("%.4f", as.numeric(loss_val))
+        }
+        
+        # Fallback to history
+        if ((accuracy == "N/A" || loss == "N/A") && is.list(job$history) && length(job$history) > 0) {
+          last_epoch <- job$history[[length(job$history)]]
+          
+          if (accuracy == "N/A") {
+            acc_val <- last_epoch$val_accuracy %||% last_epoch$val_acc %||% last_epoch$train_accuracy %||% last_epoch$train_acc %||% last_epoch$accuracy
+            if (!is.null(acc_val)) accuracy <- sprintf("%.4f", as.numeric(acc_val))
+          }
+          
+          if (loss == "N/A") {
+            loss_val <- last_epoch$val_loss %||% last_epoch$train_loss %||% last_epoch$loss
+            if (!is.null(loss_val)) loss <- sprintf("%.4f", as.numeric(loss_val))
+          }
         }
 
         
@@ -290,9 +311,7 @@ list_trained_models <- function() {
           "<button class='btn btn-primary btn-xs' onclick=\"Shiny.setInputValue('view_model_card_id', '", id, "', {priority: 'event'})\">",
           "<i class='fa fa-file-text'></i> Model Card</button> ",
           "<button class='btn btn-info btn-xs' onclick=\"Shiny.setInputValue('view_curves_id', '", id, "', {priority: 'event'})\">",
-          "<i class='fa fa-chart-line'></i> Curves</button> ",
-          "<button class='btn btn-success btn-xs' onclick=\"Shiny.setInputValue('eval_model_id', '", id, "', {priority: 'event'})\">",
-          "<i class='fa fa-check-double'></i> Evaluate</button>"
+          "<i class='fa fa-chart-line'></i> Curves</button>"
         )
         
         return(list(ID = id, Name = name, Architecture = arch, Task = task, Epochs = epochs, Accuracy = accuracy, Loss = loss, Actions = actions_html))
@@ -318,10 +337,11 @@ list_trained_models <- function() {
   })
 }
 
-list_available_datasets <- function() {
+list_available_datasets <- function(project_id = NULL) {
   tryCatch({
     # Debug: Show the API URL being called
     api_endpoint <- paste0(API_URL, "/datasets/available")
+    if (!is.null(project_id) && nchar(project_id) > 0) api_endpoint <- paste0(api_endpoint, "?project_id=", URLencode(project_id))
     cat("DEBUG: Calling API endpoint:", api_endpoint, "\n")
     
     response <- make_request(api_endpoint)
@@ -531,7 +551,9 @@ delete_job <- function(job_id) {
 
 get_jobs_for_dropdown <- function(status_filter = NULL) {
   tryCatch({
-    response <- make_request(paste0(API_URL, "/pipelines"))
+    url <- paste0(API_URL, "/pipelines")
+    if (!is.null(project_id) && nchar(project_id) > 0) url <- paste0(url, "?project_id=", URLencode(project_id))
+    response <- make_request(url)
     if (response$status == 200) {
       jobs <- fromJSON(response$content, simplifyVector = FALSE)
       
@@ -713,19 +735,7 @@ generate_model_card <- function(job_id) {
 ui <- dashboardPage(
   dashboardHeader(title = "No-Code AI Platform"),
   
-  dashboardSidebar(
-    sidebarMenu(id = "sidebarMenu",
-      menuItem("Analytics", tabName = "dashboard", icon = icon("chart-line"), selected = TRUE),
-      menuItem("Visual Pipeline Builder", tabName = "workflow", icon = icon("project-diagram")),
-      menuItem("Datasets", tabName = "datasets", icon = icon("database")),
-      menuItem("Train Model", tabName = "train", icon = icon("cog")),
-      menuItem("Trained Models", tabName = "models", icon = icon("brain")),
-      menuItem("Model Evaluation", tabName = "evaluation", icon = icon("chart-bar")),
-      menuItem("Make Predictions", tabName = "predict", icon = icon("eye")),
-      menuItem("View Jobs", tabName = "jobs", icon = icon("list")),
-      menuItem("Delete Job", tabName = "delete", icon = icon("trash"))
-    )
-  ),
+  dashboardSidebar(disable = TRUE),
   
   dashboardBody(
     tags$head(
@@ -1277,533 +1287,132 @@ ui <- dashboardPage(
       "))
     ),
     
-    tabItems(
-      # Visual Pipeline Builder Tab
-      tabItem(tabName = "workflow",
-        div(style = "padding: 10px;",
-          h2("Visual Pipeline Builder", style = "margin-top: 0; margin-bottom: 20px; font-weight: bold; color: #1d1d1f;"),
-          p("Design, configure, train, and test your deep learning pipelines visually.", style = "color: #555; margin-bottom: 15px;"),
-          uiOutput("workflow_iframe_ui")
-        )
-      ),
-      
-      # Dashboard Tab (Analytics)
-      tabItem(tabName = "dashboard",
-        div(style = "padding: 10px;",
-          h2("Platform Analytics", style = "margin-top: 0; margin-bottom: 20px; font-weight: bold; color: #1d1d1f;"),
-          fluidRow(
-            valueBoxOutput("stat_total_datasets", width = 3),
-            valueBoxOutput("stat_trained_models", width = 3),
-            valueBoxOutput("stat_active_jobs", width = 3),
-            valueBoxOutput("stat_failed_jobs", width = 3)
-          ),
-          br(),
-          fluidRow(
-            box(
-              title = "Model Distributions", status = "primary", solidHeader = TRUE, width = 6,
-              plotOutput("stat_arch_plot", height = "300px")
-            ),
-            box(
-              title = "System Controls", status = "info", solidHeader = TRUE, width = 6,
-              actionButton("check_status", "Check API Status", class = "btn-primary"),
-              actionButton("start_mlflow", "Start MLflow Server", class = "btn-info"),
-              br(), br(),
-              verbatimTextOutput("api_status"),
-              verbatimTextOutput("mlflow_output")
-            )
-          ),
-          fluidRow(
-            box(
-              title = "All Jobs Overview", status = "success", solidHeader = TRUE, width = 12,
-              actionButton("refresh_dashboard_jobs", "Refresh Jobs List", class = "btn-success"),
-              br(), br(),
-              DT::dataTableOutput("dashboard_jobs_table")
-            )
-          )
-        )
-      ),
-      
-      # Create Pipeline Tab
-      tabItem(tabName = "create",
-        fluidRow(
-          box(
-            title = "Create New Pipeline", status = "primary", solidHeader = TRUE, width = 12,
-            fluidRow(
-              column(6,
-                textInput("pipeline_name", "Pipeline Name", value = "My Image Classifier"),
-                selectInput("task_type", "Task Type", 
-                           choices = list("Image Classification" = "image_classification",
-                                        "Object Detection" = "object_detection"),
-                           selected = "image_classification"),
-                selectInput("architecture", "Model Architecture",
-                           choices = list("ResNet-18" = "resnet18",
-                                        "ResNet-50" = "resnet50",
-                                        "VGG-16" = "vgg16",
-                                        "MobileNet" = "mobilenet",
-                                        "EfficientNet" = "efficientnet"),
-                           selected = "resnet18"),
-                numericInput("num_classes", "Number of Classes", value = 2, min = 2, max = 1000)
-              ),
-              column(6,
-                numericInput("batch_size", "Batch Size", value = 8, min = 1, max = 128),
-                numericInput("epochs", "Epochs", value = 5, min = 1, max = 1000),
-                numericInput("learning_rate", "Learning Rate", value = 0.001, min = 0.0001, max = 1, step = 0.0001),
-                textInput("image_size", "Image Size (width, height)", value = "224, 224")
-              )
-            ),
-            fluidRow(
-              column(6,
-                checkboxInput("augmentation", "Enable Data Augmentation", value = TRUE)
-              ),
-              column(6,
-                checkboxInput("early_stopping", "Enable Early Stopping", value = TRUE)
-              )
-            ),
-            br(),
-            actionButton("create_pipeline", "Create Pipeline", class = "btn-primary btn-lg"),
-            br(), br(),
-            verbatimTextOutput("create_output")
-          )
-        )
-      ),
-      
-      # Train Model Tab (Create ML Style Unified Page)
-      tabItem(tabName = "train",
-        # Top toolbar
-        fluidRow(
-          column(12,
-            div(class = "createml-train-btn-container",
-              div(style = "display: flex; align-items: center; gap: 15px; flex-grow: 1;",
-                selectInput("train_selected_job", "Selected Pipeline / Job:", choices = list(), width = "350px"),
-                actionButton("refresh_train_jobs", "", icon = icon("sync"), class = "btn-default", style = "margin-top: 5px; height: 34px;"),
-                actionButton("train_create_new_btn", "+ New Pipeline", class = "btn-info", style = "margin-top: 5px; height: 34px;")
-              ),
-              div(style = "display: flex; align-items: center; gap: 10px;",
-                span(style = "font-weight: bold; color: #1d1d1f;", "Train"),
-                uiOutput("train_play_button_ui")
-              )
-            )
-          )
-        ),
-        
-        # Data Cards Split Pane
-        fluidRow(
-          column(12,
-            h3("Data", style = "margin-top: 0; font-family: -apple-system, sans-serif; font-weight: 600; color: #1d1d1f; margin-bottom: 15px;"),
-            div(class = "createml-data-cards",
-              # Training Card
-              div(class = "createml-card",
-                div(class = "createml-card-title", "Training Data"),
-                div(class = "createml-card-body",
-                  div(class = "createml-card-main-val", textOutput("train_dataset_classes_text", inline = TRUE)),
-                  div(class = "createml-card-sub-val", textOutput("train_dataset_items_text", inline = TRUE))
-                ),
-                div(class = "createml-card-selector",
-                  selectInput("train_dataset_select", NULL, choices = list())
-                )
-              ),
-              # Validation Card
-              div(class = "createml-card",
-                div(class = "createml-card-title", "Validation Data"),
-                div(class = "createml-card-body",
-                  div(class = "createml-card-main-val", "Auto"),
-                  div(class = "createml-card-sub-val", "Split from Training Data")
-                ),
-                div(class = "createml-card-selector",
-                  selectInput("train_val_select", NULL, choices = c("Automatic Split (10%)" = "auto_10", "Automatic Split (20%)" = "auto_20", "No Validation split" = "none"))
-                )
-              ),
-              # Testing Card
-              div(class = "createml-card",
-                div(class = "createml-card-title", "Testing Data"),
-                div(class = "createml-card-body",
-                  div(class = "createml-card-main-val", "Auto"),
-                  div(class = "createml-card-sub-val", "10% held out split")
-                ),
-                div(class = "createml-card-selector",
-                  selectInput("train_test_select", NULL, choices = c("Automatic Split (10%)" = "auto_10", "Automatic Split (20%)" = "auto_20", "No Testing split" = "none"))
-                )
-              )
-            )
-          )
-        ),
-        
-        # Parameters Section
-        fluidRow(
-          column(12,
-            div(class = "createml-params-box",
-              h3("Parameters", style = "margin-top: 0; font-family: -apple-system, sans-serif; font-weight: 600; color: #1d1d1f; margin-bottom: 20px;"),
-              fluidRow(
-                column(4,
-                  selectInput("train_arch_select", "Algorithm", 
-                              choices = list("ResNet-18" = "resnet18",
-                                           "ResNet-50" = "resnet50",
-                                           "VGG-16" = "vgg16",
-                                           "MobileNet" = "mobilenet",
-                                           "EfficientNet" = "efficientnet",
-                                           "Faster R-CNN" = "faster_rcnn"),
-                              selected = "resnet18")
-                ),
-                column(8,
-                  fluidRow(
-                    column(3, numericInput("train_epochs_input", "Epochs (Iterations)", value = 5, min = 1, max = 1000)),
-                    column(3, numericInput("train_batch_size_input", "Batch Size", value = 8, min = 1, max = 128)),
-                    column(3, numericInput("train_lr_input", "Learning Rate", value = 0.001, min = 0.0001, max = 1, step = 0.0001)),
-                    column(3, textInput("train_img_size_input", "Image Size", value = "224, 224"))
-                  )
-                )
-              ),
-              fluidRow(
-                column(4,
-                  checkboxInput("train_augmentation_checkbox", "Enable Data Augmentation", value = TRUE)
-                ),
-                column(4,
-                  checkboxInput("train_early_stopping_checkbox", "Enable Early Stopping", value = TRUE)
-                ),
-                column(4,
-                  actionButton("train_save_params_btn", "Save Parameters", class = "btn-default", style = "float: right; margin-top: 15px;")
-                )
-              )
-            )
-          )
-        ),
-        
-        # Training metrics & curves section
-        conditionalPanel(
-          condition = "output.train_show_progress_section == true",
-          fluidRow(
-            column(12,
-              box(
-                title = uiOutput("train_progress_box_title_ui"), status = "primary", solidHeader = TRUE, width = 12,
-                tabsetPanel(id = "train_progress_tabs",
-                  tabPanel("Training Curves",
-                    br(),
-                    div(style = "display: flex; justify-content: flex-end; margin-bottom: 10px;",
-                      radioButtons("train_curve_metric_select", NULL, choices = c("Accuracy" = "accuracy", "Loss" = "loss"), inline = TRUE)
-                    ),
-                    plotOutput("train_curves_plot", height = "380px")
-                  ),
-                  tabPanel("Logs",
-                    br(),
-                    verbatimTextOutput("train_logs_display")
-                  ),
-                  tabPanel("Model Card",
-                    br(),
-                    uiOutput("train_model_card_display_unified")
-                  )
-                )
-              )
-            )
-          )
-        )
-      ),
-      
-      # Trained Models Tab
-      tabItem(tabName = "models",
-        div(style = "padding: 10px;",
-          h2("Trained Models Repository", style = "margin-top: 0; margin-bottom: 20px; font-weight: bold; color: #1d1d1f;"),
-          fluidRow(
-            box(
-              title = "Completed Models", status = "primary", solidHeader = TRUE, width = 12,
-              p("Explore all completed CNN models and image classifiers. Retrieve training metrics, inspect model cards, visualize training curves, or run interactive evaluations.", style = "color: #555; margin-bottom: 15px;"),
-              actionButton("refresh_models_table", "Refresh Models List", class = "btn-success"),
-              br(), br(),
-              DT::dataTableOutput("trained_models_table")
-            )
-          )
-        )
-      ),
-      
-      # Model Evaluation Tab
-      tabItem(tabName = "evaluation",
-        fluidRow(
-          box(
-            title = "Model Evaluation Controls", status = "primary", solidHeader = TRUE, width = 12,
-            fluidRow(
-              column(6,
-                selectInput("eval_job_dropdown", "Select Trained Model", choices = list()),
-                actionButton("refresh_eval_models", "Refresh Available Models", class = "btn-info")
-              ),
-              column(6,
-                br(),
-                actionButton("run_evaluation", "Run Evaluation", class = "btn-success btn-lg", style = "margin-top: 5px;")
-              )
-            )
-          )
-        ),
-        
-        conditionalPanel(
-          condition = "output.eval_data_available == true",
-          fluidRow(
-            box(
-              title = uiOutput("eval_summary_title"), status = "info", solidHeader = TRUE, width = 12,
-              
-              # Info Cards Container
-              div(class = "eval-metric-cards-container",
-                div(class = "eval-metric-card",
-                  div(class = "eval-metric-card-title", textOutput("eval_card1_title")),
-                  div(class = "eval-metric-card-value", textOutput("eval_accuracy_val"))
-                ),
-                div(class = "eval-metric-card",
-                  div(class = "eval-metric-card-title", textOutput("eval_card2_title")),
-                  div(class = "eval-metric-card-value", style = "color: #2ca02c;", actionLink("click_correct", textOutput("eval_correct_val"), style = "color: inherit; text-decoration: none; font-weight: bold;"))
-                ),
-                div(class = "eval-metric-card",
-                  div(class = "eval-metric-card-title", textOutput("eval_card3_title")),
-                  div(class = "eval-metric-card-value", style = "color: #d62728;", actionLink("click_incorrect", textOutput("eval_incorrect_val"), style = "color: inherit; text-decoration: none; font-weight: bold;"))
-                ),
-                div(class = "eval-metric-card",
-                  div(class = "eval-metric-card-title", textOutput("eval_card4_title")),
-                  div(class = "eval-metric-card-value", style = "font-size: 14px; min-height: 28px; display: flex; align-items: center;", textOutput("eval_top_confusion_val"))
-                ),
-                div(class = "eval-metric-card",
-                  div(class = "eval-metric-card-title", textOutput("eval_card5_title")),
-                  div(class = "eval-metric-card-value", style = "font-size: 16px; min-height: 28px; display: flex; align-items: center;", textOutput("eval_lowest_precision_val"))
-                ),
-                div(class = "eval-metric-card",
-                  div(class = "eval-metric-card-title", textOutput("eval_card6_title")),
-                  div(class = "eval-metric-card-value", style = "font-size: 16px; min-height: 28px; display: flex; align-items: center;", textOutput("eval_lowest_recall_val"))
-                )
-              ),
-              
-              # Sub-tabs/Pills
-              tabsetPanel(type = "pills", id = "eval_pills",
-                tabPanel("Metrics",
-                  br(),
-                  conditionalPanel(
-                    condition = "output.eval_is_classification == true",
-                    fluidRow(
-                      column(12,
-                        checkboxGroupInput("eval_table_cols", "Columns to Display:",
-                                           choices = c("Count" = "count",
-                                                       "Correct" = "correct",
-                                                       "Precision" = "precision",
-                                                       "Recall" = "recall",
-                                                       "F1 Score" = "f1_score"),
-                                           selected = c("count", "correct", "precision", "recall", "f1_score"),
-                                           inline = TRUE)
-                      )
-                    )
-                  ),
-                  DT::dataTableOutput("eval_metrics_table")
-                ),
-                tabPanel("Explore",
-                  br(),
-                  fluidRow(
-                    conditionalPanel(
-                      condition = "output.eval_is_classification == true",
-                      column(4,
-                        selectInput("explore_result_filter", "Result:", 
-                                    choices = c("All" = "all", "Correct" = "correct", "Incorrect" = "incorrect"), 
-                                    selected = "all")
-                      )
-                    ),
-                    column(4,
-                      selectInput("explore_label_filter", "Label:", choices = c("Any" = "any"))
-                    ),
-                    column(4,
-                      selectInput("explore_pred_filter", "Prediction:", choices = c("Any" = "any"))
-                    )
-                  ),
-                  hr(),
-                  h4(textOutput("explore_summary_text")),
-                  uiOutput("explore_grid_display")
-                )
-              )
-            )
-          )
-        )
-      ),
-      
-      # Make Predictions Tab
-      tabItem(tabName = "predict",
-        fluidRow(
-          box(
-            title = "Model Selection", status = "primary", solidHeader = TRUE, width = 12,
-            selectInput("predict_job_dropdown", "Select Trained Model", choices = list()),
-            actionButton("refresh_prediction_models", "Refresh Available Models", class = "btn-info"),
-            br(), br(),
-            verbatimTextOutput("prediction_models_status")
-          )
-        ),
-        fluidRow(
-          box(
-            title = "Image Upload & Prediction", status = "success", solidHeader = TRUE, width = 12,
-            fluidRow(
-              column(6,
-                h4("Upload Image"),
-                fileInput("prediction_image", "Choose Image File",
-                         accept = c(".jpg", ".jpeg", ".png", ".bmp", ".tiff"),
-                         multiple = FALSE),
-                p("Supported formats: JPG, PNG, BMP, TIFF")
-              ),
-              column(6,
-                h4("Prediction Settings"),
-                sliderInput("confidence_threshold", 
-                           "Confidence Threshold", 
-                           value = 0.5, min = 0.1, max = 0.95, step = 0.05,
-                           post = "%"),
-                p(class = "help-text", style = "font-size: 12px; color: #666;",
-                  "Higher values show fewer, more confident detections. Lower values show more detections but may include false positives."),
-                checkboxInput("show_probabilities", "Show All Class Probabilities", value = TRUE),
-                selectInput("explain_method", "Explain Prediction (XAI)", 
-                            choices = list("None" = "none", "Grad-CAM" = "gradcam", "LIME" = "lime", "SHAP" = "shap"), 
-                            selected = "gradcam"),
-                conditionalPanel(
-                  condition = "input.explain_method != 'none'",
-                  uiOutput("explain_box_selector_ui")
-                )
-              )
-            ),
-            br(),
-            actionButton("make_prediction", "Make Prediction", class = "btn-primary btn-lg"),
-            br(), br(),
-            fluidRow(
-              column(4,
-                h4("Prediction Results"),
-                verbatimTextOutput("prediction_output")
-              ),
-              column(4,
-                h4("Uploaded Image"),
-                imageOutput("prediction_image_display", height = "400px"),
-                br(),
-                textOutput("image_info")
-              ),
-              column(4,
-                conditionalPanel(
-                  condition = "output.prediction_has_explanation == true",
-                  h4("Prediction Explanation (XAI)"),
-                  uiOutput("prediction_explanation_display")
-                )
-              )
-            )
-          )
-        )
-      ),
-      
-      # Jobs Tab
-      tabItem(tabName = "jobs",
-        fluidRow(
-          box(
-            title = "All Jobs", status = "info", solidHeader = TRUE, width = 12,
-            actionButton("refresh_jobs", "Refresh Jobs List", class = "btn-info"),
-            br(), br(),
-            DT::dataTableOutput("jobs_table")
-          )
-        ),
-        fluidRow(
-          box(
-            title = "Job Details", status = "success", solidHeader = TRUE, width = 12,
-            textInput("job_status_id", "Job ID", placeholder = "Enter Job ID to view details"),
-            actionButton("get_job_details", "Get Job Status", class = "btn-success"),
-            br(), br(),
-            verbatimTextOutput("job_details_output")
-          )
-        )
-      ),
-      
-      # Datasets Tab
-      tabItem(tabName = "datasets",
-        fluidRow(
-          column(4,
-            box(
-              title = "Upload New Dataset", status = "primary", solidHeader = TRUE, width = 12,
-              textInput("dataset_upload_name", "Dataset Name", value = "My Custom Dataset"),
-              selectInput("dataset_upload_task", "Task Type",
-                          choices = list("Image Classification" = "image_classification",
-                                       "Object Detection" = "object_detection"),
-                          selected = "image_classification"),
-              fileInput("dataset_upload_file", "Select ZIP file (.zip)", accept = ".zip"),
-              br(),
-              actionButton("dataset_upload_submit", "Upload Dataset", class = "btn-primary btn-block"),
-              br(),
-              verbatimTextOutput("dataset_upload_output")
-            )
-          ),
-          column(8,
-            box(
-              title = "Available Datasets", status = "success", solidHeader = TRUE, width = 12,
-              actionButton("refresh_datasets", "Refresh Datasets", class = "btn-success"),
-              p(style = "margin-top: 8px; color: #888;", "Click a row to view its Data Card & validation report."),
-              br(),
-              DT::dataTableOutput("datasets_table")
-            )
-          )
-        ),
-        fluidRow(
-          box(
-            title = uiOutput("datacard_box_title"), status = "info", solidHeader = TRUE, width = 12,
-            id = "datacard_box",
-            conditionalPanel(
-              condition = "output.datacard_visible == true",
-              tabsetPanel(id = "datacard_tabs",
-                tabPanel("Data Card",
-                  div(style = "padding: 15px;",
-                    uiOutput("datacard_markdown")
-                  )
-                ),
-                tabPanel("Class Distribution",
-                  div(style = "padding: 15px;",
-                    plotOutput("datacard_distribution_plot", height = "400px")
-                  )
-                ),
-
-                tabPanel("Sample Images",
-                  div(style = "padding: 15px; text-align: center;",
-                    div(style = "margin-bottom: 15px;",
-                      actionButton("prev_sample_image", "Previous", icon = icon("chevron-left"), class = "btn-primary"),
-                      span(textOutput("sample_image_counter", inline = TRUE), style = "margin: 0 15px; font-weight: bold; font-size: 16px;"),
-                      actionButton("next_sample_image", "Next", icon = icon("chevron-right"), class = "btn-primary")
-                    ),
-                    uiOutput("datacard_sample_images")
-                  )
-                )
-              )
-            ),
-            conditionalPanel(
-              condition = "output.datacard_visible != true",
-              div(style = "padding: 20px; text-align: center; color: #999;",
-                tags$i(class = "fa fa-mouse-pointer", style = "font-size: 24px;"),
-                br(), br(),
-                p("Click on a dataset row above to generate its Data Card and validation report.")
-              )
-            )
-          )
-        )
-      ),
-      
-      # Delete Job Tab
-      tabItem(tabName = "delete",
-        fluidRow(
-          box(
-            title = "Delete Job", status = "danger", solidHeader = TRUE, width = 12,
-            div(class = "warning-box",
-                strong("Warning: "),
-                "Deleting a job will permanently remove all associated data including trained models, datasets, and logs. This action cannot be undone."
-            ),
-            selectInput("delete_job_dropdown", "Select Job to Delete", choices = list()),
-            actionButton("refresh_delete_jobs", "Refresh Jobs List", class = "btn-info"),
-            br(), br(),
-            actionButton("delete_job_btn", "Delete Selected Job", class = "btn-danger btn-lg"),
-            br(), br(),
-            verbatimTextOutput("delete_output")
-          )
-        )
-      )
-    )
+    uiOutput("main_workspace")
   )
 )
 
 # Server
 server <- function(input, output, session) {
   
+  active_project_id <- reactiveVal(NULL)
+
+  output$main_workspace <- renderUI({
+    if (is.null(active_project_id())) {
+      div(style = "padding: 10px;",
+        fluidRow(
+          column(10, h2("Projects", style = "margin-top: 0; margin-bottom: 20px; font-weight: bold; color: #1d1d1f;")),
+          column(2, actionButton("btn_create_project", "New Project", class = "btn-primary", style = "width: 100%; margin-top: 5px;"))
+        ),
+        p("Select a project to load its datasets, models, and workflow workspace.", style = "color: #555; margin-bottom: 20px;"),
+        uiOutput("projects_grid")
+      )
+    } else {
+      div(
+        fluidRow(
+          column(10, h3(paste("Project Workspace:", active_project_id()), style="margin-top:0;")),
+          column(2, actionButton("btn_back_projects", "Back to Projects", icon = icon("arrow-left"), class = "btn-warning", style="width:100%;"))
+        ),
+        br(),
+        tabsetPanel(id = "workspace_tabs",
+          tabPanel("Visual Pipeline Builder", icon = icon("project-diagram"),
+            uiOutput("workflow_iframe_ui")
+          ),
+          tabPanel("Analytics (Jobs)", icon = icon("chart-line"),
+            fluidRow(
+              column(12,
+                box(
+                  title = "Recent Training Jobs", status = "primary", solidHeader = TRUE, width = 12,
+                    DT::dataTableOutput("dashboard_jobs_table")
+                )
+              )
+            )
+          ),
+          tabPanel("Datasets", icon = icon("database"),
+            fluidRow(
+              column(4,
+                box(
+                  title = "Upload New Dataset", status = "primary", solidHeader = TRUE, width = 12,
+                  textInput("dataset_upload_name", "Dataset Name", value = "My Custom Dataset"),
+                  selectInput("dataset_upload_task", "Task Type",
+                              choices = list("Image Classification" = "image_classification",
+                                           "Object Detection" = "object_detection"),
+                              selected = "image_classification"),
+                  fileInput("dataset_upload_file", "Select ZIP file (.zip)", accept = ".zip"),
+                  br(),
+                  actionButton("dataset_upload_submit", "Upload Dataset", class = "btn-primary btn-block"),
+                  br(),
+                  verbatimTextOutput("dataset_upload_output")
+                )
+              ),
+              column(8,
+                box(
+                  title = "Available Datasets", status = "success", solidHeader = TRUE, width = 12,
+                    p(style = "margin-top: 8px; color: #888;", "Click a row to view its Data Card & validation report."),
+                    br(),
+                  DT::dataTableOutput("datasets_table")
+                )
+              )
+            ),
+            fluidRow(
+              box(
+                title = uiOutput("datacard_box_title"), status = "info", solidHeader = TRUE, width = 12,
+                id = "datacard_box",
+                conditionalPanel(
+                  condition = "output.datacard_visible == true",
+                  tabsetPanel(id = "datacard_tabs",
+                    tabPanel("Data Card",
+                      div(style = "padding: 15px;",
+                        uiOutput("datacard_markdown")
+                      )
+                    ),
+                    tabPanel("Class Distribution",
+                      div(style = "padding: 15px;",
+                        plotOutput("datacard_distribution_plot", height = "400px")
+                      )
+                    ),
+                    tabPanel("Sample Images",
+                      div(style = "padding: 15px; text-align: center;",
+                        div(style = "margin-bottom: 15px;",
+                          actionButton("prev_sample_image", "Previous", icon = icon("chevron-left"), class = "btn-primary"),
+                          span(textOutput("sample_image_counter", inline = TRUE), style = "margin: 0 15px; font-weight: bold; font-size: 16px;"),
+                          actionButton("next_sample_image", "Next", icon = icon("chevron-right"), class = "btn-primary")
+                        ),
+                        uiOutput("datacard_sample_images")
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          ),
+          tabPanel("Model Garden", icon = icon("cubes"),
+            fluidRow(
+              column(12,
+                box(
+                  title = "Trained Models & Pipelines", status = "primary", solidHeader = TRUE, width = 12,
+                    DT::dataTableOutput("trained_models_table")
+                )
+              )
+            )
+          )
+        )
+      )
+    }
+  })
+
+  observeEvent(input$btn_back_projects, {
+    active_project_id(NULL)
+  })
+
+  
   # Visual Workflow Iframe Render
   output$workflow_iframe_ui <- renderUI({
+    req(active_project_id())
     api_host <- API_URL
     if (grepl("host.docker.internal", api_host)) {
       api_host <- gsub("host.docker.internal", "localhost", api_host)
     }
-    iframe_url <- paste0(api_host, "/workflow/")
+    iframe_url <- paste0(api_host, "/workflow/?project_id=", active_project_id())
     tags$iframe(
       src = iframe_url, 
       style = "width: 100%; height: 85vh; border: none; overflow: hidden; background: transparent;", 
@@ -1817,6 +1426,85 @@ server <- function(input, output, session) {
   active_explain_box <- reactiveVal(-1)
   eval_data <- reactiveVal(NULL)
   
+
+  projects_trigger <- reactiveVal(0)
+  
+  output$projects_grid <- renderUI({
+    projects_trigger()
+    tryCatch({
+      response <- GET(paste0(API_URL, "/api/projects"))
+      if (status_code(response) == 200) {
+        content_txt <- content(response, "text", encoding = "UTF-8")
+        if (nchar(content_txt) > 5) {
+          projects <- fromJSON(content_txt)
+          if (is.data.frame(projects) && nrow(projects) > 0) {
+            return(fluidRow(
+              lapply(1:nrow(projects), function(i) {
+                p_id <- projects$id[i]
+                p_name <- projects$name[i]
+                p_task <- projects$task_type[i]
+                
+                column(4,
+                  div(
+                    class = "small-box bg-aqua",
+                    style = "cursor: pointer; box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: 8px;",
+                    onclick = sprintf("Shiny.setInputValue('selected_project', '%s', {priority: 'event'});", p_id),
+                    div(class = "inner",
+                      h3(p_name, style = "white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 24px;"),
+                      p(p_task)
+                    ),
+                    div(class = "icon", icon("folder-open")),
+                    a(href = "#", class = "small-box-footer", "Select Project ", icon("arrow-circle-right"))
+                  )
+                )
+              })
+            ))
+          }
+        }
+      }
+    }, error = function(e) {})
+    return(p("No projects found. Click 'New Project' to get started.", style = "color: #777; font-size: 16px; margin-top: 10px;"))
+  })
+  
+  observeEvent(input$selected_project, {
+    active_project_id(input$selected_project)
+    showNotification("Project loaded successfully.", type = "message")
+  })
+  
+  observeEvent(input$btn_create_project, {
+    showModal(modalDialog(
+      title = "Create New Project",
+      textInput("new_project_name", "Project Name", ""),
+      selectInput("new_project_task", "Task Type", choices = c("image_classification", "object_detection", "image_segmentation")),
+      textInput("new_project_desc", "Description (Optional)", ""),
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("btn_save_project", "Create", class = "btn-success")
+      )
+    ))
+  })
+  
+  observeEvent(input$btn_save_project, {
+    req(input$new_project_name)
+    body <- list(
+      name = input$new_project_name,
+      task_type = input$new_project_task,
+      description = input$new_project_desc
+    )
+    tryCatch({
+      res <- POST(paste0(API_URL, "/api/projects"), body = body, encode = "json")
+      if (status_code(res) == 200) {
+        removeModal()
+        showNotification("Project created successfully!", type = "message")
+        projects_trigger(projects_trigger() + 1)
+      } else {
+        showNotification("Failed to create project", type = "error")
+      }
+    }, error = function(e) {
+      showNotification("Failed to create project (connection error)", type = "error")
+    })
+  })
+
   # Dashboard Tab Functions
   observeEvent(input$check_status, {
     output$api_status <- renderText({
@@ -1832,7 +1520,7 @@ server <- function(input, output, session) {
   
   observeEvent(input$refresh_dashboard_jobs, {
     output$dashboard_jobs_table <- DT::renderDataTable({
-      format_jobs_for_dt(list_all_jobs())
+      format_jobs_for_dt(list_all_jobs(active_project_id()))
     }, escape = FALSE, options = list(scrollX = TRUE))
   })
   
@@ -1854,29 +1542,15 @@ server <- function(input, output, session) {
     })
   })
   
-  # Update architecture choices based on task type
-  observe({
-    if (input$task_type == "image_classification") {
-      updateSelectInput(session, "architecture",
-                       choices = list("ResNet-18" = "resnet18",
-                                    "ResNet-50" = "resnet50",
-                                    "VGG-16" = "vgg16",
-                                    "MobileNet" = "mobilenet",
-                                    "EfficientNet" = "efficientnet"),
-                       selected = "resnet18")
-    } else if (input$task_type == "object_detection") {
-      updateSelectInput(session, "architecture",
-                       choices = list("Faster R-CNN" = "faster_rcnn"),
-                       selected = "faster_rcnn")
-    }
-  })
   
   # Train Model Tab Functions
   observeEvent(input$refresh_current_job, {
     output$current_job_status <- renderText({
       # Get most recent job ready for training
       jobs <- tryCatch({
-        response <- make_request(paste0(API_URL, "/pipelines"))
+        url <- paste0(API_URL, "/pipelines")
+    if (!is.null(project_id) && nchar(project_id) > 0) url <- paste0(url, "?project_id=", URLencode(project_id))
+    response <- make_request(url)
         if (response$status == 200) {
           jobs_data <- fromJSON(response$content, simplifyVector = FALSE)
           # Ensure we have a list of jobs
@@ -1955,14 +1629,13 @@ server <- function(input, output, session) {
   
   # ---- Data Card: initialize visibility as FALSE ----
   output$datacard_visible <- reactive({ FALSE })
-  outputOptions(output, "datacard_visible", suspendWhenHidden = FALSE)
   
   output$datacard_box_title <- renderUI({ "Data Card & Validation Report" })
   
   observeEvent(input$refresh_datasets_dropdown, {
     # Update both the datasets table and the dropdown (similar to Gradio implementation)
     output$datasets_table <- DT::renderDataTable({
-      df <- list_available_datasets()
+      df <- list_available_datasets(active_project_id())
       datasets_df_store(df)
       df
     }, selection = 'single', options = list(scrollX = TRUE))
@@ -2001,7 +1674,6 @@ server <- function(input, output, session) {
         result <- content(response, "parsed")
         
         output$datacard_visible <- reactive({ TRUE })
-        outputOptions(output, "datacard_visible", suspendWhenHidden = FALSE)
         
         # Render Markdown using commonmark (ships with R, no extra package needed)
         output$datacard_markdown <- renderUI({
@@ -2184,12 +1856,14 @@ server <- function(input, output, session) {
             timeout(300)  # 5 minute timeout for large uploads
           )
         } else {
-          # For classification datasets, specify file_type = "zip"
+          # For classification datasets, specify file_type = "zip",
+            project_id = if(is.null(active_project_id())) "" else active_project_id()
           response <- POST(
             upload_url,
             body = list(
               file = upload_file(file_path, type = "application/zip"),
-              file_type = "zip"
+              file_type = "zip",
+            project_id = if(is.null(active_project_id())) "" else active_project_id()
             ),
             encode = "multipart",
             timeout(300)  # 5 minute timeout for large uploads
@@ -2263,68 +1937,17 @@ server <- function(input, output, session) {
   output$eval_data_available <- reactive({
     !is.null(eval_data())
   })
-  outputOptions(output, "eval_data_available", suspendWhenHidden = FALSE)
   
-  observeEvent(input$refresh_eval_models, {
-    choices <- get_jobs_for_dropdown("completed")
-    updateSelectInput(session, "eval_job_dropdown", choices = choices)
-  })
   
-  observeEvent(input$run_evaluation, {
-    if (is.null(input$eval_job_dropdown) || input$eval_job_dropdown == "") {
-      showNotification("Please select a trained model first.", type = "error")
-      return()
-    }
-    
-    showModal(modalDialog(
-      title = "Evaluating Model",
-      "Running predictions and calculating performance metrics on test/validation set... Please wait.",
-      footer = NULL,
-      easyClose = FALSE
-    ))
-    
-    tryCatch({
-      url <- paste0(API_URL, "/pipelines/", input$eval_job_dropdown, "/evaluate")
-      response <- GET(url)
-      
-      if (status_code(response) == 200) {
-        result <- content(response, "parsed")
-        eval_data(result)
-        
-        # Update label/prediction filters
-        classes <- sapply(result$class_metrics, function(c) c$class_name)
-        updateSelectInput(session, "explore_label_filter", choices = c("Any" = "any", classes), selected = "any")
-        updateSelectInput(session, "explore_pred_filter", choices = c("Any" = "any", classes), selected = "any")
-        
-        showNotification("Evaluation completed successfully!", type = "message")
-      } else {
-        error_msg <- content(response, "text")
-        showNotification(paste("Evaluation failed:", error_msg), type = "error")
-      }
-    }, error = function(e) {
-      showNotification(paste("Error calling evaluation endpoint:", e$message), type = "error")
-    })
-    
-    removeModal()
-  })
   
   # KPI Clicking Navigation helpers
-  observeEvent(input$click_correct, {
-    updateTabsetPanel(session, "eval_pills", selected = "Explore")
-    updateSelectInput(session, "explore_result_filter", selected = "correct")
-  })
   
-  observeEvent(input$click_incorrect, {
-    updateTabsetPanel(session, "eval_pills", selected = "Explore")
-    updateSelectInput(session, "explore_result_filter", selected = "incorrect")
-  })
   
   # Dynamic evaluation properties
   output$eval_is_classification <- reactive({
     data <- eval_data()
     !is.null(data) && data$task_type == "image_classification"
   })
-  outputOptions(output, "eval_is_classification", suspendWhenHidden = FALSE)
   
   output$eval_card1_title <- renderText({
     data <- eval_data()
@@ -2523,22 +2146,6 @@ server <- function(input, output, session) {
     })
   })
   
-  # Update architecture choices based on task type
-  observe({
-    if (input$task_type == "image_classification") {
-      updateSelectInput(session, "architecture",
-                       choices = list("ResNet-18" = "resnet18",
-                                    "ResNet-50" = "resnet50",
-                                    "VGG-16" = "vgg16",
-                                    "MobileNet" = "mobilenet",
-                                    "EfficientNet" = "efficientnet"),
-                       selected = "resnet18")
-    } else if (input$task_type == "object_detection") {
-      updateSelectInput(session, "architecture",
-                       choices = list("Faster R-CNN" = "faster_rcnn"),
-                       selected = "faster_rcnn")
-    }
-  })
   
   # Datasets reactive variables and tab functions
   datasets_df_store <- reactiveVal(NULL)
@@ -2546,13 +2153,12 @@ server <- function(input, output, session) {
   current_image_idx <- reactiveVal(1)
   
   output$datacard_visible <- reactive({ FALSE })
-  outputOptions(output, "datacard_visible", suspendWhenHidden = FALSE)
   
   output$datacard_box_title <- renderUI({ "Data Card & Validation Report" })
   
   observeEvent(input$refresh_datasets, {
     output$datasets_table <- DT::renderDataTable({
-      df <- list_available_datasets()
+      df <- list_available_datasets(active_project_id())
       datasets_df_store(df)
       df
     }, selection = 'single', options = list(scrollX = TRUE))
@@ -2591,7 +2197,6 @@ server <- function(input, output, session) {
         result <- content(response, "parsed")
         
         output$datacard_visible <- reactive({ TRUE })
-        outputOptions(output, "datacard_visible", suspendWhenHidden = FALSE)
         
         output$datacard_markdown <- renderUI({
           md_text <- result$data_card_markdown
@@ -2707,242 +2312,22 @@ server <- function(input, output, session) {
   }
   
   # Update form when selected job changes
-  observeEvent(input$train_selected_job, {
-    job_id <- input$train_selected_job
-    req(job_id)
-    if (job_id == "") return()
-    
-    tryCatch({
-      response <- make_request(paste0(API_URL, "/pipelines/", job_id))
-      if (response$status == 200) {
-        job <- fromJSON(response$content, simplifyVector = FALSE)
-        selected_job_data(job)
-        
-        cfg <- job$pipeline_config
-        if (!is.null(cfg)) {
-          # Update parameters UI
-          updateSelectInput(session, "train_arch_select", selected = cfg$architecture)
-          updateNumericInput(session, "train_epochs_input", value = cfg$epochs)
-          updateNumericInput(session, "train_batch_size_input", value = cfg$batch_size)
-          updateNumericInput(session, "train_lr_input", value = cfg$learning_rate)
-          
-          img_size_str <- paste(cfg$image_size, collapse = ", ")
-          updateTextInput(session, "train_img_size_input", value = img_size_str)
-          
-          updateCheckboxInput(session, "train_augmentation_checkbox", value = cfg$augmentation_enabled %||% TRUE)
-          updateCheckboxInput(session, "train_early_stopping_checkbox", value = cfg$early_stopping %||% TRUE)
-          
-          # Selected dataset
-          if (!is.null(job$linked_dataset_id) && job$linked_dataset_id != "") {
-            updateSelectInput(session, "train_dataset_select", selected = job$linked_dataset_id)
-          }
-        }
-        
-        # Enable polling if active
-        if (job$status == "running" || job$status == "training") {
-          polling_job_id(job_id)
-        } else {
-          polling_job_id(NULL)
-        }
-      }
-    }, error = function(e) {
-      cat("Error loading job details in Train tab:", e$message, "\n")
-    })
-  })
   
   # Update dataset info when selected dataset changes
-  observeEvent(input$train_dataset_select, {
-    dataset_id <- input$train_dataset_select
-    req(dataset_id)
-    if (dataset_id == "") {
-      output$train_dataset_classes_text <- renderText("N/A")
-      output$train_dataset_items_text <- renderText("Select a dataset first")
-      return()
-    }
-    
-    df <- datasets_df_store()
-    if (!is.null(df) && nrow(df) > 0) {
-      row_idx <- which(df$ID == dataset_id)
-      if (length(row_idx) > 0) {
-        num_classes <- df$Classes[row_idx[1]]
-        num_items <- df$Items[row_idx[1]]
-        task_type <- df$Task_Type[row_idx[1]]
-        
-        output$train_dataset_classes_text <- renderText(as.character(num_classes))
-        output$train_dataset_items_text <- renderText(paste(num_items, "items (", task_type, ")"))
-        return()
-      }
-    }
-    
-    output$train_dataset_classes_text <- renderText("...")
-    output$train_dataset_items_text <- renderText("Loading info...")
-  })
   
   # Refresh button
   observeEvent(input$refresh_train_jobs, {
     update_train_dropdowns()
-    df <- list_available_datasets()
+    df <- list_available_datasets(active_project_id())
     datasets_df_store(df)
   })
   
   # "New Pipeline" button modal
-  observeEvent(input$train_create_new_btn, {
-    showModal(modalDialog(
-      title = "Create New Pipeline",
-      easyClose = TRUE,
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("train_modal_create_submit", "Create", class = "btn-primary")
-      ),
-      fluidRow(
-        column(12,
-          textInput("train_modal_name", "Pipeline Name", value = "My Image Classifier"),
-          selectInput("train_modal_task", "Task Type", 
-                     choices = list("Image Classification" = "image_classification",
-                                  "Object Detection" = "object_detection"),
-                     selected = "image_classification"),
-          selectInput("train_modal_arch", "Model Architecture",
-                     choices = list("ResNet-18" = "resnet18",
-                                  "ResNet-50" = "resnet50",
-                                  "VGG-16" = "vgg16",
-                                  "MobileNet" = "mobilenet",
-                                  "EfficientNet" = "efficientnet"),
-                     selected = "resnet18"),
-          numericInput("train_modal_classes", "Number of Classes", value = 2, min = 2, max = 1000)
-        )
-      )
-    ))
-  })
   
-  observeEvent(input$train_modal_task, {
-    if (input$train_modal_task == "image_classification") {
-      updateSelectInput(session, "train_modal_arch",
-                       choices = list("ResNet-18" = "resnet18",
-                                    "ResNet-50" = "resnet50",
-                                    "VGG-16" = "vgg16",
-                                    "MobileNet" = "mobilenet",
-                                    "EfficientNet" = "efficientnet"),
-                       selected = "resnet18")
-    } else {
-      updateSelectInput(session, "train_modal_arch",
-                       choices = list("Faster R-CNN" = "faster_rcnn"),
-                       selected = "faster_rcnn")
-    }
-  })
   
-  observeEvent(input$train_modal_create_submit, {
-    removeModal()
-    showNotification("Creating pipeline...", type = "message")
-    
-    job_id <- create_pipeline_and_get_id(
-      input$train_modal_name,
-      input$train_modal_task,
-      input$train_modal_arch,
-      input$train_modal_classes,
-      8, 5, 0.001, "224, 224", TRUE, TRUE
-    )
-    
-    if (!is.null(job_id)) {
-      showNotification(paste("Pipeline created! Job ID:", job_id), type = "message")
-      choices_jobs <- get_jobs_for_dropdown()
-      updateSelectInput(session, "train_selected_job", choices = choices_jobs, selected = job_id)
-      
-      updateSelectInput(session, "pending_job_dropdown", choices = get_jobs_for_dropdown("pending"))
-      updateSelectInput(session, "trainable_job_dropdown", choices = get_jobs_for_dropdown("trainable"))
-      updateSelectInput(session, "delete_job_dropdown", choices = get_jobs_for_dropdown())
-    } else {
-      showNotification("Failed to create pipeline.", type = "error")
-    }
-  })
   
   # "Upload Dataset" link modal
-  observeEvent(input$train_upload_dataset_link, {
-    showModal(modalDialog(
-      title = "Upload Dataset (.zip)",
-      easyClose = TRUE,
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("train_modal_upload_submit", "Upload", class = "btn-primary")
-      ),
-      fluidRow(
-        column(12,
-          textInput("train_upload_name", "Dataset Name", value = "my_dataset"),
-          selectInput("train_upload_task", "Task Type",
-                      choices = list("Image Classification" = "image_classification",
-                                   "Object Detection" = "object_detection"),
-                      selected = "image_classification"),
-          fileInput("train_upload_file", "Select ZIP file", accept = ".zip")
-        )
-      )
-    ))
-  })
   
-  observeEvent(input$train_modal_upload_submit, {
-    job_id <- input$train_selected_job
-    if (is.null(job_id) || job_id == "") {
-      showNotification("Please select a pipeline first.", type = "error")
-      return()
-    }
-    
-    file_info <- input$train_upload_file
-    if (is.null(file_info)) {
-      showNotification("Please select a ZIP file first.", type = "error")
-      return()
-    }
-    
-    removeModal()
-    showNotification("Uploading dataset... This may take several minutes.", type = "message", duration = 30)
-    
-    file_path <- file_info$datapath
-    file_name <- file_info$name
-    
-    tryCatch({
-      task_type <- input$train_upload_task
-      dataset_name <- input$train_upload_name %||% "dataset"
-      dataset_name_param <- paste0("&dataset_name=", URLencode(dataset_name))
-      
-      if (task_type == "object_detection") {
-        upload_url <- paste0(API_URL, "/upload-detection-dataset/", job_id, "?task_type=", task_type, dataset_name_param)
-      } else {
-        upload_url <- paste0(API_URL, "/upload-dataset/", job_id, "?task_type=", task_type, dataset_name_param)
-      }
-      
-      if (task_type == "object_detection") {
-        response <- POST(
-          upload_url,
-          body = list(file = upload_file(file_path, type = "application/zip")),
-          encode = "multipart",
-          timeout(300)
-        )
-      } else {
-        response <- POST(
-          upload_url,
-          body = list(
-            file = upload_file(file_path, type = "application/zip"),
-            file_type = "zip"
-          ),
-          encode = "multipart",
-          timeout(300)
-        )
-      }
-      
-      if (status_code(response) == 200) {
-        link_res <- link_dataset_to_job(job_id, job_id)
-        showNotification("Dataset uploaded and linked successfully!", type = "message")
-        
-        df <- list_available_datasets()
-        datasets_df_store(df)
-        update_train_dropdowns()
-        updateSelectInput(session, "train_selected_job", selected = job_id)
-        updateSelectInput(session, "train_dataset_select", selected = job_id)
-      } else {
-        error_content <- content(response, "text")
-        showNotification(paste("Upload failed:", status_code(response), "-", error_content), type = "error")
-      }
-    }, error = function(e) {
-      showNotification(paste("Upload error:", e$message), type = "error")
-    })
-  })
   
   # Helper to create pipeline and return ID
   create_pipeline_and_get_id <- function(name, task_type, architecture, num_classes, batch_size, epochs, learning_rate, image_size_input, augmentation_enabled, early_stopping) {
@@ -2990,152 +2375,8 @@ server <- function(input, output, session) {
   }
   
   # "Save Parameters" button
-  observeEvent(input$train_save_params_btn, {
-    job_id <- input$train_selected_job
-    req(job_id)
-    if (job_id == "") return()
-    
-    job <- selected_job_data()
-    req(job)
-    cfg <- job$pipeline_config
-    
-    arch <- input$train_arch_select
-    epochs <- input$train_epochs_input
-    batch_size <- input$train_batch_size_input
-    lr <- input$train_lr_input
-    img_size <- input$train_img_size_input
-    aug <- input$train_augmentation_checkbox
-    es <- input$train_early_stopping_checkbox
-    
-    changed <- FALSE
-    if (arch != cfg$architecture) changed <- TRUE
-    if (epochs != cfg$epochs) changed <- TRUE
-    if (batch_size != cfg$batch_size) changed <- TRUE
-    if (lr != cfg$learning_rate) changed <- TRUE
-    if (aug != (cfg$augmentation_enabled %||% TRUE)) changed <- TRUE
-    if (es != (cfg$early_stopping %||% TRUE)) changed <- TRUE
-    
-    img_size_str <- paste(cfg$image_size, collapse = ", ")
-    if (img_size != img_size_str) changed <- TRUE
-    
-    if (changed) {
-      showNotification("Creating new pipeline configuration with updated parameters...", type = "message")
-      task_type <- if (arch == "faster_rcnn") "object_detection" else "image_classification"
-      num_classes <- cfg$num_classes
-      
-      new_job_id <- create_pipeline_and_get_id(
-        name = paste0(cfg$name, " (Custom Settings)"),
-        task_type = task_type,
-        architecture = arch,
-        num_classes = num_classes,
-        batch_size = batch_size,
-        epochs = epochs,
-        learning_rate = lr,
-        image_size_input = img_size,
-        augmentation_enabled = aug,
-        early_stopping = es
-      )
-      
-      if (!is.null(new_job_id)) {
-        showNotification(paste("New pipeline configuration created:", new_job_id), type = "message")
-        
-        # Link dataset if selected
-        dataset_id <- input$train_dataset_select
-        if (!is.null(dataset_id) && dataset_id != "") {
-          link_dataset_to_job(new_job_id, dataset_id)
-        }
-        
-        choices_jobs <- get_jobs_for_dropdown()
-        updateSelectInput(session, "train_selected_job", choices = choices_jobs, selected = new_job_id)
-      } else {
-        showNotification("Failed to save updated parameters.", type = "error")
-      }
-    } else {
-      showNotification("Parameters already match pipeline configuration.", type = "message")
-    }
-  })
   
   # "Train" play button action
-  observeEvent(input$train_play_btn, {
-    job_id <- input$train_selected_job
-    dataset_id <- input$train_dataset_select
-    
-    if (is.null(job_id) || job_id == "") {
-      showNotification("Please select a pipeline first.", type = "error")
-      return()
-    }
-    if (is.null(dataset_id) || dataset_id == "") {
-      showNotification("Please select a dataset to link and train.", type = "error")
-      return()
-    }
-    
-    job <- selected_job_data()
-    req(job)
-    cfg <- job$pipeline_config
-    
-    arch <- input$train_arch_select
-    epochs <- input$train_epochs_input
-    batch_size <- input$train_batch_size_input
-    lr <- input$train_lr_input
-    img_size <- input$train_img_size_input
-    aug <- input$train_augmentation_checkbox
-    es <- input$train_early_stopping_checkbox
-    
-    changed <- FALSE
-    if (arch != cfg$architecture) changed <- TRUE
-    if (epochs != cfg$epochs) changed <- TRUE
-    if (batch_size != cfg$batch_size) changed <- TRUE
-    if (lr != cfg$learning_rate) changed <- TRUE
-    if (aug != (cfg$augmentation_enabled %||% TRUE)) changed <- TRUE
-    if (es != (cfg$early_stopping %||% TRUE)) changed <- TRUE
-    img_size_str <- paste(cfg$image_size, collapse = ", ")
-    if (img_size != img_size_str) changed <- TRUE
-    
-    target_job_id <- job_id
-    
-    if (changed) {
-      showNotification("Creating new pipeline configuration with updated parameters...", type = "message")
-      task_type <- if (arch == "faster_rcnn") "object_detection" else "image_classification"
-      num_classes <- cfg$num_classes
-      
-      new_job_id <- create_pipeline_and_get_id(
-        name = paste0(cfg$name, " (Custom Settings)"),
-        task_type = task_type,
-        architecture = arch,
-        num_classes = num_classes,
-        batch_size = batch_size,
-        epochs = epochs,
-        learning_rate = lr,
-        image_size_input = img_size,
-        augmentation_enabled = aug,
-        early_stopping = es
-      )
-      
-      if (!is.null(new_job_id)) {
-        target_job_id <- new_job_id
-      }
-    }
-    
-    showNotification("Linking dataset to job...", type = "message")
-    link_dataset_to_job(target_job_id, dataset_id)
-    
-    showNotification("Starting training...", type = "message")
-    train_res <- start_training(target_job_id)
-    
-    # Query backend immediately to get the updated running job state and set it to selected_job_data
-    tryCatch({
-      response <- make_request(paste0(API_URL, "/pipelines/", target_job_id))
-      if (response$status == 200) {
-        job <- fromJSON(response$content, simplifyVector = FALSE)
-        selected_job_data(job)
-      }
-    }, error = function(e) {})
-    
-    polling_job_id(target_job_id)
-    
-    choices_jobs <- get_jobs_for_dropdown()
-    updateSelectInput(session, "train_selected_job", choices = choices_jobs, selected = target_job_id)
-  })
   
   # Play button rendering
   output$train_play_button_ui <- renderUI({
@@ -3184,7 +2425,7 @@ server <- function(input, output, session) {
             updateSelectInput(session, "train_selected_job", choices = choices, selected = job_id)
             updateSelectInput(session, "eval_job_dropdown", choices = get_jobs_for_dropdown("completed"))
             updateSelectInput(session, "predict_job_dropdown", choices = get_jobs_for_dropdown("completed"))
-            output$dashboard_jobs_table <- DT::renderDataTable(format_jobs_for_dt(list_all_jobs()), escape = FALSE, options = list(scrollX = TRUE))
+            output$dashboard_jobs_table <- DT::renderDataTable(format_jobs_for_dt(list_all_jobs(active_project_id())), escape = FALSE, options = list(scrollX = TRUE))
           }
         }
       }, error = function(e) {
@@ -3198,7 +2439,6 @@ server <- function(input, output, session) {
     job <- selected_job_data()
     !is.null(job) && (job$status == "running" || job$status == "training" || job$status == "completed" || job$status == "failed")
   })
-  outputOptions(output, "train_show_progress_section", suspendWhenHidden = FALSE)
   
   output$train_progress_box_title_ui <- renderUI({
     job <- selected_job_data()
@@ -3372,74 +2612,17 @@ server <- function(input, output, session) {
   output$eval_data_available <- reactive({
     !is.null(eval_data())
   })
-  outputOptions(output, "eval_data_available", suspendWhenHidden = FALSE)
   
-  observeEvent(input$refresh_eval_models, {
-    choices <- get_jobs_for_dropdown("completed")
-    updateSelectInput(session, "eval_job_dropdown", choices = choices)
-  })
   
-  observeEvent(input$run_evaluation, {
-    if (is.null(input$eval_job_dropdown) || input$eval_job_dropdown == "") {
-      showNotification("Please select a trained model first.", type = "error")
-      return()
-    }
-    
-    showModal(modalDialog(
-      title = "Evaluating Model",
-      "Running predictions and calculating performance metrics on test/validation set... Please wait.",
-      footer = NULL,
-      easyClose = FALSE
-    ))
-    
-    tryCatch({
-      url <- paste0(API_URL, "/pipelines/", input$eval_job_dropdown, "/evaluate")
-      response <- GET(url)
-      
-      if (status_code(response) == 200) {
-        result <- content(response, "parsed")
-        eval_data(result)
-        
-        # Update label/prediction filters dropdowns
-        classes <- sapply(result$class_metrics, function(c) c$class_name)
-        updateSelectInput(session, "explore_label_filter", choices = c("Any" = "any", classes), selected = "any")
-        updateSelectInput(session, "explore_pred_filter", choices = c("Any" = "any", classes), selected = "any")
-        
-        showNotification("Evaluation completed successfully!", type = "message")
-      } else {
-        error_msg <- content(response, "text")
-        showNotification(paste("Evaluation failed:", error_msg), type = "error")
-      }
-    }, error = function(e) {
-      showNotification(paste("Error calling evaluation endpoint:", e$message), type = "error")
-    })
-    
-    removeModal()
-  })
   
   # KPI Clicking Navigation helpers
-  observeEvent(input$click_correct, {
-    data <- eval_data()
-    if (!is.null(data) && data$task_type == "object_detection") return()
-    
-    updateTabsetPanel(session, "eval_pills", selected = "Explore")
-    updateSelectInput(session, "explore_result_filter", selected = "correct")
-  })
   
-  observeEvent(input$click_incorrect, {
-    data <- eval_data()
-    if (!is.null(data) && data$task_type == "object_detection") return()
-    
-    updateTabsetPanel(session, "eval_pills", selected = "Explore")
-    updateSelectInput(session, "explore_result_filter", selected = "incorrect")
-  })
   
   # Dynamic evaluation properties
   output$eval_is_classification <- reactive({
     data <- eval_data()
     !is.null(data) && data$task_type == "image_classification"
   })
-  outputOptions(output, "eval_is_classification", suspendWhenHidden = FALSE)
   
   output$eval_card1_title <- renderText({
     data <- eval_data()
@@ -3729,63 +2912,9 @@ server <- function(input, output, session) {
   })
   
   # Explore Card Click Observer -> Split Pane modal
-  observeEvent(input$explore_card_click, {
-    req(input$explore_card_click)
-    filename <- input$explore_card_click
-    
-    filtered <- filtered_samples_reactive()
-    filenames <- sapply(filtered, function(s) s$filename)
-    idx <- which(filenames == filename)
-    
-    if (length(idx) > 0) {
-      modal_image_idx(idx[1])
-      
-      showModal(modalDialog(
-        title = NULL,
-        footer = NULL,
-        easyClose = TRUE,
-        size = "l",
-        fade = TRUE,
-        windowClass = "eval-modal-dialog",
-        tags$div(
-          class = "eval-modal-body",
-          # Left Pane
-          tags$div(
-            class = "eval-modal-left",
-            tags$button(
-              class = "eval-modal-close-btn",
-              HTML("&times;"),
-              onclick = "Shiny.setInputValue('close_eval_modal_click', Math.random())"
-            ),
-            uiOutput("eval_modal_image_ui"),
-            actionButton("eval_modal_prev", HTML("&#10094;"), class = "eval-modal-nav-btn eval-modal-prev-btn"),
-            actionButton("eval_modal_next", HTML("&#10095;"), class = "eval-modal-nav-btn eval-modal-next-btn"),
-            div(class = "eval-modal-counter", textOutput("eval_modal_counter_text"))
-          ),
-          # Right Pane
-          tags$div(
-            class = "eval-modal-right",
-            uiOutput("eval_modal_details_ui")
-          )
-        )
-      ))
-    }
-  })
   
-  observeEvent(input$close_eval_modal_click, {
-    removeModal()
-  })
   
-  observeEvent(input$eval_modal_prev, {
-    idx <- modal_image_idx()
-    if (idx > 1) modal_image_idx(idx - 1)
-  })
   
-  observeEvent(input$eval_modal_next, {
-    idx <- modal_image_idx()
-    filtered <- filtered_samples_reactive()
-    if (idx < length(filtered)) modal_image_idx(idx + 1)
-  })
   
   output$eval_modal_counter_text <- renderText({
     idx <- modal_image_idx()
@@ -3922,316 +3051,10 @@ server <- function(input, output, session) {
   })
   
   # Display uploaded image when file is selected
-  observeEvent(input$prediction_image, {
-    if (!is.null(input$prediction_image)) {
-      file_path <- input$prediction_image$datapath
-      file_name <- input$prediction_image$name
-      file_size <- file.info(file_path)$size
-      
-      if (file.exists(file_path)) {
-        # Display the image
-        output$prediction_image_display <- renderImage({
-          list(src = file_path,
-               contentType = 'image/jpeg',
-               width = "100%",
-               height = "400px",
-               alt = "Uploaded image for prediction")
-        }, deleteFile = FALSE)
-        
-        # Display image information
-        output$image_info <- renderText({
-          paste0("File: ", file_name, "\n",
-                "Size: ", round(file_size / 1024, 2), " KB")
-        })
-      }
-    }
-  })
   
   # Image Prediction Function
-  observeEvent(input$make_prediction, {
-    # Reset explanation display and reactive values
-    prediction_task_type(NULL)
-    prediction_detections(NULL)
-    active_explain_box(-1)
-    
-    output$prediction_explanation_display <- renderUI({ NULL })
-    output$prediction_has_explanation <- reactive({ FALSE })
-    outputOptions(output, "prediction_has_explanation", suspendWhenHidden = FALSE)
-    
-    output$prediction_output <- renderText({
-      if (is.null(input$predict_job_dropdown) || input$predict_job_dropdown == "") {
-        return("Please select a trained model first.")
-      }
-      
-      if (is.null(input$prediction_image)) {
-        return("Please select an image file to predict.")
-      }
-      
-      file_path <- input$prediction_image$datapath
-      file_name <- input$prediction_image$name
-      
-      if (!file.exists(file_path)) {
-        return("Error: Selected image file does not exist.")
-      }
-      
-      tryCatch({
-        # Prepare the prediction request
-        predict_url <- paste0(API_URL, "/predict/", input$predict_job_dropdown)
-        
-        # Debug: Show confidence threshold being sent
-        cat("DEBUG: Sending confidence threshold:", input$confidence_threshold, "\n")
-        cat("DEBUG: Confidence threshold type:", class(input$confidence_threshold), "\n")
-        cat("DEBUG: Prediction URL:", predict_url, "\n")
-        
-        # Try sending confidence threshold as URL parameter instead of form data
-        predict_url_with_params <- paste0(predict_url, "?confidence_threshold=", input$confidence_threshold)
-        cat("DEBUG: URL with confidence parameter:", predict_url_with_params, "\n")
-        
-        # Upload image for prediction (try both methods)
-        response <- POST(
-          predict_url_with_params,
-          body = list(
-            file = upload_file(file_path, type = "image/jpeg"),
-            confidence_threshold = as.numeric(input$confidence_threshold),
-            explain_method = input$explain_method
-          ),
-          encode = "multipart"
-        )
-        
-        cat("DEBUG: Response status code:", status_code(response), "\n")
-        
-        if (status_code(response) == 200) {
-          result <- content(response, "parsed")
-          
-          # Save task type and detections for interactive XAI
-          task_type <- result$task_type %||% "unknown"
-          prediction_task_type(task_type)
-          prediction_detections(result$detections)
-          
-          # Render explanation image if returned from backend
-          if (!is.null(result$explanation_image) && result$explanation_image != "") {
-            output$prediction_has_explanation <- reactive({ TRUE })
-            outputOptions(output, "prediction_has_explanation", suspendWhenHidden = FALSE)
-            
-            output$prediction_explanation_display <- renderUI({
-              tags$img(src = paste0("data:image/png;base64,", result$explanation_image),
-                       style = "max-width: 100%; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);")
-            })
-          }
-          
-          # Debug: Print the raw response structure
-          cat("DEBUG: Prediction response structure:\n")
-          cat("DEBUG: Result names:", names(result), "\n")
-          if (!is.null(result$predictions)) {
-            cat("DEBUG: First prediction structure:", names(result$predictions[[1]]), "\n")
-          }
-          
-          # Format prediction results
-          output_text <- paste0(
-            "Prediction Results for: ", file_name, "\n",
-            "Model: ", input$predict_job_dropdown, "\n",
-            "Confidence Threshold: ", input$confidence_threshold, "\n\n"
-          )
-          
-          # Determine task type and handle accordingly
-          task_type <- result$task_type %||% "unknown"
-          processing_time <- result$processing_time %||% 0
-          
-          cat("DEBUG: Task type:", task_type, "\n")
-          cat("DEBUG: Processing time:", processing_time, "\n")
-          
-          if (grepl("image_classification", task_type, ignore.case = TRUE)) {
-            # Handle Image Classification
-            cat("DEBUG: Handling image classification\n")
-            
-            if (!is.null(result$predictions)) {
-              predictions <- result$predictions
-              if (is.list(predictions) && length(predictions) > 0) {
-                output_text <- paste0(output_text, "Classification Results:\n")
-                output_text <- paste0(output_text, sprintf("Processing Time: %.3fs\n\n", processing_time))
-                
-                for (i in seq_along(predictions)) {
-                  pred <- predictions[[i]]
-                  
-                  # Try different possible field names for class
-                  class_name <- pred$class_name %||% pred$class %||% pred$label %||% "Unknown"
-                  
-                  # Try different possible field names for confidence
-                  confidence <- pred$confidence %||% pred$score %||% pred$probability %||% 0
-                  
-                  # Debug: Show what we found
-                  cat("DEBUG: Prediction", i, "- class_name:", class_name, "confidence:", confidence, "\n")
-                  
-                  # Check if confidence is already in percentage format (>1) or decimal format (0-1)
-                  if (confidence > 1) {
-                    # Already in percentage format, don't multiply by 100
-                    confidence_display <- confidence
-                  } else {
-                    # In decimal format, convert to percentage
-                    confidence_display <- confidence * 100
-                  }
-                  
-                  output_text <- paste0(
-                    output_text,
-                    sprintf("- %s: %.2f%% confidence\n", class_name, confidence_display)
-                  )
-                }
-              } else {
-                output_text <- paste0(output_text, "No predictions above confidence threshold.")
-              }
-            } else {
-              output_text <- paste0(output_text, "No prediction data returned.")
-            }
-            
-          } else if (grepl("object_detection", task_type, ignore.case = TRUE)) {
-            # Handle Object Detection
-            cat("DEBUG: Handling object detection\n")
-            
-            # Handle annotated image if available
-            if (!is.null(result$annotated_image) && result$annotated_image != "") {
-              tryCatch({
-                # Decode base64 image and save it temporarily
-                img_data <- base64enc::base64decode(result$annotated_image)
-                temp_file <- tempfile(fileext = ".jpg")
-                writeBin(img_data, temp_file)
-                
-                # Display the annotated image
-                output$prediction_image_display <- renderImage({
-                  list(src = temp_file,
-                       contentType = 'image/jpeg',
-                       width = "100%",
-                       height = "400px",
-                       alt = "Annotated image with detections")
-                }, deleteFile = TRUE)
-                
-                cat("DEBUG: Annotated image displayed\n")
-              }, error = function(e) {
-                cat("DEBUG: Error displaying annotated image:", e$message, "\n")
-              })
-            }
-            
-            if (!is.null(result$detections)) {
-              detections <- result$detections
-              num_detections <- length(detections)
-              
-              cat("DEBUG: Number of detections received from backend:", num_detections, "\n")
-              cat("DEBUG: Confidence threshold that was sent:", input$confidence_threshold, "\n")
-              
-              output_text <- paste0(output_text, "Object Detection Results:\n")
-              output_text <- paste0(output_text, sprintf("Objects Found: %d\n", num_detections))
-              output_text <- paste0(output_text, sprintf("Processing Time: %.3fs\n\n", processing_time))
-              
-              if (num_detections > 0) {
-                output_text <- paste0(output_text, "Detected Objects:\n")
-                
-                # Group detections by class and show summary
-                class_counts <- table(sapply(detections, function(d) d$class_name %||% d$class %||% "Unknown"))
-                
-                for (class_name in names(class_counts)) {
-                  count <- class_counts[[class_name]]
-                  # Get highest confidence for this class
-                  class_detections <- detections[sapply(detections, function(d) (d$class_name %||% d$class %||% "Unknown") == class_name)]
-                  max_conf <- max(sapply(class_detections, function(d) d$confidence %||% 0))
-                  
-                  if (max_conf > 1) {
-                    conf_display <- max_conf
-                  } else {
-                    conf_display <- max_conf * 100
-                  }
-                  
-                  output_text <- paste0(
-                    output_text,
-                    sprintf("• %s: %d object%s detected (max confidence: %.1f%%)\n", 
-                           class_name, count, ifelse(count > 1, "s", ""), conf_display)
-                  )
-                }
-                
-                output_text <- paste0(output_text, "\nSee the annotated image on the right for bounding box locations.")
-              } else {
-                output_text <- paste0(output_text, "No objects detected above confidence threshold.")
-              }
-            } else {
-              output_text <- paste0(output_text, "No detection data returned.")
-            }
-            
-          } else {
-            # Generic handling for unknown task types
-            cat("DEBUG: Handling generic/unknown task type\n")
-            
-            # Try both predictions and detections
-            if (!is.null(result$predictions)) {
-              predictions <- result$predictions
-              if (is.list(predictions) && length(predictions) > 0) {
-                output_text <- paste0(output_text, "Predictions:\n")
-                
-                for (i in seq_along(predictions)) {
-                  pred <- predictions[[i]]
-                  class_name <- pred$class_name %||% pred$class %||% pred$label %||% "Unknown"
-                  confidence <- pred$confidence %||% pred$score %||% pred$probability %||% 0
-                  
-                  if (confidence > 1) {
-                    confidence_display <- confidence
-                  } else {
-                    confidence_display <- confidence * 100
-                  }
-                  
-                  output_text <- paste0(
-                    output_text,
-                    sprintf("- %s: %.2f%% confidence\n", class_name, confidence_display)
-                  )
-                }
-              }
-            } else if (!is.null(result$detections)) {
-              detections <- result$detections
-              output_text <- paste0(output_text, sprintf("Detections found: %d\n", length(detections)))
-            } else {
-              output_text <- paste0(output_text, "No prediction or detection data returned.")
-            }
-          }
-          
-          return(output_text)
-        } else {
-          error_content <- content(response, "text")
-          paste("Prediction failed:", status_code(response), "-", error_content)
-        }
-      }, error = function(e) {
-        paste("Prediction error:", e$message)
-      })
-    })
-  })
   
   # Dynamically update XAI choices and default when a model is selected
-  observeEvent(input$predict_job_dropdown, {
-    req(input$predict_job_dropdown)
-    if (input$predict_job_dropdown == "") return()
-    
-    tryCatch({
-      # Fetch job details to get its task type
-      response <- make_request(paste0(API_URL, "/pipelines/", input$predict_job_dropdown))
-      if (response$status == 200) {
-        job <- fromJSON(response$content, simplifyVector = FALSE)
-        task_type <- job$pipeline_config$task_type
-        
-        if (!is.null(task_type)) {
-          if (task_type == "image_classification") {
-            # For classification, show LIME and SHAP
-            updateSelectInput(session, "explain_method", 
-                              label = "Explain Prediction (XAI)",
-                              choices = list("None" = "none", "Grad-CAM" = "gradcam", "LIME" = "lime", "SHAP" = "shap"),
-                              selected = "gradcam")
-          } else {
-            # For detection/segmentation, only show Grad-CAM (Feature Activation Map)
-            updateSelectInput(session, "explain_method", 
-                              label = "Explain Prediction (XAI)",
-                              choices = list("None" = "none", "Saliency Map (XAI)" = "gradcam"),
-                              selected = "gradcam")
-          }
-        }
-      }
-    }, error = function(e) {
-      cat("Error fetching task type for XAI dropdown:", e$message, "\n")
-    })
-  })
 
   # Dynamic Bounding Box Selector UI
   output$explain_box_selector_ui <- renderUI({
@@ -4254,77 +3077,15 @@ server <- function(input, output, session) {
   })
 
   # Observe changes to explain_box_index for interactive explainability
-  observeEvent(input$explain_box_index, {
-    req(input$explain_box_index)
-    req(input$prediction_image)
-    req(input$predict_job_dropdown)
-    
-    if (input$explain_method == "none") return()
-    
-    box_idx <- as.numeric(input$explain_box_index)
-    
-    # Avoid duplicate calls
-    if (!is.null(active_explain_box()) && active_explain_box() == box_idx) {
-      return()
-    }
-    active_explain_box(box_idx)
-    
-    file_path <- input$prediction_image$datapath
-    predict_url <- paste0(API_URL, "/predict/", input$predict_job_dropdown)
-    
-    withProgress(message = 'Generating interactive box explanation...', value = 0, {
-      tryCatch({
-        predict_url_with_params <- paste0(predict_url, 
-                                          "?confidence_threshold=", input$confidence_threshold,
-                                          "&explain_box_index=", box_idx)
-        
-        response <- POST(
-          predict_url_with_params,
-          body = list(
-            file = upload_file(file_path, type = "image/jpeg"),
-            confidence_threshold = as.numeric(input$confidence_threshold),
-            explain_method = input$explain_method,
-            explain_box_index = as.integer(box_idx)
-          ),
-          encode = "multipart"
-        )
-        
-        if (status_code(response) == 200) {
-          result <- content(response, "parsed")
-          if (!is.null(result$explanation_image) && result$explanation_image != "") {
-            output$prediction_has_explanation <- reactive({ TRUE })
-            outputOptions(output, "prediction_has_explanation", suspendWhenHidden = FALSE)
-            
-            output$prediction_explanation_display <- renderUI({
-              tags$img(src = paste0("data:image/png;base64,", result$explanation_image),
-                       style = "max-width: 100%; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);")
-            })
-          }
-        }
-      }, error = function(e) {
-        cat("Error in interactive explanation:", e$message, "\n")
-      })
-    })
-  })
   
   # Jobs Tab Functions
-  observeEvent(input$refresh_jobs, {
-    output$jobs_table <- DT::renderDataTable({
-      format_jobs_for_dt(list_all_jobs())
-    }, escape = FALSE, options = list(scrollX = TRUE))
-  })
   
-  observeEvent(input$get_job_details, {
-    output$job_details_output <- renderText({
-      get_job_status(input$job_status_id)
-    })
-  })
   
   # Datasets Tab Functions
   observeEvent(input$refresh_datasets, {
     # Update the datasets table in the datasets tab
     output$datasets_table <- DT::renderDataTable({
-      df <- list_available_datasets()
+      df <- list_available_datasets(active_project_id())
       datasets_df_store(df)
       df
     }, selection = 'single', options = list(scrollX = TRUE))
@@ -4335,16 +3096,7 @@ server <- function(input, output, session) {
   })
   
   # Delete Job Tab Functions
-  observeEvent(input$refresh_delete_jobs, {
-    choices <- get_jobs_for_dropdown()
-    updateSelectInput(session, "delete_job_dropdown", choices = choices)
-  })
   
-  observeEvent(input$delete_job_btn, {
-    output$delete_output <- renderText({
-      delete_job(input$delete_job_dropdown)
-    })
-  })
   
   # Model Card Generator Handlers
   observeEvent(input$refresh_train_mc_jobs, {
@@ -4352,59 +3104,15 @@ server <- function(input, output, session) {
     updateSelectInput(session, "train_mc_job_dropdown", choices = choices)
   })
   
-  observeEvent(input$train_generate_mc_btn, {
-    output$train_model_card_visible <- reactive({ FALSE })
-    outputOptions(output, "train_model_card_visible", suspendWhenHidden = FALSE)
-    
-    if (is.null(input$train_mc_job_dropdown) || input$train_mc_job_dropdown == "") {
-      output$train_model_card_display <- renderUI({
-        tags$p("Please select a completed job first.")
-      })
-      output$train_model_card_visible <- reactive({ TRUE })
-      outputOptions(output, "train_model_card_visible", suspendWhenHidden = FALSE)
-      return()
-    }
-    
-    output$train_model_card_display <- renderUI({
-      tags$p("Generating Model Card... Please wait...")
-    })
-    output$train_model_card_visible <- reactive({ TRUE })
-    outputOptions(output, "train_model_card_visible", suspendWhenHidden = FALSE)
-    
-    tryCatch({
-      response <- make_request(paste0(API_URL, "/pipelines/", input$train_mc_job_dropdown, "/model-card"), method = "GET")
-      if (response$status == 200) {
-        result <- fromJSON(response$content)
-        md_text <- result$model_card_markdown
-        
-        output$train_model_card_display <- renderUI({
-          html_text <- tryCatch({
-            commonmark::markdown_html(md_text, extensions = TRUE)
-          }, error = function(e) {
-            paste0("<pre>", md_text, "</pre>")
-          })
-          div(class = "markdown-card-container", HTML(html_text))
-        })
-      } else {
-        output$train_model_card_display <- renderUI({
-          tags$p(paste("Error generating model card:", response$status, response$content))
-        })
-      }
-    }, error = function(e) {
-      output$train_model_card_display <- renderUI({
-        tags$p(paste("Error:", e$message))
-      })
-    })
-  })
 
   # Initialize data on startup
   observe({
     output$api_status <- renderText(get_api_status())
-    output$dashboard_jobs_table <- DT::renderDataTable(format_jobs_for_dt(list_all_jobs()), escape = FALSE, options = list(scrollX = TRUE))
-    output$jobs_table <- DT::renderDataTable(format_jobs_for_dt(list_all_jobs()), escape = FALSE, options = list(scrollX = TRUE))
-    output$trained_models_table <- DT::renderDataTable(list_trained_models(), escape = FALSE, options = list(scrollX = TRUE))
+    output$dashboard_jobs_table <- DT::renderDataTable(format_jobs_for_dt(list_all_jobs(active_project_id())), escape = FALSE, options = list(scrollX = TRUE))
+    output$jobs_table <- DT::renderDataTable(format_jobs_for_dt(list_all_jobs(active_project_id())), escape = FALSE, options = list(scrollX = TRUE))
+    output$trained_models_table <- DT::renderDataTable(list_trained_models(active_project_id()), escape = FALSE, options = list(scrollX = TRUE))
     output$datasets_table <- DT::renderDataTable({
-      df <- list_available_datasets()
+      df <- list_available_datasets(active_project_id())
       datasets_df_store(df)
       df
     }, selection = 'single', options = list(scrollX = TRUE))
@@ -4425,7 +3133,7 @@ server <- function(input, output, session) {
 
   # Analytics Value Boxes
   output$stat_total_datasets <- renderValueBox({
-    datasets <- list_available_datasets()
+    datasets <- list_available_datasets(active_project_id())
     count <- 0
     if (is.data.frame(datasets) && !("Error" %in% names(datasets)) && !("Message" %in% names(datasets))) {
       count <- nrow(datasets)
@@ -4437,7 +3145,7 @@ server <- function(input, output, session) {
   })
   
   output$stat_trained_models <- renderValueBox({
-    jobs <- list_all_jobs()
+    jobs <- list_all_jobs(active_project_id())
     count <- 0
     if (is.data.frame(jobs) && !("Error" %in% names(jobs)) && !("Message" %in% names(jobs))) {
       count <- sum(jobs$Status == "completed" | jobs$Status == "success", na.rm = TRUE)
@@ -4449,7 +3157,7 @@ server <- function(input, output, session) {
   })
   
   output$stat_active_jobs <- renderValueBox({
-    jobs <- list_all_jobs()
+    jobs <- list_all_jobs(active_project_id())
     count <- 0
     if (is.data.frame(jobs) && !("Error" %in% names(jobs)) && !("Message" %in% names(jobs))) {
       count <- sum(jobs$Status == "running" | jobs$Status == "training", na.rm = TRUE)
@@ -4461,7 +3169,7 @@ server <- function(input, output, session) {
   })
   
   output$stat_failed_jobs <- renderValueBox({
-    jobs <- list_all_jobs()
+    jobs <- list_all_jobs(active_project_id())
     count <- 0
     if (is.data.frame(jobs) && !("Error" %in% names(jobs)) && !("Message" %in% names(jobs))) {
       count <- sum(jobs$Status == "failed" | jobs$Status == "error", na.rm = TRUE)
@@ -4473,7 +3181,7 @@ server <- function(input, output, session) {
   })
 
   output$stat_arch_plot <- renderPlot({
-    jobs <- list_all_jobs()
+    jobs <- list_all_jobs(active_project_id())
     if (!is.data.frame(jobs) || nrow(jobs) == 0 || "Error" %in% names(jobs) || "Message" %in% names(jobs)) {
       plot(1, type="n", xlab="", ylab="", xlim=c(0, 1), ylim=c(0, 1), xaxt="n", yaxt="n", bty="n")
       text(0.5, 0.5, "No model architecture statistics available.", col="#86868b", font=2, cex=1.2)
@@ -4528,7 +3236,7 @@ server <- function(input, output, session) {
         upload_url <- paste0(API_URL, "/upload-detection-dataset/", dataset_id, "?task_type=", task_type, dataset_name_param)
         response <- POST(
           upload_url,
-          body = list(file = upload_file(file_path, type = "application/zip")),
+          body = list(file = upload_file(file_path, type = "application/zip"), project_id = if(is.null(active_project_id())) "" else active_project_id()),
           encode = "multipart",
           timeout(300)
         )
@@ -4538,7 +3246,8 @@ server <- function(input, output, session) {
           upload_url,
           body = list(
             file = upload_file(file_path, type = "application/zip"),
-            file_type = "zip"
+            file_type = "zip",
+            project_id = if(is.null(active_project_id())) "" else active_project_id()
           ),
           encode = "multipart",
           timeout(300)
@@ -4558,7 +3267,9 @@ server <- function(input, output, session) {
         # Trigger immediate refresh of dropdowns and datasets table
         update_train_dropdowns()
         output$datasets_table <- DT::renderDataTable({
-          list_available_datasets()
+          df <- list_available_datasets(active_project_id())
+          datasets_df_store(df)
+          df
         }, selection = "single", options = list(scrollX = TRUE))
         
       } else {
@@ -4583,7 +3294,7 @@ server <- function(input, output, session) {
   # Trained Models Tab Functions
   observeEvent(input$refresh_models_table, {
     output$trained_models_table <- DT::renderDataTable({
-      list_trained_models()
+      list_trained_models(active_project_id())
     }, escape = FALSE, options = list(scrollX = TRUE))
   })
   
@@ -4593,71 +3304,60 @@ server <- function(input, output, session) {
   # Observer for viewing model card
   observeEvent(input$view_model_card_id, {
     job_id <- input$view_model_card_id
-    showNotification(paste("Fetching model card for", job_id), type = "message")
     
-    tryCatch({
-      response <- make_request(paste0(API_URL, "/pipelines/", job_id, "/model-card"), method = "GET")
-      if (response$status == 200) {
-        result <- fromJSON(response$content)
-        md_text <- result$model_card_markdown
-        html_text <- tryCatch({
-          commonmark::markdown_html(md_text, extensions = TRUE)
-        }, error = function(e) {
-          paste0("<pre>", md_text, "</pre>")
-        })
-        
-        showModal(modalDialog(
-          title = paste("Model Card -", job_id),
-          size = "l",
-          easyClose = TRUE,
-          fade = TRUE,
-          div(class = "markdown-card-container", HTML(html_text)),
-          footer = modalButton("Close")
-        ))
-      } else {
-        showModal(modalDialog(
-          title = "Error",
-          p("Model card is not available for this model yet. If training completed, it may still be generating."),
-          easyClose = TRUE,
-          footer = modalButton("Close")
-        ))
-      }
-    }, error = function(e) {
-      showNotification(paste("Error:", e$message), type = "error")
-    })
+    # Show loading notification
+    id <- showNotification("Generating Model Card...", duration = NULL, type = "message")
+    
+    response <- make_request(paste0(API_URL, "/pipelines/", job_id, "/model-card"))
+    removeNotification(id)
+    
+    if (response$status == 200) {
+      data <- fromJSON(response$content, simplifyVector = FALSE)
+      md_text <- data$model_card_markdown
+      
+      html_text <- tryCatch({
+        commonmark::markdown_html(md_text, extensions = TRUE)
+      }, error = function(e) {
+        paste0("<pre>", md_text, "</pre>")
+      })
+      
+      showModal(modalDialog(
+        title = "Model Card Report",
+        size = "l",
+        div(class = "markdown-card-container", HTML(html_text)),
+        easyClose = TRUE,
+        footer = modalButton("Close")
+      ))
+    } else {
+      showNotification("Failed to load Model Card", type = "error")
+    }
   })
-  
-  # Observer for viewing curves
   observeEvent(input$view_curves_id, {
     job_id <- input$view_curves_id
+    response <- make_request(paste0(API_URL, "/pipelines/", job_id))
     
-    tryCatch({
-      response <- make_request(paste0(API_URL, "/pipelines/", job_id), method = "GET")
-      if (response$status == 200) {
-        job <- fromJSON(response$content, simplifyVector = FALSE)
-        modal_job_data(job)
-        
-        showModal(modalDialog(
-          title = paste("Training & Validation Curves -", job$pipeline_config$name %||% job_id),
-          size = "l",
-          easyClose = TRUE,
-          fade = TRUE,
+    if (response$status == 200) {
+      job <- fromJSON(response$content, simplifyVector = FALSE)
+      modal_job_data(job)
+      
+      showModal(modalDialog(
+        title = paste("Training Curves for", job$pipeline_config$name %||% job_id),
+        size = "l",
+        fluidPage(
           fluidRow(
-            column(12,
-              div(style = "display: flex; justify-content: flex-end; margin-bottom: 10px;",
-                radioButtons("modal_curve_metric_select", "Select Metric:", choices = c("Accuracy" = "accuracy", "Loss" = "loss"), inline = TRUE)
-              ),
-              plotOutput("modal_curves_plot", height = "400px")
-            )
+            column(4, selectInput("modal_curve_metric_select", "Select Metric:", 
+                                 choices = c("accuracy", "loss"), selected = "accuracy")),
+            column(8, align = "right", 
+                   HTML("<span style='color: #666; font-size: 12px; margin-top: 30px; display: inline-block;'>Using local metrics history</span>"))
           ),
-          footer = modalButton("Close")
-        ))
-      } else {
-        showNotification(paste("Error retrieving job details:", response$status), type = "error")
-      }
-    }, error = function(e) {
-      showNotification(paste("Error:", e$message), type = "error")
-    })
+          plotOutput("modal_curves_plot", height = "400px")
+        ),
+        easyClose = TRUE,
+        footer = modalButton("Close")
+      ))
+    } else {
+      showNotification("Failed to load job details for curves", type = "error")
+    }
   })
   
   # Plot renderer for modal curves
@@ -4776,13 +3476,8 @@ server <- function(input, output, session) {
   })
   
   # Observer for evaluating model and tab routing
-  observeEvent(input$eval_model_id, {
-    job_id <- input$eval_model_id
-    
-    updateSelectInput(session, "eval_job_dropdown", choices = get_jobs_for_dropdown("completed"), selected = job_id)
-    updateTabItems(session, "sidebarMenu", "evaluation")
-    showNotification(paste("Selected model", job_id, "for evaluation. Click 'Run Evaluation' to see metrics."), type = "message")
-  })
+  outputOptions(output, "datacard_visible", suspendWhenHidden = FALSE)
+
 }
 
 # Run the application

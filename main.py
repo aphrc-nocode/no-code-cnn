@@ -44,6 +44,7 @@ from pipelines.object_detection_pipeline import ObjectDetectionPipeline
 from pipelines.image_segmentation_pipeline import ImageSegmentationPipeline
 
 # Import MLflow utilities
+from project_manager import Project, project_manager
 from mlflow_utils import (
     setup_mlflow, start_run, log_metrics, log_model,
     end_run, log_batch_metrics
@@ -120,9 +121,10 @@ class DatasetSource(str, Enum):
     
 
 class PipelineConfig(BaseModel):
-    name: str   
+    name: str
+    project_id: Optional[str] = "default"
     task_type: TaskType
-    architecture: ModelArchitecture
+    architecture: Union[ModelArchitecture, str]
     num_classes: int = 10
     batch_size: int = 32
     learning_rate: float = 0.001
@@ -134,7 +136,7 @@ class PipelineConfig(BaseModel):
     
     # Hugging Face specific configuration
     use_hf_transformers: bool = False
-    hf_model_checkpoint: str = None  # Will be set based on architecture selection
+    hf_model_checkpoint: Optional[str] = None  # Will be set based on architecture selection
     feature_extraction_only: bool = False
     patience: int = 5
     segmentation_type: Optional[SegmentationType] = SegmentationType.SEMANTIC
@@ -147,7 +149,7 @@ class TrainingJob(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
-    metrics: Dict[str, float] = {}
+    metrics: Dict[str, Any] = {}
     model_path: Optional[str] = None
     logs: List[str] = []    
     linked_dataset_id: Optional[str] = None  # <-- Add this field
@@ -174,7 +176,7 @@ class PipelineFactory:
         if config.architecture in PipelineFactory.HF_MODEL_MAPPING:
             # Set HF-specific configuration
             config.use_hf_transformers = True
-            config.hf_modezzl_checkpoint = PipelineFactory.HF_MODEL_MAPPING[config.architecture]
+            config.hf_model_checkpoint = PipelineFactory.HF_MODEL_MAPPING[config.architecture]
         
         if config.task_type == TaskType.IMAGE_CLASSIFICATION:
             from pipelines.image_classification_pipeline import ImageClassificationPipeline
@@ -968,6 +970,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ==================== Project API ====================
+
+@app.post("/api/projects")
+async def create_project(project: Project):
+    return project_manager.create_project(project)
+
+@app.get("/api/projects")
+async def list_projects():
+    return project_manager.list_projects()
+
+@app.get("/api/projects/{project_id}")
+async def get_project(project_id: str):
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+# ==================== Job API ====================
 # Import MLflow server utilities
 from mlflow_server import (
     start_mlflow_server, stop_mlflow_server, 
@@ -1321,6 +1342,34 @@ async def evaluate_pipeline(job_id: str):
         else:
             top_confusion = "None"
             
+        # Generate Confusion Matrix Base64
+        cm_base64 = ""
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+            from sklearn.metrics import confusion_matrix
+            
+            y_true = [s["true_label"] for s in samples_results]
+            y_pred = [s["predicted_label"] for s in samples_results]
+            
+            cm = confusion_matrix(y_true, y_pred, labels=classes)
+            
+            plt.figure(figsize=(8, 6))
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=classes, yticklabels=classes)
+            plt.ylabel('Actual')
+            plt.xlabel('Predicted')
+            plt.title('Confusion Matrix')
+            plt.tight_layout()
+            
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', dpi=100)
+            plt.close()
+            cm_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+        except Exception as e:
+            print(f"Error generating confusion matrix: {e}")
+
         return {
             "task_type": "image_classification",
             "accuracy": round(accuracy, 4),
@@ -1330,7 +1379,8 @@ async def evaluate_pipeline(job_id: str):
             "lowest_recall_class": lowest_recall_class,
             "top_confusion": top_confusion,
             "class_metrics": class_metrics_list,
-            "samples": samples_results
+            "samples": samples_results,
+            "confusion_matrix_base64": cm_base64
         }
         
     elif job.pipeline_config.task_type == TaskType.OBJECT_DETECTION:
@@ -1695,9 +1745,12 @@ async def evaluate_pipeline(job_id: str):
         raise HTTPException(status_code=400, detail=f"Unsupported task type: {job.pipeline_config.task_type}")
 
 @app.get("/pipelines", response_model=List[TrainingJob])
-async def list_pipelines():
-    """List all training jobs"""
-    return job_manager.list_jobs()
+async def list_pipelines(project_id: Optional[str] = None):
+    """List all training jobs, optionally filtered by project"""
+    jobs = job_manager.list_jobs()
+    if project_id:
+        jobs = [job for job in jobs if getattr(job.pipeline_config, 'project_id', None) == project_id]
+    return jobs
 
 
 @app.get("/datasets/versions")
@@ -1782,6 +1835,7 @@ async def upload_dataset_file(
     job_id: str,
     task_type: str = "image_classification",
     dataset_name: str = None,
+    project_id: str = Form(None),
     file: UploadFile = File(...),
     class_name: str = Form(None),
     file_type: str = Form("image")  # 'image', 'annotation', or 'zip'
@@ -1802,6 +1856,8 @@ async def upload_dataset_file(
         config["task_type"] = task_type
         if dataset_name:
             config["dataset_name"] = dataset_name
+        if project_id:
+            config["project_id"] = project_id
         with open(config_file, "w") as f:
             json.dump(config, f)
 
@@ -1850,8 +1906,9 @@ async def upload_dataset_file(
 
 @app.post("/predict/{job_id}")
 async def predict(
-    job_id: str, 
-    file: UploadFile = File(...), 
+    job_id: str,
+    file: Optional[UploadFile] = File(None),
+    image_url: Optional[str] = Form(None),
     confidence_threshold: float = Form(0.5),
     explain_method: Optional[str] = Form("none"),
     explain_box_index: Optional[int] = Form(-1)
@@ -1891,7 +1948,18 @@ async def predict(
         
         # Load image
         print("Loading image...")
-        image_data = await file.read()
+        if file and file.filename:
+            image_data = await file.read()
+        elif image_url:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(image_url)
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=400, detail="Failed to fetch image from URL")
+                image_data = resp.content
+        else:
+            raise HTTPException(status_code=400, detail="Must provide either file or image_url")
+            
         print(f"Image data size: {len(image_data)} bytes")
         
         try:
@@ -2227,8 +2295,8 @@ async def health_check():
     }
 
 @app.get("/datasets/available")
-async def list_available_datasets():
-    """List all available datasets"""
+async def list_available_datasets(project_id: str = None):
+    """List all available datasets, optionally filtered by project"""
     try:
         dataset_dir = Path("datasets")
         if not dataset_dir.exists():
@@ -2341,14 +2409,18 @@ async def list_available_datasets():
                 if is_coco_dataset and item_count == 0:
                     print(f"Skipping COCO dataset with no images: {d.name}")
                     continue
-                
+                dataset_project_id = config.get("project_id", None) if 'config' in locals() else None
+                if project_id and dataset_project_id != project_id:
+                    continue
+
                 datasets.append({
                     "id": d.name,
                     "name": dataset_name_from_config if dataset_name_from_config else d.name.replace('_', ' ').title(),
                     "classes": classes if classes else ["(COCO format dataset)"],
                     "task_type": task_type,
                     "item_count": item_count,
-                    "is_coco_format": is_coco_dataset
+                    "is_coco_format": is_coco_dataset,
+                    "project_id": dataset_project_id
                 })
         
         return datasets
@@ -2405,7 +2477,7 @@ async def link_dataset_to_job(job_id: str, dataset_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to link dataset: {str(e)}")
 
 @app.post("/upload-detection-dataset/{job_id}")
-async def upload_detection_dataset(job_id: str, task_type: str = "object_detection", dataset_name: str = None, file: UploadFile = File(...)):
+async def upload_detection_dataset(job_id: str, task_type: str = "object_detection", dataset_name: str = None, project_id: str = Form(None), file: UploadFile = File(...)):
     """
     Upload a COCO format object detection dataset as a zip file.
     The zip file should contain the images and annotations in the COCO format structure.
@@ -2426,6 +2498,8 @@ async def upload_detection_dataset(job_id: str, task_type: str = "object_detecti
         config["task_type"] = task_type
         if dataset_name:
             config["dataset_name"] = dataset_name
+        if project_id:
+            config["project_id"] = project_id
         with open(config_file, "w") as f:
             json.dump(config, f)
         
@@ -3142,26 +3216,26 @@ async def validate_dataset(dataset_id: str):
 
 # ==================== Visual Pipeline Builder Endpoints ====================
 
-WORKFLOW_STATE_FILE = Path(__file__).resolve().parent / "logs" / "workflow_state.json"
-
-@app.get("/api/workflow/canvas")
-async def get_workflow_canvas():
-    """Get the currently saved visual workflow state"""
-    if WORKFLOW_STATE_FILE.exists():
+@app.get("/api/projects/{project_id}/workflow/canvas")
+async def get_workflow_canvas(project_id: str):
+    """Get the currently saved visual workflow state for a project"""
+    state_file = Path(__file__).resolve().parent / "logs" / "projects" / project_id / "workflow_state.json"
+    if state_file.exists():
         try:
-            with open(WORKFLOW_STATE_FILE, "r", encoding="utf-8") as f:
+            with open(state_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
-    # Return default empty workflow if not found
-    return {"nodes": [], "edges": []}
+    # Return 404 so frontend can load default workflow
+    raise HTTPException(status_code=404, detail="Workflow not found")
 
-@app.post("/api/workflow/canvas")
-async def save_workflow_canvas(state: dict):
-    """Save the visual workflow state"""
+@app.post("/api/projects/{project_id}/workflow/canvas")
+async def save_workflow_canvas(project_id: str, state: dict):
+    """Save the visual workflow state for a project"""
     try:
-        WORKFLOW_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(WORKFLOW_STATE_FILE, "w", encoding="utf-8") as f:
+        state_file = Path(__file__).resolve().parent / "logs" / "projects" / project_id / "workflow_state.json"
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(state_file, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
         return {"status": "success", "message": "Workflow saved"}
     except Exception as e:
@@ -3192,6 +3266,86 @@ async def get_trained_models():
                 })
                 
     return trained_models
+
+@app.get("/pipelines/{job_id}/training-metrics")
+async def get_training_metrics(job_id: str):
+    """Fetch training metrics from MLflow and generate a plot."""
+    import base64
+    import io
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from mlflow.tracking import MlflowClient
+
+    client = MlflowClient()
+    try:
+        run = client.get_run(job_id)
+        
+        # Get metric history
+        train_loss = client.get_metric_history(job_id, "train_loss")
+        val_loss = client.get_metric_history(job_id, "val_loss")
+        train_acc = client.get_metric_history(job_id, "train_accuracy")
+        val_acc = client.get_metric_history(job_id, "val_accuracy")
+        
+        if not train_loss:
+            # Fallback for old logging style (e.g. train_loss_epoch_X)
+            metrics = run.data.metrics
+            epochs_list = set()
+            for key in metrics.keys():
+                if "_epoch_" in key:
+                    try:
+                        epochs_list.add(int(key.split("_")[-1]))
+                    except: pass
+            
+            if not epochs_list:
+                return {"error": "No training metrics found."}
+                
+            epochs = sorted(list(epochs_list))
+            t_loss = [metrics.get(f"train_loss_epoch_{e}", 0) for e in epochs]
+            v_loss = [metrics.get(f"val_loss_epoch_{e}", 0) for e in epochs]
+            t_acc = [metrics.get(f"train_acc_epoch_{e}", 0) for e in epochs]
+            v_acc = [metrics.get(f"val_acc_epoch_{e}", 0) for e in epochs]
+        else:
+            epochs = [m.step for m in train_loss]
+            t_loss = [m.value for m in train_loss]
+            v_loss = [m.value for m in val_loss] if val_loss else []
+            t_acc = [m.value for m in train_acc] if train_acc else []
+            v_acc = [m.value for m in val_acc] if val_acc else []
+        
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+        
+        # Loss plot
+        ax1.plot(epochs, t_loss, label='Train Loss', color='blue', linewidth=2)
+        if v_loss:
+            ax1.plot(epochs[:len(v_loss)], v_loss, label='Val Loss', color='orange', linewidth=2)
+        ax1.set_title('Loss over Epochs', fontsize=14)
+        ax1.set_xlabel('Epoch')
+        ax1.set_ylabel('Loss')
+        ax1.legend()
+        ax1.grid(True, linestyle='--', alpha=0.7)
+        
+        # Accuracy plot
+        if t_acc:
+            ax2.plot(epochs[:len(t_acc)], t_acc, label='Train Accuracy', color='green', linewidth=2)
+        if v_acc:
+            ax2.plot(epochs[:len(v_acc)], v_acc, label='Val Accuracy', color='red', linewidth=2)
+        ax2.set_title('Accuracy over Epochs', fontsize=14)
+        ax2.set_xlabel('Epoch')
+        ax2.set_ylabel('Accuracy')
+        ax2.legend()
+        ax2.grid(True, linestyle='--', alpha=0.7)
+        
+        plt.tight_layout()
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=120)
+        plt.close()
+        
+        plot_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+        return {"training_curves_base64": plot_base64}
+        
+    except Exception as e:
+        print(f"Error fetching metrics for {job_id}: {e}")
+        return {"error": str(e)}
 
 # Expose Visual Pipeline Builder client assets as static folder
 from fastapi.staticfiles import StaticFiles

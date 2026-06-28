@@ -3,6 +3,9 @@ const NODE_HEIGHT = 88;
 const NODE_PORT_Y = 44;
 const CANVAS_PADDING = 16;
 
+const urlParams = new URLSearchParams(window.location.search);
+const PROJECT_ID = urlParams.get('project_id');
+
 const NODE_ICONS = {
   dataset: "database",
   model_config: "sliders",
@@ -61,6 +64,7 @@ const NODE_BLUEPRINTS = {
       annotatedImage: "",
       explain_method: "none",
       explanationImage: "",
+      confidence_threshold: 0.5,
     },
   },
   evaluator: {
@@ -134,6 +138,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Start polling any active training jobs
   resumeActiveTrainerPolling();
   
+  // Initialize
+  init();
+
   logEvent("Visual Builder Ready", "Canvas initialized. Select a node to configure it.");
   
   if (window.lucide) {
@@ -224,8 +231,9 @@ function bindEvents() {
 }
 
 async function loadWorkflowFromServer() {
+  if (!PROJECT_ID) return; // Wait for project_id
   try {
-    const response = await fetch("/api/workflow/canvas");
+    const response = await fetch(`/api/projects/${PROJECT_ID}/workflow/canvas`);
     if (response.ok) {
       const data = await response.json();
       if (Array.isArray(data.nodes) && Array.isArray(data.edges)) {
@@ -243,8 +251,9 @@ async function loadWorkflowFromServer() {
 }
 
 async function saveWorkflow() {
+  if (!PROJECT_ID) return;
   try {
-    const response = await fetch("/api/workflow/canvas", {
+    const response = await fetch(`/api/projects/${PROJECT_ID}/workflow/canvas`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state.workflow),
@@ -570,6 +579,17 @@ function renderInspector() {
     });
     els.nodeForm.appendChild(trainBtn);
 
+    if (node.config.status === "completed") {
+      const curvesBtn = document.createElement("button");
+      curvesBtn.type = "button";
+      curvesBtn.className = "button secondary";
+      curvesBtn.style.width = "100%";
+      curvesBtn.style.marginTop = "10px";
+      curvesBtn.innerHTML = '<i data-lucide="line-chart"></i> View Training Curves';
+      curvesBtn.onclick = () => window.fetchTrainingCurves(node.config.jobId, curvesBtn);
+      els.nodeForm.appendChild(curvesBtn);
+    }
+
     if (node.config.logs && node.config.logs.length > 0) {
       const logsLabel = document.createElement("label");
       logsLabel.innerHTML = "<span>Training Logs</span>";
@@ -633,32 +653,70 @@ function renderInspector() {
       saveWorkflow();
     }));
 
+    els.nodeForm.appendChild(makeSliderField(
+      "confidence_threshold",
+      "Confidence Threshold",
+      node.config.confidence_threshold ?? 0.5,
+      0.05, 0.95, 0.05,
+      (value) => {
+        node.config.confidence_threshold = value;
+        saveWorkflow();
+      }
+    ));
+
     const fileLabel = document.createElement("label");
     fileLabel.innerHTML = "<span>Upload Test Image</span>";
     
     const fileInput = document.createElement("input");
     fileInput.type = "file";
     fileInput.accept = "image/*";
+    fileLabel.appendChild(fileInput);
+    els.nodeForm.appendChild(fileLabel);
+
+    const urlLabel = document.createElement("label");
+    urlLabel.innerHTML = "<span>Or Provide Image URL</span>";
     
-    fileInput.addEventListener("change", async (event) => {
-      const file = event.target.files[0];
-      if (!file) return;
+    const urlInput = document.createElement("input");
+    urlInput.type = "text";
+    urlInput.placeholder = "https://example.com/image.jpg";
+    urlLabel.appendChild(urlInput);
+    els.nodeForm.appendChild(urlLabel);
+
+    const predictBtn = document.createElement("button");
+    predictBtn.type = "button";
+    predictBtn.className = "primary-button";
+    predictBtn.textContent = "Run Prediction";
+    predictBtn.style.marginTop = "10px";
+    predictBtn.style.width = "100%";
+
+    predictBtn.addEventListener("click", async () => {
+      const file = fileInput.files[0];
+      const imageUrl = urlInput.value.trim();
+      
+      if (!file && !imageUrl) {
+        alert("Please upload a file or enter an image URL.");
+        return;
+      }
       
       const spinner = document.createElement("div");
-      spinner.className = "empty-inspector";
+      spinner.className = "empty-inspector spinner-container";
       spinner.innerHTML = '<i data-lucide="loader-2" class="spin" style="margin-right:8px;"></i> Running prediction...';
+      
+      const existingSpinner = els.nodeForm.querySelector('.spinner-container');
+      if (existingSpinner) existingSpinner.remove();
+      
       els.nodeForm.appendChild(spinner);
+      lucide.createIcons();
       
       try {
-        await runPipelinePrediction(node.id, trainerNode.config.jobId, file);
+        await runPipelinePrediction(node.id, trainerNode.config.jobId, file, imageUrl);
       } catch (err) {
         logEvent("Prediction error", err.message || "Failed to run prediction");
       }
       renderInspector();
     });
-    
-    fileLabel.appendChild(fileInput);
-    els.nodeForm.appendChild(fileLabel);
+
+    els.nodeForm.appendChild(predictBtn);
 
     if (node.config.annotatedImage) {
       const imgLabel = document.createElement("label");
@@ -669,6 +727,8 @@ function renderInspector() {
       img.style.width = "100%";
       img.style.borderRadius = "3px";
       img.style.border = "1px solid var(--line-strong)";
+      img.className = "clickable-image";
+      img.onclick = () => window.openLightbox(img.src);
       imgLabel.appendChild(img);
       els.nodeForm.appendChild(imgLabel);
     }
@@ -683,6 +743,8 @@ function renderInspector() {
       xaiImg.style.width = "100%";
       xaiImg.style.borderRadius = "3px";
       xaiImg.style.border = "1px solid var(--line-strong)";
+      xaiImg.className = "clickable-image";
+      xaiImg.onclick = () => window.openLightbox(xaiImg.src);
       xaiLabel.appendChild(xaiImg);
       els.nodeForm.appendChild(xaiLabel);
     }
@@ -843,14 +905,19 @@ function renderInspector() {
       els.nodeForm.appendChild(valBoxesDiv);
 
       // 2. Heatmap Confusion Matrix (For classification only)
-      if (res.task_type === "image_classification" && res.samples && Array.isArray(res.samples)) {
-        const uniqueClasses = classMetrics.map(m => m.class_name);
-        if (uniqueClasses.length > 0) {
-          const matrixHtml = drawConfusionMatrix(res.samples, uniqueClasses);
-          const matrixDiv = document.createElement("div");
-          matrixDiv.innerHTML = matrixHtml;
-          els.nodeForm.appendChild(matrixDiv);
-        }
+      if (res.task_type === "image_classification" && res.confusion_matrix_base64) {
+        const matrixLabel = document.createElement("label");
+        matrixLabel.style.marginTop = "10px";
+        matrixLabel.innerHTML = "<span>Confusion Matrix</span>";
+        const matrixImg = document.createElement("img");
+        matrixImg.src = `data:image/png;base64,${res.confusion_matrix_base64}`;
+        matrixImg.style.width = "100%";
+        matrixImg.style.borderRadius = "3px";
+        matrixImg.style.border = "1px solid var(--line-strong)";
+        matrixImg.className = "clickable-image";
+        matrixImg.onclick = () => window.openLightbox(matrixImg.src);
+        matrixLabel.appendChild(matrixImg);
+        els.nodeForm.appendChild(matrixLabel);
       }
 
       // 3. Class Performance Bars Plot
@@ -1078,6 +1145,7 @@ async function startPipelineTraining(trainerId, datasetObj, cfg) {
     
     const payload = {
       name: cfg.name,
+      project_id: PROJECT_ID,
       task_type: cfg.task_type,
       architecture: cfg.architecture,
       num_classes: num_classes,
@@ -1197,13 +1265,18 @@ function resumeActiveTrainerPolling() {
   }
 }
 
-async function runPipelinePrediction(predictorId, jobId, file) {
+async function runPipelinePrediction(predictorId, jobId, file, imageUrl) {
   const predictorNode = getNode(predictorId);
   if (!predictorNode) return;
-  
+
   const formData = new FormData();
-  formData.append("file", file);
-  formData.append("confidence_threshold", 0.35);
+  if (file) {
+    formData.append("file", file);
+  }
+  if (imageUrl) {
+    formData.append("image_url", imageUrl);
+  }
+  formData.append("confidence_threshold", predictorNode.config.confidence_threshold ?? 0.5);
   formData.append("explain_method", predictorNode.config.explain_method || "none");
   
   const response = await fetch(`/predict/${jobId}`, {
@@ -1766,6 +1839,35 @@ function makeNumberField(name, label, value, min, max, onChange, step = 1) {
   return wrapper;
 }
 
+function makeSliderField(name, label, value, min, max, step, onChange) {
+  const wrapper = makeLabel(label);
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;align-items:center;gap:8px;";
+
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.name = name;
+  slider.min = String(min);
+  slider.max = String(max);
+  slider.step = String(step);
+  slider.value = String(value);
+  slider.style.cssText = "flex:1;accent-color:var(--primary);";
+
+  const display = document.createElement("span");
+  display.style.cssText = "min-width:38px;text-align:right;font-size:12px;font-weight:600;color:var(--ink);";
+  display.textContent = Number(value).toFixed(2);
+
+  slider.addEventListener("input", () => {
+    const v = Number(slider.value);
+    display.textContent = v.toFixed(2);
+    onChange(v);
+  });
+
+  row.append(slider, display);
+  wrapper.appendChild(row);
+  return wrapper;
+}
+
 function makeToggleField(name, label, value, onChange) {
   const wrapper = document.createElement("label");
   wrapper.className = "checkbox-row";
@@ -1890,9 +1992,62 @@ function drawClassMetricsPlot(classMetrics, taskType) {
   });
   
   html += `
-      </div>
     </div>
+  </div>
   `;
   
   return html;
 }
+
+// --- Lightbox Functions (Global) ---
+window.openLightbox = function(imgSrc) {
+  let overlay = document.getElementById("lightboxOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "lightboxOverlay";
+    overlay.className = "lightbox-overlay";
+    overlay.innerHTML = `
+      <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+      <div class="lightbox-content">
+        <img id="lightboxImage" class="lightbox-image" src="" />
+      </div>
+    `;
+    overlay.onclick = (e) => {
+      if (e.target === overlay) closeLightbox();
+    };
+    document.body.appendChild(overlay);
+  }
+  
+  const img = document.getElementById("lightboxImage");
+  img.src = imgSrc;
+  overlay.classList.add("active");
+};
+
+window.closeLightbox = function() {
+  const overlay = document.getElementById("lightboxOverlay");
+  if (overlay) {
+    overlay.classList.remove("active");
+  }
+};
+
+window.fetchTrainingCurves = async function(jobId, btn) {
+  try {
+    btn.innerHTML = '<i data-lucide="loader-2" class="spin"></i> Fetching...';
+    btn.disabled = true;
+    if (window.lucide) window.lucide.createIcons();
+    
+    const response = await fetch(`/pipelines/${jobId}/training-metrics`);
+    if (!response.ok) throw new Error("Failed to fetch training curves");
+    
+    const data = await response.json();
+    if (data.error) throw new Error(data.error);
+    
+    window.openLightbox(`data:image/png;base64,${data.training_curves_base64}`);
+  } catch (e) {
+    window.logEvent("Error fetching curves", e.message || "Failed to load metrics");
+  } finally {
+    btn.innerHTML = '<i data-lucide="line-chart"></i> View Training Curves';
+    btn.disabled = false;
+    if (window.lucide) window.lucide.createIcons();
+  }
+};

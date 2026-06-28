@@ -277,6 +277,23 @@ class ImageClassificationPipeline(BasePipeline):
                     scheduler.step()
                 
                 # Log metrics for this epoch
+                log_metrics({
+                    "train_loss": train_loss,
+                    "train_accuracy": train_acc / 100.0,
+                    "val_loss": val_loss if val_loader else 0.0,
+                    "val_accuracy": val_acc / 100.0 if val_loader else 0.0
+                }, step=epoch)
+                
+                # Also log old format for backward compatibility temporarily
+                epoch_metrics = {
+                    f"train_loss_epoch_{epoch}": train_loss,
+                    f"train_acc_epoch_{epoch}": train_acc / 100.0,
+                }
+                if val_loader:
+                    epoch_metrics.update({
+                        f"val_loss_epoch_{epoch}": val_loss,
+                        f"val_acc_epoch_{epoch}": val_acc / 100.0,
+                    })
                 log_metrics(epoch_metrics)
                 
                 # Log epoch summary
@@ -444,6 +461,14 @@ class ImageClassificationPipeline(BasePipeline):
                 "final_train_accuracy": train_acc / 100.0,
                 "final_val_loss": val_loss if val_loader else None,
                 "final_val_accuracy": val_acc / 100.0 if val_loader else None,
+                "metrics": {
+                    "accuracy": (val_acc / 100.0) if val_loader else (train_acc / 100.0),
+                    "loss": val_loss if val_loader else train_loss,
+                    "train_accuracy": train_acc / 100.0,
+                    "train_loss": train_loss,
+                    "val_accuracy": (val_acc / 100.0) if val_loader else None,
+                    "val_loss": val_loss if val_loader else None
+                },
                 "class_mapping": class_to_idx,
                 "history": history
             }
