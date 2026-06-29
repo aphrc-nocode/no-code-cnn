@@ -1347,6 +1347,7 @@ server <- function(input, output, session) {
               column(8,
                 box(
                   title = "Available Datasets", status = "success", solidHeader = TRUE, width = 12,
+
                     p(style = "margin-top: 8px; color: #888;", "Click a row to view its Data Card & validation report."),
                     br(),
                   DT::dataTableOutput("datasets_table")

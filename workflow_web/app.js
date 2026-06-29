@@ -179,7 +179,7 @@ function cacheElements() {
 function bindEvents() {
   document.getElementById("saveWorkflow").addEventListener("click", saveWorkflow);
   document.getElementById("resetWorkflow").addEventListener("click", resetWorkflow);
-
+  
   // Wire up the new Add Node buttons
   document.querySelectorAll(".add-node-btn").forEach((button) => {
     button.addEventListener("click", () => {
