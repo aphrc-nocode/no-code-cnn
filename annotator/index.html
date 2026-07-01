@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dataset Image Annotator</title>
+    <link rel="stylesheet" href="./styles.css?v=1.0.7" />
+    <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+    <script defer src="./app.js?v=1.0.7"></script>
+  </head>
+  <body>
+    <!-- Full-screen Images Gallery View -->
+    <div id="galleryView" style="display: flex; flex-direction: column; width: 100%; height: 100vh; background: var(--surface); box-sizing: border-box; overflow: hidden;">
+      <!-- Gallery Toolbar -->
+      <header class="top-toolbar" style="flex-shrink: 0;">
+        <!-- Back Button -->
+        <button class="tb-icon-btn" id="galleryBackToWorkflow" title="Back to workflow (workspace)" style="border: none; margin-right: 4px;">
+          <i data-lucide="chevron-left"></i>
+        </button>
+        <h1 class="tb-title" id="galleryProjectTitle">Project Gallery</h1>
+        
+        <div class="tb-separator"></div>
+        
+        <!-- Filters (All, Annotated, Unannotated) -->
+        <div class="filter-group" style="display: flex; background: var(--surface-3); border-radius: var(--radius-sm); padding: 2px; border: 1px solid var(--border);">
+          <button class="filter-btn active" id="filterAllBtn" style="padding: 4px 10px; font-size: 11px; border: none; background: transparent; color: var(--accent); border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;">All</button>
+          <button class="filter-btn" id="filterAnnotatedBtn" style="padding: 4px 10px; font-size: 11px; border: none; background: transparent; color: var(--text3); border-radius: var(--radius-sm); font-weight: 500; cursor: pointer;">Annotated</button>
+          <button class="filter-btn" id="filterUnannotatedBtn" style="padding: 4px 10px; font-size: 11px; border: none; background: transparent; color: var(--text3); border-radius: var(--radius-sm); font-weight: 500; cursor: pointer;">Unannotated</button>
+        </div>
+        
+        <div class="tb-separator"></div>
+        
+        <!-- Search bar -->
+        <div style="position: relative; width: 220px;">
+          <input type="text" id="gallerySearchInput" placeholder="Search images..." style="width: 100%; height: 28px; padding: 0 8px 0 26px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 11px; background: var(--surface-2); color: var(--text); outline: none; box-sizing: border-box;" />
+          <i data-lucide="search" style="position: absolute; left: 8px; top: 8px; width: 11px; height: 11px; color: var(--text3);"></i>
+        </div>
+        
+        <div style="flex: 1;"></div>
+        
+        <!-- Actions (Upload Images, Export Dataset) -->
+        <div style="display: flex; align-items: center; gap: 4px;">
+          <button class="tb-btn" id="galleryUploadBtn" title="Upload more images" style="background: var(--surface-2); color: var(--text); border-color: var(--border); height: 30px; display: flex; align-items: center; gap: 5px;">
+            <i data-lucide="upload-cloud" style="width: 13px; height: 13px;"></i> Upload
+          </button>
+          <button class="tb-btn" id="galleryExportBtn" title="Export dataset" style="background: var(--surface-2); color: var(--text); border-color: var(--border); height: 30px; display: flex; align-items: center; gap: 5px;">
+            <i data-lucide="download" style="width: 13px; height: 13px;"></i> Export
+          </button>
+        </div>
+      </header>
+      
+      <!-- Gallery Grid Area -->
+      <main style="flex: 1; overflow-y: auto; padding: 24px; box-sizing: border-box;">
+        <div id="galleryGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px;">
+          <!-- Dynamically populated card templates -->
+        </div>
+        <div id="galleryEmptyState" style="display: none; flex-direction: column; align-items: center; justify-content: center; padding: 60px 0; color: var(--text3);">
+          <i data-lucide="image-off" style="width: 48px; height: 48px; opacity: 0.5; margin-bottom: 12px;"></i>
+          <p style="margin: 0; font-size: 13px;">No images match the selected filters</p>
+        </div>
+      </main>
+    </div>
+
+    <!-- Canvas Editor Workspace View -->
+    <div id="editorView" style="display: none; flex-direction: column; width: 100%; height: 100vh; overflow: hidden; box-sizing: border-box;">
+      <!-- Top Header / Navigation Toolbar -->
+      <header class="top-toolbar" style="flex-shrink: 0;">
+        <!-- Back to Gallery Button -->
+        <button class="tb-btn" id="editorBackToGallery" title="Back to gallery view" style="border: 1px solid var(--border); margin-right: 4px; display: flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--surface-2); color: var(--text); cursor: pointer;">
+          <i data-lucide="arrow-left" style="width: 14px; height: 14px;"></i> Gallery
+        </button>
+        
+        <div class="tb-separator"></div>
+        
+        <!-- Project Name and Count -->
+        <h1 class="tb-title" id="imageName">Loading...</h1>
+        <span class="tb-counter" id="imageCounter">0/0</span>
+        
+        <div class="tb-separator"></div>
+        
+        <!-- Drawing Tools -->
+        <div style="display: flex; gap: 2px;" id="toolsContainer">
+          <button class="tb-btn" id="toolSelect" title="Select shape (1)">
+            <i data-lucide="mouse-pointer-2"></i> Select
+          </button>
+          <button class="tb-btn" id="toolBBox" title="Bounding Box (2)">
+            <i data-lucide="square"></i> Rect
+          </button>
+          <button class="tb-btn" id="toolPolygon" title="Polygon mask (3)">
+            <i data-lucide="hexagon"></i> Polygon
+          </button>
+          <button class="tb-btn" id="toolPan" title="Pan image (4)">
+            <i data-lucide="hand"></i> Pan
+          </button>
+        </div>
+        
+        <div class="tb-separator"></div>
+        
+        <!-- Zoom Controls -->
+        <div style="display: flex; align-items: center; gap: 2px;">
+          <button class="tb-icon-btn" id="zoomOut" title="Zoom out"><i data-lucide="zoom-out"></i></button>
+          <span style="font-size: 11px; color: var(--text2); font-family: monospace; width: 38px; text-align: center;" id="zoomLabel">100%</span>
+          <button class="tb-icon-btn" id="zoomIn" title="Zoom in"><i data-lucide="zoom-in"></i></button>
+          <button class="tb-icon-btn" id="zoomFit" title="Fit to screen"><i data-lucide="maximize-2"></i></button>
+        </div>
+        
+        <div class="tb-separator"></div>
+        
+        <!-- Undo / Redo / Copy Previous -->
+        <div style="display: flex; gap: 2px;">
+          <button class="tb-icon-btn" id="undoBtn" title="Undo (Ctrl+Z)"><i data-lucide="undo-2"></i></button>
+          <button class="tb-icon-btn" id="redoBtn" title="Redo (Ctrl+Y)"><i data-lucide="redo-2"></i></button>
+          <button class="tb-btn" id="copyPrevBtn" title="Copy annotations from previous image" style="display: none;">
+            <i data-lucide="copy"></i> Copy prev
+          </button>
+        </div>
+        
+        <!-- Spacer -->
+        <div style="flex: 1;"></div>
+        
+        <!-- Image List Navigation and Save Button -->
+        <div style="display: flex; align-items: center; gap: 4px;">
+          <button class="tb-icon-btn" id="prevImage" title="Previous image"><i data-lucide="chevron-left"></i></button>
+          <button class="tb-icon-btn" id="nextImage" title="Next image"><i data-lucide="chevron-right"></i></button>
+          
+          <div style="width: 1px; height: 20px; background: var(--border); margin: 0 6px;"></div>
+          
+          <button class="save-btn" id="saveBtn" title="Save changes (Enter)">
+            <span id="saveIconContainer"><i data-lucide="save"></i></span> <span id="saveBtnText">Save</span>
+          </button>
+          <button class="tb-btn" id="exportBtn" title="Export dataset" style="background: var(--surface-2); color: var(--text); border-color: var(--border); margin-left: 4px; height: 30px; display: flex; align-items: center; gap: 5px;">
+            <i data-lucide="download"></i> Export
+          </button>
+        </div>
+      </header>
+
+      <!-- Workspace Area -->
+      <div class="workspace-container">
+        <!-- Interactive Editor Canvas Column (Left) -->
+        <main class="canvas-container">
+          <!-- Overlay Alert / Drawing Info Hints -->
+          <div class="overlay-hint" id="polyHint" style="display: none;">
+            <i data-lucide="hexagon"></i>
+            <span id="polyHintText">0 points - Click to add vertices, double click or snap first vertex to close</span>
+          </div>
+          <div class="overlay-hint" id="classifHint" style="display: none;">
+            <i data-lucide="info"></i>
+            <span>Image Classification: Select class in the sidebar to label the image.</span>
+          </div>
+          
+          <!-- Interactive Canvas Wrapper -->
+          <div class="canvas-wrapper" id="canvasWrapper">
+            <canvas id="annotationCanvas"></canvas>
+          </div>
+          
+          <!-- Bottom Shortcut hint bar -->
+          <footer class="bottom-status-bar">
+            <span id="shortcutsLegend">
+              <kbd>1</kbd> Select · 
+              <kbd>2</kbd> Rect · 
+              <kbd>3</kbd> Poly · 
+              <kbd>4</kbd> Pan · 
+              <kbd>Del</kbd> Delete · 
+              <kbd>Ctrl+Z</kbd> Undo · 
+              <kbd>Space+Drag</kbd> Pan
+            </span>
+            <span style="margin-left: auto; opacity: 0.7;">Scroll = Zoom · Drag = Draw/Move</span>
+          </footer>
+        </main>
+
+        <!-- Sidebar Panel Column (Right) -->
+        <aside class="sidebar-panel" id="sidebarPanel">
+          <!-- Side toggle button -->
+          <button class="panel-toggle-btn" id="panelToggleBtn" title="Collapse sidebar">
+            <span id="panelToggleIconContainer"><i data-lucide="chevron-right"></i></span>
+          </button>
+
+          <div class="sidebar-content" style="display: flex; flex-direction: column; height: 100%;">
+            <!-- Classes List -->
+            <section class="panel-section">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <h2 class="panel-label" style="margin-bottom: 0;">Classes</h2>
+                <button class="ann-mini-btn" id="addClassBtn" title="Add class">
+                  <i data-lucide="plus" style="width: 11px; height: 11px;"></i>
+                </button>
+              </div>
+              <div class="class-btn-list" id="classList">
+                <!-- Dynamically populated class list -->
+                <div class="loading-indicator">
+                  <i data-lucide="loader" class="spin"></i>
+                  <span>Loading classes...</span>
+                </div>
+              </div>
+            </section>
+
+            <!-- Annotations Shapes List -->
+            <section class="panel-section" style="flex: 1; min-height: 0; display: flex; flex-direction: column;" id="annotationsListSection">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <h2 class="panel-label" style="margin-bottom: 0;">Annotations (<span id="annCount">0</span>)</h2>
+                <button class="ann-mini-btn" id="clearAllAnnotations" title="Clear all shapes">
+                  <i data-lucide="refresh-cw" style="width: 11px; height: 11px;"></i>
+                </button>
+              </div>
+              
+              <div class="annotations-scroll-container" id="annotationsContainer">
+                <!-- Dynamically populated shape list items -->
+                <p class="empty-ann-text">No annotations yet</p>
+              </div>
+            </section>
+
+            <!-- Image-level Classification Selector (Only shown for classification task) -->
+            <section class="panel-section" style="display: none;" id="classificationSelectorSection">
+              <h2 class="panel-label">Image Label</h2>
+              <div class="image-class-selector" id="imageClassSelector">
+                <!-- Dynamically populated classification choice items -->
+              </div>
+            </section>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <!-- Drag & Drop Uploader Overlay (when no images exist in the project) -->
+    <div class="upload-overlay" id="uploadOverlay">
+      <div class="upload-box" id="uploadBox">
+        <i data-lucide="upload-cloud" class="upload-icon" style="width: 48px; height: 48px;"></i>
+        <h3 class="upload-title">No images in project</h3>
+        <p class="upload-subtitle">Drag and drop images here or click to browse</p>
+        <span style="font-size: 11px; opacity: 0.5;">Supports JPEG, PNG, BMP, WEBP</span>
+        
+        <input type="file" class="upload-file-input" id="fileInput" multiple accept="image/*" />
+        
+        <!-- Progress bar inside uploader -->
+        <div class="upload-progress-container" id="uploadProgressContainer">
+          <div class="upload-progress-bar">
+            <div class="upload-progress-fill" id="uploadProgressFill"></div>
+          </div>
+          <span class="upload-progress-text" id="uploadProgressText">Uploading 0/0...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Project Selection Overlay (when no project_id is in URL) -->
+    <div class="upload-overlay" id="projectSelectorOverlay" style="background: rgba(12, 12, 16, 0.95); z-index: 2000;">
+      <div class="upload-box" style="cursor: default; border: 1px solid rgba(255,255,255,0.15); background: #1a1a24; padding: 40px; border-radius: 8px; width: 100%; max-width: 450px;">
+        <i data-lucide="folder-open" style="width: 48px; height: 48px; color: var(--accent); margin-bottom: 15px;"></i>
+        <h3 style="font-size: 18px; font-weight: 600; margin: 0 0 10px 0;">Select a Project</h3>
+        <p style="font-size: 12px; color: var(--text3); margin: 0 0 20px 0;">Please choose a project to start annotating datasets</p>
+        
+        <select id="projectSelectDropdown" style="width: 100%; height: 36px; padding: 0 10px; background: #2c2c38; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: white; margin-bottom: 20px; outline: none; font-size: 13px;">
+          <!-- Options will be dynamically populated -->
+        </select>
+        
+        <button class="button primary" id="confirmProjectBtn" style="width: 100%; height: 36px; font-weight: 600; border: none; border-radius: 4px; background: var(--accent); color: white; cursor: pointer;">
+          Open Project Annotator
+        </button>
+      </div>
+    </div>
+
+    <!-- Export / Version Dataset Overlay Modal -->
+    <div class="upload-overlay" id="exportDatasetOverlay" style="background: rgba(12, 12, 16, 0.95); z-index: 2100; display: none; align-items: center; justify-content: center;">
+      <div class="upload-box" style="cursor: default; border: 1px solid rgba(255,255,255,0.15); background: #1a1a24; padding: 30px; border-radius: 8px; width: 100%; max-width: 420px; box-sizing: border-box; text-align: left;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+          <h3 style="font-size: 16px; font-weight: 600; margin: 0; color: white;">Export Annotated Dataset</h3>
+          <button id="closeExportOverlayBtn" style="background: transparent; border: none; color: var(--text3); cursor: pointer; outline: none; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;">
+            <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+          </button>
+        </div>
+        
+        <div style="margin-bottom: 15px;">
+          <label style="display: block; font-size: 11px; font-weight: 600; color: var(--text3); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em;">Dataset Name</label>
+          <input type="text" id="exportDatasetNameInput" style="width: 100%; height: 34px; padding: 0 10px; background: #2c2c38; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; color: white; outline: none; font-size: 13px; box-sizing: border-box;" />
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; font-size: 11px; font-weight: 600; color: var(--text3); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em;">Dataset Version</label>
+          <input type="text" id="exportDatasetVersionInput" value="1.0.0" style="width: 100%; height: 34px; padding: 0 10px; background: #2c2c38; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; color: white; outline: none; font-size: 13px; box-sizing: border-box;" />
+          <span style="font-size: 10px; color: var(--text3); margin-top: 4px; display: block;">Increment this version (e.g. 1.0.1, 2.0.0) when exporting new splits.</span>
+        </div>
+        
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <button class="button primary" id="saveToDatasetsBtn" style="width: 100%; height: 36px; font-weight: 600; border: none; border-radius: 4px; background: var(--accent); color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px;">
+            <i data-lucide="database" style="width:14px; height:14px;"></i> Save to Datasets Table
+          </button>
+          
+          <button class="button" id="downloadZipBtn" style="width: 100%; height: 36px; font-weight: 600; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; background: #2c2c38; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px;">
+            <i data-lucide="file-archive" style="width:14px; height:14px;"></i> Download ZIP Archive
+          </button>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

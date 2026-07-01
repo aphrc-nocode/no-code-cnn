@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import uuid
 from datetime import datetime
 import json
@@ -10,6 +10,8 @@ class Project(BaseModel):
     name: str
     task_type: str
     description: Optional[str] = ""
+    classes: List[str] = []
+    class_colors: Optional[Dict[str, str]] = {}
     created_at: datetime = Field(default_factory=datetime.now)
 
 class ProjectManager:

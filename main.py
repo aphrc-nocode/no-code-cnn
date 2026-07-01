@@ -3347,10 +3347,564 @@ async def get_training_metrics(job_id: str):
         print(f"Error fetching metrics for {job_id}: {e}")
         return {"error": str(e)}
 
+# ==================== Visual Dataset Annotator Endpoints ====================
+
+class AnnItemInput(BaseModel):
+    class_id: int
+    shape_type: str = "bbox"          # bbox | polygon | point | classification
+    x_center: float = 0.0
+    y_center: float = 0.0
+    width: float = 0.0
+    height: float = 0.0
+    points: List[List[float]] = []    # [[x1,y1],[x2,y2],...]
+
+@app.put("/api/projects/{project_id}")
+async def update_project_metadata(project_id: str, project_data: Project):
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    project.name = project_data.name
+    project.description = project_data.description
+    project.classes = project_data.classes
+    project_manager.projects[project_id] = project
+    project_manager.save_projects()
+    return project
+
+@app.get("/api/projects/{project_id}/images")
+async def list_project_images(project_id: str):
+    import os, json
+    from pathlib import Path
+    
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+    metadata_file = project_dir / "images_metadata.json"
+    
+    if not metadata_file.exists():
+        return []
+        
+    try:
+        with open(metadata_file, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+    except Exception:
+        return []
+        
+    annotations_file = project_dir / "annotations.json"
+    annotations = {}
+    if annotations_file.exists():
+        try:
+            with open(annotations_file, "r", encoding="utf-8") as f:
+                annotations = json.load(f)
+        except:
+            pass
+            
+    images_list = []
+    for img_id_str, img in metadata.items():
+        has_anns = len(annotations.get(img_id_str, [])) > 0
+        img["annotated"] = has_anns
+        images_list.append(img)
+    return images_list
+
+@app.post("/api/projects/{project_id}/images")
+async def upload_project_images(project_id: str, files: List[UploadFile] = File(...)):
+    import os, uuid, json
+    from pathlib import Path
+    from PIL import Image as PILImage
+    
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+    images_dir = project_dir / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    
+    metadata_file = project_dir / "images_metadata.json"
+    metadata = {}
+    if metadata_file.exists():
+        try:
+            with open(metadata_file, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+        except:
+            pass
+            
+    existing_ids = [int(k) for k in metadata.keys()]
+    next_id = max(existing_ids) + 1 if existing_ids else 1
+    
+    saved_images = []
+    for file in files:
+        ext = os.path.splitext(file.filename or "")[1].lower()
+        if ext not in (".jpg", ".jpeg", ".png", ".bmp", ".webp"):
+            continue
+            
+        unique_name = f"{uuid.uuid4().hex}{ext}"
+        dest_path = images_dir / unique_name
+        
+        with open(dest_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+            
+        file_size = os.path.getsize(dest_path)
+        width, height = 0, 0
+        color_space = "RGB"
+        is_corrupt = False
+        
+        try:
+            pil_img = PILImage.open(dest_path)
+            pil_img.verify()
+            pil_img = PILImage.open(dest_path)
+            width, height = pil_img.size
+            channels = 1 if pil_img.mode in ("L", "LA") else 3
+            color_space = "Grayscale" if channels == 1 else "RGB"
+        except Exception:
+            is_corrupt = True
+            
+        img_id = next_id
+        next_id += 1
+        
+        img_metadata = {
+            "id": img_id,
+            "filename": unique_name,
+            "original_name": file.filename or unique_name,
+            "annotated": False,
+            "width": width,
+            "height": height,
+            "color_space": color_space,
+            "is_corrupt": is_corrupt,
+            "file_size": file_size
+        }
+        
+        metadata[str(img_id)] = img_metadata
+        saved_images.append(img_metadata)
+        
+    with open(metadata_file, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+        
+    return saved_images
+
+@app.get("/api/projects/{project_id}/images/{image_id}/file")
+async def get_project_image_file(project_id: str, image_id: str):
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+    import json
+    
+    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+    metadata_file = project_dir / "images_metadata.json"
+    
+    if not metadata_file.exists():
+        raise HTTPException(status_code=404, detail="Image list not found")
+        
+    try:
+        with open(metadata_file, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to load image metadata")
+        
+    img_info = metadata.get(image_id)
+    if not img_info:
+        raise HTTPException(status_code=404, detail="Image not found in metadata")
+        
+    img_path = project_dir / "images" / img_info["filename"]
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail="Image file not found on disk")
+        
+    return FileResponse(img_path)
+
+@app.delete("/api/projects/{project_id}/images/{image_id}")
+async def delete_project_image(project_id: str, image_id: str):
+    import os, json
+    from pathlib import Path
+    
+    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+    metadata_file = project_dir / "images_metadata.json"
+    
+    if not metadata_file.exists():
+        raise HTTPException(status_code=404, detail="Image list not found")
+        
+    try:
+        with open(metadata_file, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to load image metadata")
+        
+    img_info = metadata.get(image_id)
+    if not img_info:
+        raise HTTPException(status_code=404, detail="Image not found in metadata")
+        
+    img_path = project_dir / "images" / img_info["filename"]
+    if img_path.exists():
+        try:
+            os.remove(img_path)
+        except Exception:
+            pass
+            
+    metadata.pop(image_id, None)
+    with open(metadata_file, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+        
+    annotations_file = project_dir / "annotations.json"
+    if annotations_file.exists():
+        try:
+            with open(annotations_file, "r", encoding="utf-8") as f:
+                annotations = json.load(f)
+            annotations.pop(image_id, None)
+            with open(annotations_file, "w", encoding="utf-8") as f:
+                json.dump(annotations, f, indent=2)
+        except Exception:
+            pass
+            
+    return {"ok": True}
+
+@app.get("/api/projects/{project_id}/images/{image_id}/annotations")
+async def get_project_image_annotations(project_id: str, image_id: str):
+    import json
+    from pathlib import Path
+    
+    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+    annotations_file = project_dir / "annotations.json"
+    
+    if not annotations_file.exists():
+        return []
+        
+    try:
+        with open(annotations_file, "r", encoding="utf-8") as f:
+            annotations = json.load(f)
+        return annotations.get(image_id, [])
+    except Exception:
+        return []
+
+@app.post("/api/projects/{project_id}/images/{image_id}/annotations")
+async def save_project_image_annotations(project_id: str, image_id: str, shapes: List[AnnItemInput]):
+    import json
+    from pathlib import Path
+    
+    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+    project_dir.mkdir(parents=True, exist_ok=True)
+    annotations_file = project_dir / "annotations.json"
+    
+    annotations = {}
+    if annotations_file.exists():
+        try:
+            with open(annotations_file, "r", encoding="utf-8") as f:
+                annotations = json.load(f)
+        except:
+            pass
+            
+    saved_shapes = []
+    for idx, shape in enumerate(shapes):
+        saved_shapes.append({
+            "id": idx + 1,
+            "class_id": shape.class_id,
+            "shape_type": shape.shape_type,
+            "x_center": shape.x_center,
+            "y_center": shape.y_center,
+            "width": shape.width,
+            "height": shape.height,
+            "points": shape.points
+        })
+        
+    annotations[image_id] = saved_shapes
+    
+    with open(annotations_file, "w", encoding="utf-8") as f:
+        json.dump(annotations, f, indent=2)
+        
+    metadata_file = project_dir / "images_metadata.json"
+    if metadata_file.exists():
+        try:
+            with open(metadata_file, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+            if image_id in metadata:
+                metadata[image_id]["annotated"] = len(saved_shapes) > 0
+                with open(metadata_file, "w", encoding="utf-8") as f:
+                    json.dump(metadata, f, indent=2)
+        except Exception:
+            pass
+            
+    return saved_shapes
+
+@app.post("/api/projects/{project_id}/save-dataset")
+async def save_project_as_dataset(
+    project_id: str, 
+    dataset_name: str, 
+    version: str
+):
+    import json
+    import shutil
+    from pathlib import Path
+    
+    # 1. Get project
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+    images_metadata_file = project_dir / "images_metadata.json"
+    annotations_file = project_dir / "annotations.json"
+    
+    if not images_metadata_file.exists():
+        raise HTTPException(status_code=400, detail="No images in project to export")
+        
+    with open(images_metadata_file, "r", encoding="utf-8") as f:
+        images_metadata = json.load(f)
+        
+    annotations = {}
+    if annotations_file.exists():
+        with open(annotations_file, "r", encoding="utf-8") as f:
+            annotations = json.load(f)
+            
+    # Normalize folder name to avoid invalid characters
+    safe_name = "".join(c for c in dataset_name if c.isalnum() or c in ("-", "_", " ")).strip()
+    safe_version = "".join(c for c in version if c.isalnum() or c in (".", "-", "_")).strip()
+    folder_name = f"{safe_name}_v{safe_version}"
+    
+    dataset_dest = Path(__file__).resolve().parent / "datasets" / folder_name
+    if dataset_dest.exists():
+        shutil.rmtree(dataset_dest)
+    dataset_dest.mkdir(parents=True, exist_ok=True)
+    
+    task_type = project.task_type
+    
+    # Save default config file
+    config_data = {
+        "dataset_id": folder_name,
+        "dataset_name": f"{dataset_name} (v{version})",
+        "version": version,
+        "task_type": task_type,
+        "item_count": len(images_metadata),
+        "classes": project.classes or ["class0"]
+    }
+    
+    # Export based on task type
+    if task_type == "image_classification":
+        # Classification format: directory structure
+        for img_id, img_info in images_metadata.items():
+            # Get class ID
+            img_anns = annotations.get(img_id, [])
+            class_name = "unlabeled"
+            if img_anns:
+                class_id = img_anns[0].get("class_id", 0)
+                if project.classes and class_id < len(project.classes):
+                    class_name = project.classes[class_id]
+                    
+            class_dir = dataset_dest / class_name
+            class_dir.mkdir(parents=True, exist_ok=True)
+            
+            src_img = project_dir / "images" / img_info["filename"]
+            if src_img.exists():
+                shutil.copy2(src_img, class_dir / img_info["filename"])
+                
+    else:
+        # Detection / Segmentation: COCO format
+        images_dir = dataset_dest / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        
+        ann_dir = dataset_dest / "annotations"
+        ann_dir.mkdir(parents=True, exist_ok=True)
+        
+        coco_images = []
+        coco_annotations = []
+        coco_categories = []
+        
+        # Add categories
+        classes_list = project.classes or ["class0"]
+        for idx, cat_name in enumerate(classes_list):
+            coco_categories.append({
+                "id": idx,
+                "name": cat_name,
+                "supercategory": "none"
+            })
+            
+        ann_id_counter = 1
+        for idx, (img_id, img_info) in enumerate(images_metadata.items()):
+            src_img = project_dir / "images" / img_info["filename"]
+            if not src_img.exists():
+                continue
+                
+            shutil.copy2(src_img, images_dir / img_info["filename"])
+            
+            # Simple integer ID for image
+            coco_img_id = idx + 1
+            coco_images.append({
+                "id": coco_img_id,
+                "file_name": img_info["filename"],
+                "width": img_info["width"],
+                "height": img_info["height"]
+            })
+            
+            img_anns = annotations.get(img_id, [])
+            for shape in img_anns:
+                bbox = [
+                    (shape["x_center"] - shape["width"] / 2) * img_info["width"],
+                    (shape["y_center"] - shape["height"] / 2) * img_info["height"],
+                    shape["width"] * img_info["width"],
+                    shape["height"] * img_info["height"]
+                ]
+                
+                segmentations = []
+                area = bbox[2] * bbox[3]
+                if shape["shape_type"] == "polygon" and shape.get("points"):
+                    # COCO format: flat list of x,y coordinates
+                    flat_pts = []
+                    for pt in shape["points"]:
+                        flat_pts.append(pt[0] * img_info["width"])
+                        flat_pts.append(pt[1] * img_info["height"])
+                    segmentations = [flat_pts]
+                    
+                coco_annotations.append({
+                    "id": ann_id_counter,
+                    "image_id": coco_img_id,
+                    "category_id": shape["class_id"],
+                    "bbox": bbox,
+                    "segmentation": segmentations,
+                    "area": area,
+                    "iscrowd": 0 
+                })
+                ann_id_counter += 1
+                
+        coco_output = {
+            "images": coco_images,
+            "annotations": coco_annotations,
+            "categories": coco_categories
+        }
+        
+        with open(ann_dir / "instances_default.json", "w", encoding="utf-8") as f:
+            json.dump(coco_output, f, indent=2)
+            
+    with open(dataset_dest / "dataset_config.json", "w", encoding="utf-8") as f:
+        json.dump(config_data, f, indent=2)
+        
+    return {"message": "Dataset exported successfully", "dataset_id": folder_name}
+
+@app.get("/api/projects/{project_id}/export-zip")
+async def export_project_dataset_zip(project_id: str):
+    import tempfile
+    import zipfile
+    from fastapi.responses import FileResponse
+    from pathlib import Path
+    import json
+    
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+    images_metadata_file = project_dir / "images_metadata.json"
+    annotations_file = project_dir / "annotations.json"
+    
+    if not images_metadata_file.exists():
+        raise HTTPException(status_code=400, detail="No images in project to export")
+         
+    with open(images_metadata_file, "r", encoding="utf-8") as f:
+        images_metadata = json.load(f)
+        
+    annotations = {}
+    if annotations_file.exists():
+        with open(annotations_file, "r", encoding="utf-8") as f:
+            annotations = json.load(f)
+            
+    # Write to a temporary zip file
+    temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    temp_zip.close()
+    
+    task_type = project.task_type
+    
+    with zipfile.ZipFile(temp_zip.name, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        if task_type == "image_classification":
+            for img_id, img_info in images_metadata.items():
+                img_anns = annotations.get(img_id, [])
+                class_name = "unlabeled"
+                if img_anns:
+                    class_id = img_anns[0].get("class_id", 0)
+                    if project.classes and class_id < len(project.classes):
+                        class_name = project.classes[class_id]
+                
+                src_img = project_dir / "images" / img_info["filename"]
+                if src_img.exists():
+                    zipf.write(src_img, arcname=f"{class_name}/{img_info['filename']}")
+        else:
+            # COCO JSON construction
+            coco_images = []
+            coco_annotations = []
+            coco_categories = []
+            
+            classes_list = project.classes or ["class0"]
+            for idx, cat_name in enumerate(classes_list):
+                coco_categories.append({
+                    "id": idx,
+                    "name": cat_name,
+                    "supercategory": "none"
+                })
+                
+            ann_id_counter = 1
+            for idx, (img_id, img_info) in enumerate(images_metadata.items()):
+                src_img = project_dir / "images" / img_info["filename"]
+                if not src_img.exists():
+                    continue
+                    
+                zipf.write(src_img, arcname=f"images/{img_info['filename']}")
+                
+                coco_img_id = idx + 1
+                coco_images.append({
+                    "id": coco_img_id,
+                    "file_name": img_info["filename"],
+                    "width": img_info["width"],
+                    "height": img_info["height"]
+                })
+                
+                img_anns = annotations.get(img_id, [])
+                for shape in img_anns:
+                    bbox = [
+                        (shape["x_center"] - shape["width"] / 2) * img_info["width"],
+                        (shape["y_center"] - shape["height"] / 2) * img_info["height"],
+                        shape["width"] * img_info["width"],
+                        shape["height"] * img_info["height"]
+                    ]
+                    segmentations = []
+                    area = bbox[2] * bbox[3]
+                    if shape["shape_type"] == "polygon" and shape.get("points"):
+                        flat_pts = []
+                        for pt in shape["points"]:
+                            flat_pts.append(pt[0] * img_info["width"])
+                            flat_pts.append(pt[1] * img_info["height"])
+                        segmentations = [flat_pts]
+                        
+                    coco_annotations.append({
+                        "id": ann_id_counter,
+                        "image_id": coco_img_id,
+                        "category_id": shape["class_id"],
+                        "bbox": bbox,
+                        "segmentation": segmentations,
+                        "area": area,
+                        "iscrowd": 0
+                    })
+                    ann_id_counter += 1
+            
+            coco_output = {
+                "images": coco_images,
+                "annotations": coco_annotations,
+                "categories": coco_categories
+            }
+            
+            zipf.writestr("annotations/instances_default.json", json.dumps(coco_output, indent=2))
+            
+    return FileResponse(
+        path=temp_zip.name,
+        filename=f"{project.name.replace(' ', '_')}_dataset.zip",
+        media_type="application/zip"
+    )
+
+
 # Expose Visual Pipeline Builder client assets as static folder
 from fastapi.staticfiles import StaticFiles
 workflow_web_dir = Path(__file__).resolve().parent / "workflow_web"
 if workflow_web_dir.exists():
     app.mount("/workflow", StaticFiles(directory=str(workflow_web_dir), html=True), name="workflow")
+
+# Expose Dataset Annotator client assets as static folder
+annotator_dir = Path(__file__).resolve().parent / "annotator"
+if annotator_dir.exists():
+    app.mount("/annotator", StaticFiles(directory=str(annotator_dir), html=True), name="annotator")
 
 

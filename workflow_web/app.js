@@ -179,6 +179,13 @@ function cacheElements() {
 function bindEvents() {
   document.getElementById("saveWorkflow").addEventListener("click", saveWorkflow);
   document.getElementById("resetWorkflow").addEventListener("click", resetWorkflow);
+  document.getElementById("openAnnotator").addEventListener("click", () => {
+    if (PROJECT_ID) {
+      window.location.href = `/annotator/index.html?project_id=${PROJECT_ID}`;
+    } else {
+      window.location.href = `/annotator/index.html`;
+    }
+  });
   
   // Wire up the new Add Node buttons
   document.querySelectorAll(".add-node-btn").forEach((button) => {

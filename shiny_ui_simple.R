@@ -1304,6 +1304,19 @@ server <- function(input, output, session) {
           column(2, actionButton("btn_create_project", "New Project", class = "btn-primary", style = "width: 100%; margin-top: 5px;"))
         ),
         p("Select a project to load its datasets, models, and workflow workspace.", style = "color: #555; margin-bottom: 20px;"),
+        div(
+          style = "margin-bottom: 20px; max-width: 400px; position: relative;",
+          tags$span(
+            style = "position: absolute; left: 10px; top: 8px; color: #86868b; z-index: 10; font-size: 13px;",
+            tags$i(class = "fa fa-search")
+          ),
+          tags$style(HTML("
+            #project_search {
+              padding-left: 30px !important;
+            }
+          ")),
+          textInput("project_search", label = NULL, placeholder = "Search projects by name...", width = "100%")
+        ),
         uiOutput("projects_grid")
       )
     } else {
@@ -1316,6 +1329,9 @@ server <- function(input, output, session) {
         tabsetPanel(id = "workspace_tabs",
           tabPanel("Visual Pipeline Builder", icon = icon("project-diagram"),
             uiOutput("workflow_iframe_ui")
+          ),
+          tabPanel("Annotate", icon = icon("edit"),
+            uiOutput("annotator_iframe_ui")
           ),
           tabPanel("Analytics (Jobs)", icon = icon("chart-line"),
             fluidRow(
@@ -1413,7 +1429,22 @@ server <- function(input, output, session) {
     if (grepl("host.docker.internal", api_host)) {
       api_host <- gsub("host.docker.internal", "localhost", api_host)
     }
-    iframe_url <- paste0(api_host, "/workflow/?project_id=", active_project_id())
+    iframe_url <- paste0(api_host, "/workflow/?project_id=", active_project_id(), "&t=", as.numeric(Sys.time()))
+    tags$iframe(
+      src = iframe_url, 
+      style = "width: 100%; height: 85vh; border: none; overflow: hidden; background: transparent;", 
+      scrolling = "no"
+    )
+  })
+
+  # Dataset Annotator Iframe Render
+  output$annotator_iframe_ui <- renderUI({
+    req(active_project_id())
+    api_host <- API_URL
+    if (grepl("host.docker.internal", api_host)) {
+      api_host <- gsub("host.docker.internal", "localhost", api_host)
+    }
+    iframe_url <- paste0(api_host, "/annotator/index.html?project_id=", active_project_id(), "&t=", as.numeric(Sys.time()))
     tags$iframe(
       src = iframe_url, 
       style = "width: 100%; height: 85vh; border: none; overflow: hidden; background: transparent;", 
@@ -1429,6 +1460,7 @@ server <- function(input, output, session) {
   
 
   projects_trigger <- reactiveVal(0)
+  modal_classes <- reactiveVal(list())
   
   output$projects_grid <- renderUI({
     projects_trigger()
@@ -1439,23 +1471,108 @@ server <- function(input, output, session) {
         if (nchar(content_txt) > 5) {
           projects <- fromJSON(content_txt)
           if (is.data.frame(projects) && nrow(projects) > 0) {
+            # Filter projects by search query
+            search_query <- input$project_search
+            if (!is.null(search_query) && !is.na(search_query) && trimws(search_query) != "") {
+              search_query <- tolower(trimws(search_query))
+              matches <- grepl(search_query, tolower(projects$name), fixed = TRUE)
+              projects <- projects[matches, , drop = FALSE]
+            }
+            
+            if (nrow(projects) == 0) {
+              return(p("No projects match your search query.", style = "color: #777; font-size: 15px; margin-top: 10px; margin-left: 15px;"))
+            }
+            
+            client_api <- API_URL
+            if (grepl("host.docker.internal", client_api)) {
+              client_api <- gsub("host.docker.internal", "localhost", client_api)
+            }
+            
             return(fluidRow(
               lapply(1:nrow(projects), function(i) {
                 p_id <- projects$id[i]
                 p_name <- projects$name[i]
                 p_task <- projects$task_type[i]
                 
+                # Fetch project images
+                img_res <- GET(paste0(API_URL, "/api/projects/", p_id, "/images"))
+                images_count <- 0
+                first_img_id <- NULL
+                if (status_code(img_res) == 200) {
+                  img_txt <- content(img_res, "text", encoding = "UTF-8")
+                  if (nchar(img_txt) > 2) {
+                    img_data <- fromJSON(img_txt)
+                    if (is.data.frame(img_data) && nrow(img_data) > 0) {
+                      images_count <- nrow(img_data)
+                      first_img_id <- img_data$id[1]
+                    }
+                  }
+                }
+                
+                # Fetch project classes count
+                proj_res <- GET(paste0(API_URL, "/api/projects/", p_id))
+                classes_count <- 0
+                if (status_code(proj_res) == 200) {
+                  proj_txt <- content(proj_res, "text", encoding = "UTF-8")
+                  if (nchar(proj_txt) > 2) {
+                    proj_data <- fromJSON(proj_txt)
+                    if (!is.null(proj_data$classes)) {
+                      classes_count <- length(proj_data$classes)
+                    }
+                  }
+                }
+                
+                task_display <- "Classification"
+                if (p_task == "object_detection") task_display <- "Detection"
+                if (p_task == "image_segmentation") task_display <- "Segmentation"
+                
+                # Render clean, professional card
                 column(4,
                   div(
-                    class = "small-box bg-aqua",
-                    style = "cursor: pointer; box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: 8px;",
+                    style = "background: #ffffff; border: 1px solid #d2d2d7; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.06); cursor: pointer; display: flex; flex-direction: row; margin-bottom: 20px; transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease; height: 100px;",
                     onclick = sprintf("Shiny.setInputValue('selected_project', '%s', {priority: 'event'});", p_id),
-                    div(class = "inner",
-                      h3(p_name, style = "white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 24px;"),
-                      p(p_task)
+                    onmouseover = "this.style.transform='translateY(-2px)'; this.style.borderColor='#0071e3'; this.style.boxShadow='0 6px 16px rgba(0,0,0,0.12)';",
+                    onmouseout = "this.style.transform='none'; this.style.borderColor='#d2d2d7'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.06)';",
+                    
+                    # Left Thumbnail area
+                    div(
+                      style = "width: 140px; height: 100%; background: #f5f5f7; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; border-right: 1px solid #e5e5ea; position: relative;",
+                      if (!is.null(first_img_id)) {
+                        tags$img(
+                          src = paste0(client_api, "/api/projects/", p_id, "/images/", first_img_id, "/file"),
+                          style = "width: 100%; height: 100%; object-fit: cover;"
+                        )
+                      } else {
+                        tags$i(
+                          class = "fa fa-image",
+                          style = "font-size: 28px; opacity: 0.15; color: #1d1d1f;"
+                        )
+                      },
+                      
+                      # Badge overlay
+                      tags$span(
+                        style = "position: absolute; bottom: 8px; left: 8px; background: #0071e3; padding: 2px 6px; font-size: 8px; font-weight: 600; border-radius: 4px; color: #ffffff; text-transform: uppercase; letter-spacing: 0.05em;",
+                        task_display
+                      )
                     ),
-                    div(class = "icon", icon("folder-open")),
-                    a(href = "#", class = "small-box-footer", "Select Project ", icon("arrow-circle-right"))
+                    
+                    # Right Details content area
+                    div(
+                      style = "padding: 12px 15px; display: flex; flex-direction: column; justify-content: space-between; flex: 1; min-width: 0; background: #ffffff;",
+                      h4(p_name, style = "margin: 0; font-size: 15px; font-weight: 600; color: #1d1d1f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"),
+                      p(
+                        style = "margin: 0; font-size: 12px; color: #86868b; display: flex; align-items: center; gap: 8px;",
+                        tags$span(
+                          tags$i(class = "fa fa-tags", style = "color: #0071e3; margin-right: 4px;"),
+                          tags$strong(classes_count), " Classes"
+                        ),
+                        tags$span("·"),
+                        tags$span(
+                          tags$i(class = "fa fa-image", style = "color: #0071e3; margin-right: 4px;"),
+                          tags$strong(images_count), " Images"
+                        )
+                      )
+                    )
                   )
                 )
               })
@@ -1473,25 +1590,141 @@ server <- function(input, output, session) {
   })
   
   observeEvent(input$btn_create_project, {
+    modal_classes(list())
     showModal(modalDialog(
       title = "Create New Project",
       textInput("new_project_name", "Project Name", ""),
       selectInput("new_project_task", "Task Type", choices = c("image_classification", "object_detection", "image_segmentation")),
       textInput("new_project_desc", "Description (Optional)", ""),
+      
+      # Classes builder section
+      div(
+        style = "margin-top: 15px; padding-top: 15px; border-top: 1px solid #e5e5ea;",
+        h4("Configure Dataset Classes", style = "margin-top: 0; font-size: 14px; font-weight: 600; color: #1d1d1f;"),
+        div(
+          style = "display: flex; gap: 8px; margin-bottom: 12px; align-items: flex-end;",
+          div(style = "width: 50%;", textInput("modal_class_name", label = "Class Name", placeholder = "e.g. dog", width = "100%")),
+          div(
+            style = "width: 50%; display: flex; align-items: center; gap: 8px;",
+            div(
+              style = "flex: 1;",
+              tags$label(class = "control-label", "Color"),
+              uiOutput("modal_color_picker_ui")
+            ),
+            actionButton(
+              "btn_add_modal_class", "Add", class = "btn-primary", 
+              style = "height: 34px; margin-top: 25px; padding: 0 16px;",
+              onclick = "Shiny.setInputValue('chosen_class_color', document.getElementById('modal_class_color').value, {priority: 'event'});"
+            )
+          )
+        ),
+        uiOutput("modal_classes_preview")
+      ),
+      
       footer = tagList(
         modalButton("Cancel"),
         actionButton("btn_save_project", "Create", class = "btn-success")
       )
     ))
   })
+
+  # Handle adding class in modal
+  observeEvent(input$btn_add_modal_class, {
+    req(input$modal_class_name)
+    name <- trimws(input$modal_class_name)
+    if (nchar(name) == 0) return()
+    
+    color <- input$chosen_class_color
+    if (is.null(color)) color <- "#0071e3"
+    
+    # Avoid duplicate class names
+    classes <- modal_classes()
+    exists <- any(sapply(classes, function(c) tolower(c$name) == tolower(name)))
+    if (exists) {
+      showNotification("Class already exists", type = "warning")
+      return()
+    }
+    
+    new_class <- list(name = name, color = color)
+    modal_classes(c(classes, list(new_class)))
+    
+    # Reset name input text
+    updateTextInput(session = getDefaultReactiveDomain(), "modal_class_name", value = "")
+  })
+
+  # Handle removing class in modal
+  observeEvent(input$remove_class_idx, {
+    idx <- as.numeric(input$remove_class_idx)
+    classes <- modal_classes()
+    if (idx > 0 && idx <= length(classes)) {
+      classes[[idx]] <- NULL
+      modal_classes(classes)
+    }
+  })
+
+  # Render classes list dynamic output
+  output$modal_classes_preview <- renderUI({
+    classes <- modal_classes()
+    if (length(classes) == 0) {
+      return(p("No classes added yet. Default 'class0' will be used if none are specified.", style = "color: #86868b; font-size: 12px; margin: 0;"))
+    }
+    
+    tags$div(
+      style = "display: flex; flex-wrap: wrap; gap: 8px; max-height: 120px; overflow-y: auto; padding: 8px; border: 1px solid #d2d2d7; border-radius: 4px; background: #f5f5f7;",
+      lapply(seq_along(classes), function(idx) {
+        cls <- classes[[idx]]
+        tags$div(
+          style = "display: flex; align-items: center; background: #ffffff; border: 1px solid #e5e5ea; border-radius: 16px; padding: 4px 10px; gap: 6px; font-size: 12px;",
+          tags$span(style = sprintf("width: 8px; height: 8px; border-radius: 50%%; background-color: %s; display: inline-block;", cls$color)),
+          tags$span(cls$name, style = "font-weight: 500; color: #1d1d1f;"),
+          tags$button(
+            style = "background: transparent; border: none; padding: 0; cursor: pointer; color: #ff3b30; font-size: 14px; line-height: 1; font-weight: bold; margin-left: 6px;",
+            onclick = sprintf("Shiny.setInputValue('remove_class_idx', %d, {priority: 'event'});", idx),
+            "×"
+          )
+        )
+      })
+    )
+  })
+
+  # Render distinct color picker UI
+  output$modal_color_picker_ui <- renderUI({
+    classes <- modal_classes()
+    preset_colors <- c('#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#6366f1', '#a855f7', '#ec4899')
+    next_color <- preset_colors[(length(classes) %% length(preset_colors)) + 1]
+    
+    tags$input(
+      type = "color", 
+      id = "modal_class_color", 
+      value = next_color, 
+      style = "width: 100%; height: 34px; padding: 0 4px; border: 1px solid #d2d2d7; border-radius: 4px; cursor: pointer; background: #ffffff;"
+    )
+  })
   
   observeEvent(input$btn_save_project, {
     req(input$new_project_name)
+    
+    classes_list <- list()
+    class_colors_dict <- list()
+    for (cls in modal_classes()) {
+      classes_list <- c(classes_list, cls$name)
+      class_colors_dict[[cls$name]] <- cls$color
+    }
+    
+    # Fallback to class0 if none added
+    if (length(classes_list) == 0) {
+      classes_list <- list("class0")
+      class_colors_dict[["class0"]] <- "#0071e3"
+    }
+    
     body <- list(
       name = input$new_project_name,
       task_type = input$new_project_task,
-      description = input$new_project_desc
+      description = input$new_project_desc,
+      classes = classes_list,
+      class_colors = class_colors_dict
     )
+    
     tryCatch({
       res <- POST(paste0(API_URL, "/api/projects"), body = body, encode = "json")
       if (status_code(res) == 200) {
