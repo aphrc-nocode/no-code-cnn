@@ -7,13 +7,13 @@ import {
 } from 'lucide-react'
 import api, { type AnnData, type ImageItem, type Project, type ExternalModel } from '../api'
 
-// ─── Constants ────────────────────────────────────────────���──────────────────
+// ─── Constants ──────────────────────────────────────────────────────────────
 const COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#06b6d4','#6366f1','#a855f7','#ec4899']
 const H = 7       // handle size in screen px
 const SNAP_PX = 14 // polygon close-snap distance in screen px
 const DOT_PX  = 8  // point dot radius in screen px
 
-// ─── Shape types ────────────────────────────────���──────────────────────────���─
+// ─── Shape types ───────────────────────────────────────────────────────────
 type Tool = 'select' | 'bbox' | 'polygon' | 'point' | 'sam'
 
 interface BBoxShape   { type: 'bbox';    class_id: number; x: number; y: number; w: number; h: number }
@@ -31,7 +31,7 @@ type Drag =
   | { kind: 'bbox-handle'; idx: number; handle: string; mx0: number; my0: number; orig: BBoxShape }
   | { kind: 'pan';         cx0: number; cy0: number; px0: number; py0: number }
 
-// ─── Helpers ──────────────────────────���─────────────────────���────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)) }
 
 function pointInPolygon(px: number, py: number, pts: [number,number][]) {
@@ -236,7 +236,7 @@ export default function Annotate() {
     img.src = `/api/projects/${projectId}/images/${currentImage.id}/file`
   }, [currentImage?.id])
 
-  // ─── Draw canvas ──────────────────────────────────��──────────────────��──
+  // ─── Draw canvas ───────────────────────────────────────────────────────────
   const draw = useCallback(() => {
     const canvas = canvasRef.current
     const img    = imgRef.current
@@ -322,7 +322,7 @@ export default function Annotate() {
 
   useEffect(() => { draw() }, [draw])
 
-  // ─── Coordinate conversion ────────────────────────────────��──────────────
+  // ─── Coordinate conversion ──────────────────────────────────────────────
   const canvasPx = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current!
     const rect   = canvas.getBoundingClientRect()
@@ -341,7 +341,7 @@ export default function Annotate() {
     ]
   }
 
-  // ─── Hit testing ──────────────────────────────────────────────────���──────
+  // ─── Hit testing ────────────────────────────────────────────────────────
   const hitShape = (nx: number, ny: number): number | null => {
     const ss = shapesRef.current
     for (let i = ss.length - 1; i >= 0; i--) {
@@ -378,7 +378,7 @@ export default function Annotate() {
     return null
   }
 
-  // ─── Mouse events ─────────────────────────────────────────────────────���───
+  // ─── Mouse events ────────────────────────────────────────────────────────
   // Run MobileSAM for the current session and add/replace its polygon in place
   const runSam = (sess: NonNullable<typeof samSession.current>) => {
     if (!currentImage) return
@@ -583,7 +583,7 @@ export default function Annotate() {
     }
   }
 
-  // ──��� Scroll to zoom ────────���─────────────────────────────────────────────
+  // ──��� Scroll to zoom ─────────────────────────────────────────────────────
   const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault()
     const { cx, cy } = canvasPx(e)
@@ -593,7 +593,7 @@ export default function Annotate() {
     setZoom(newZoom)
   }
 
-  // ─── Keyboard shortcuts ─────────────────────��────────────────────────────
+  // ─── Keyboard shortcuts ─────────────────────────────────────────────────
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.code === 'Space') { spaceHeld.current = true; e.preventDefault() }
@@ -634,7 +634,7 @@ export default function Annotate() {
     return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up) }
   }, [])
 
-  // ─── Cursor ─────────────────────────��────────────────────────────────────
+  // ─── Cursor ─────────────────────────────────────────────────────────────
   const computeCursor = (_e: React.MouseEvent<HTMLCanvasElement>, nx: number, ny: number) => {
     if (spaceHeld.current || drag.current.kind === 'pan') return 'grab'
     if (tool === 'sam') return samLoading ? 'wait' : 'crosshair'
@@ -832,7 +832,7 @@ export default function Annotate() {
     finally { navigatingRef.current = false }
   }
 
-  // ─── Shape label icons ─────────────���─────────────────────────────────��───
+  // ─── Shape label icons ─────────────────────────────────────────────────
   const shapeIcon = (s: Shape) => {
     if (s.type === 'bbox')    return <Square size={11} />
     if (s.type === 'polygon') return <Hexagon size={11} />
@@ -1298,7 +1298,7 @@ export default function Annotate() {
   )
 }
 
-// ─── Tool definitions ────────────────────────────��────────────────────────────
+// ─── Tool definitions ────────────────────────────────────────────────────────
 const TOOLS: { id: Tool; label: string; hint?: string; icon: React.ReactNode }[] = [
   { id: 'select',  label: 'Select',   hint: '1', icon: <MousePointer2 size={16}/> },
   { id: 'bbox',    label: 'Rect',     hint: '2', icon: <Square size={16}/> },
@@ -1312,7 +1312,7 @@ const HANDLE_CURSORS: Record<string, string> = {
   tc:'ns-resize',   bc:'ns-resize',   ml:'ew-resize',   mr:'ew-resize',
 }
 
-// ─── Canvas drawing helpers ─────────────────────────────���─────────────────────
+// ─── Canvas drawing helpers ──────────────────────────────────────────────────
 function drawLabel(ctx: CanvasRenderingContext2D, text: string, color: string, x: number, y: number, zoom: number) {
   ctx.font = `${12 / zoom}px system-ui`
   const tw = ctx.measureText(text).width

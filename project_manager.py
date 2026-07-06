@@ -9,6 +9,7 @@ class Project(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     task_type: str
+    annotation_type: Optional[str] = "bbox"  # bbox | point
     description: Optional[str] = ""
     classes: List[str] = []
     class_colors: Optional[Dict[str, str]] = {}

@@ -3624,6 +3624,232 @@ async def save_project_image_annotations(project_id: str, image_id: str, shapes:
             
     return saved_shapes
 
+_sam_model = None
+def _get_sam_model():
+    global _sam_model
+    if _sam_model is None:
+        from ultralytics import SAM
+        # Load mobile_sam.pt
+        _sam_model = SAM("mobile_sam.pt")
+    return _sam_model
+
+class SamSegmentRequest(BaseModel):
+    points: List[List[float]] = []
+    labels: List[int] = []
+    box: Optional[List[float]] = None
+
+@app.post("/api/projects/{project_id}/images/{image_id}/sam-segment")
+async def sam_segment(project_id: str, image_id: str, payload: SamSegmentRequest):
+    import json
+    from pathlib import Path
+    from PIL import Image as PILImage
+    import traceback
+    
+    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+    metadata_file = project_dir / "images_metadata.json"
+    
+    if not metadata_file.exists():
+        raise HTTPException(status_code=404, detail="Image list not found")
+        
+    try:
+        with open(metadata_file, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to load image metadata")
+        
+    img_info = metadata.get(image_id)
+    if not img_info:
+        raise HTTPException(status_code=404, detail="Image not found in metadata")
+        
+    img_path = project_dir / "images" / img_info["filename"]
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail="Image file not found on disk")
+        
+    try:
+        # Load image size
+        img = PILImage.open(img_path)
+        w, h = img.size
+        
+        # Load model
+        model = _get_sam_model()
+        
+        # Convert coords to absolute pixels
+        prompts = {}
+        if payload.points:
+            abs_pts = [[p[0] * w, p[1] * h] for p in payload.points]
+            prompts["points"] = abs_pts
+            prompts["labels"] = payload.labels
+            
+        if payload.box:
+            bx1, by1, bx2, by2 = payload.box
+            prompts["bboxes"] = [[bx1 * w, by1 * h, bx2 * w, by2 * h]]
+            
+        if not prompts:
+            return {"points": []}
+            
+        results = model.predict(source=img_path, device="cpu", **prompts)
+        if not results or len(results) == 0:
+            return {"points": []}
+            
+        res = results[0]
+        if res.masks is None or len(res.masks.xy) == 0:
+            return {"points": []}
+            
+        # Get the first mask's polygon vertices and normalize back to [0..1]
+        poly = res.masks.xy[0]
+        norm_pts = [[float(pt[0] / w), float(pt[1] / h)] for pt in poly]
+        
+        return {"points": norm_pts}
+        
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/projects/{project_id}/analytics")
+async def get_project_analytics(project_id: str):
+    import json
+    from pathlib import Path
+    from collections import defaultdict
+    import numpy as np
+    from PIL import Image as PILImage
+    
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+    metadata_file = project_dir / "images_metadata.json"
+    annotations_file = project_dir / "annotations.json"
+    
+    if not metadata_file.exists():
+        return {
+            "total_images": 0,
+            "annotated_images": 0,
+            "total_annotations": 0,
+            "corrupt_images": 0,
+            "class_distribution": {},
+            "shape_breakdown": {"bbox": 0, "polygon": 0, "point": 0},
+            "ann_histogram": {"0": 0, "1-5": 0, "6-10": 0, "11-20": 0, "21+": 0},
+            "size_samples": [],
+            "aspect_buckets": {"portrait (<0.9)": 0, "square (0.9-1.1)": 0, "landscape (>1.1)": 0},
+            "color_space_counts": {},
+            "channel_stats": None
+        }
+        
+    try:
+        with open(metadata_file, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to load image metadata")
+        
+    annotations = {}
+    if annotations_file.exists():
+        try:
+            with open(annotations_file, "r", encoding="utf-8") as f:
+                annotations = json.load(f)
+        except Exception:
+            pass
+            
+    classes = project.classes
+    images_list = list(metadata.values())
+    total_images = len(images_list)
+    
+    # Extract annotations list and calculate counts
+    all_anns = []
+    ann_per_image = {}
+    for img_id_str, shapes in annotations.items():
+        if shapes:
+            ann_per_image[img_id_str] = len(shapes)
+            all_anns.extend(shapes)
+            
+    # Class distribution
+    class_counts = defaultdict(int)
+    for a in all_anns:
+        c_id = a.get("class_id", 0)
+        name = classes[c_id] if c_id < len(classes) else f"class{c_id}"
+        class_counts[name] += 1
+    class_distribution = dict(class_counts)
+    
+    # Shape breakdown
+    shape_breakdown = {"bbox": 0, "polygon": 0, "point": 0}
+    for a in all_anns:
+        shape_type = a.get("shape_type", "bbox")
+        if shape_type in shape_breakdown:
+            shape_breakdown[shape_type] += 1
+            
+    # Annotations per image histogram
+    ann_counts = list(ann_per_image.values())
+    unannotated = total_images - len(ann_per_image)
+    ann_histogram = {
+        "0": unannotated,
+        "1-5": sum(1 for c in ann_counts if 1 <= c <= 5),
+        "6-10": sum(1 for c in ann_counts if 6 <= c <= 10),
+        "11-20": sum(1 for c in ann_counts if 11 <= c <= 20),
+        "21+": sum(1 for c in ann_counts if c > 20),
+    }
+    
+    # Image dimensions & aspect ratios
+    sized = [img for img in images_list if img.get("width", 0) > 0 and img.get("height", 0) > 0]
+    size_samples = [{"w": img["width"], "h": img["height"]} for img in sized[:500]]
+    
+    aspect_buckets = {"portrait (<0.9)": 0, "square (0.9-1.1)": 0, "landscape (>1.1)": 0}
+    for img in sized:
+        ratio = img["width"] / img["height"]
+        if ratio < 0.9:
+            aspect_buckets["portrait (<0.9)"] += 1
+        elif ratio <= 1.1:
+            aspect_buckets["square (0.9-1.1)"] += 1
+        else:
+            aspect_buckets["landscape (>1.1)"] += 1
+            
+    # Color space counts
+    color_counts = defaultdict(int)
+    for img in images_list:
+        color_space = img.get("color_space") or "RGB"
+        color_counts[color_space] += 1
+        
+    # Corrupt images
+    corrupt_count = sum(1 for img in images_list if img.get("is_corrupt", False))
+    
+    # Channel stats (sample up to 100 images)
+    channel_stats = None
+    sample_imgs = [img for img in images_list if not img.get("is_corrupt", False) and img.get("color_space") == "RGB"][:100]
+    if sample_imgs:
+        means, stds = [], []
+        images_dir = project_dir / "images"
+        for img in sample_imgs:
+            path = images_dir / img["filename"]
+            if not path.exists():
+                continue
+            try:
+                # Local check or PIL read
+                arr = np.array(PILImage.open(path).convert("RGB")).astype(np.float32) / 255.0
+                means.append(arr.reshape(-1, 3).mean(axis=0).tolist())
+                stds.append(arr.reshape(-1, 3).std(axis=0).tolist())
+            except Exception:
+                pass
+        if means:
+            mean_arr = np.mean(means, axis=0)
+            std_arr = np.mean(stds, axis=0)
+            channel_stats = {
+                "mean": {"R": round(float(mean_arr[0]), 4), "G": round(float(mean_arr[1]), 4), "B": round(float(mean_arr[2]), 4)},
+                "std":  {"R": round(float(std_arr[0]),  4), "G": round(float(std_arr[1]),  4), "B": round(float(std_arr[2]),  4)},
+            }
+            
+    return {
+        "total_images": total_images,
+        "annotated_images": len(ann_per_image),
+        "total_annotations": len(all_anns),
+        "corrupt_images": corrupt_count,
+        "class_distribution": class_distribution,
+        "shape_breakdown": shape_breakdown,
+        "ann_histogram": ann_histogram,
+        "size_samples": size_samples,
+        "aspect_buckets": aspect_buckets,
+        "color_space_counts": dict(color_counts),
+        "channel_stats": channel_stats
+    }
+
 @app.post("/api/projects/{project_id}/save-dataset")
 async def save_project_as_dataset(
     project_id: str, 
@@ -3735,22 +3961,34 @@ async def save_project_as_dataset(
             
             img_anns = annotations.get(img_id, [])
             for shape in img_anns:
-                bbox = [
-                    (shape["x_center"] - shape["width"] / 2) * img_info["width"],
-                    (shape["y_center"] - shape["height"] / 2) * img_info["height"],
-                    shape["width"] * img_info["width"],
-                    shape["height"] * img_info["height"]
-                ]
-                
                 segmentations = []
-                area = bbox[2] * bbox[3]
-                if shape["shape_type"] == "polygon" and shape.get("points"):
-                    # COCO format: flat list of x,y coordinates
-                    flat_pts = []
-                    for pt in shape["points"]:
-                        flat_pts.append(pt[0] * img_info["width"])
-                        flat_pts.append(pt[1] * img_info["height"])
-                    segmentations = [flat_pts]
+                if shape["shape_type"] == "point" and shape.get("points"):
+                    px, py = shape["points"][0]
+                    bx_w = 4.0
+                    bx_h = 4.0
+                    bbox = [
+                        px * img_info["width"] - bx_w / 2,
+                        py * img_info["height"] - bx_h / 2,
+                        bx_w,
+                        bx_h
+                    ]
+                    area = bx_w * bx_h
+                    segmentations = [[px * img_info["width"], py * img_info["height"]]]
+                else:
+                    bbox = [
+                        (shape["x_center"] - shape["width"] / 2) * img_info["width"],
+                        (shape["y_center"] - shape["height"] / 2) * img_info["height"],
+                        shape["width"] * img_info["width"],
+                        shape["height"] * img_info["height"]
+                    ]
+                    area = bbox[2] * bbox[3]
+                    if shape["shape_type"] == "polygon" and shape.get("points"):
+                        # COCO format: flat list of x,y coordinates
+                        flat_pts = []
+                        for pt in shape["points"]:
+                            flat_pts.append(pt[0] * img_info["width"])
+                            flat_pts.append(pt[1] * img_info["height"])
+                        segmentations = [flat_pts]
                     
                 coco_annotations.append({
                     "id": ann_id_counter,
@@ -3855,20 +4093,33 @@ async def export_project_dataset_zip(project_id: str):
                 
                 img_anns = annotations.get(img_id, [])
                 for shape in img_anns:
-                    bbox = [
-                        (shape["x_center"] - shape["width"] / 2) * img_info["width"],
-                        (shape["y_center"] - shape["height"] / 2) * img_info["height"],
-                        shape["width"] * img_info["width"],
-                        shape["height"] * img_info["height"]
-                    ]
                     segmentations = []
-                    area = bbox[2] * bbox[3]
-                    if shape["shape_type"] == "polygon" and shape.get("points"):
-                        flat_pts = []
-                        for pt in shape["points"]:
-                            flat_pts.append(pt[0] * img_info["width"])
-                            flat_pts.append(pt[1] * img_info["height"])
-                        segmentations = [flat_pts]
+                    if shape["shape_type"] == "point" and shape.get("points"):
+                        px, py = shape["points"][0]
+                        bx_w = 4.0
+                        bx_h = 4.0
+                        bbox = [
+                            px * img_info["width"] - bx_w / 2,
+                            py * img_info["height"] - bx_h / 2,
+                            bx_w,
+                            bx_h
+                        ]
+                        area = bx_w * bx_h
+                        segmentations = [[px * img_info["width"], py * img_info["height"]]]
+                    else:
+                        bbox = [
+                            (shape["x_center"] - shape["width"] / 2) * img_info["width"],
+                            (shape["y_center"] - shape["height"] / 2) * img_info["height"],
+                            shape["width"] * img_info["width"],
+                            shape["height"] * img_info["height"]
+                        ]
+                        area = bbox[2] * bbox[3]
+                        if shape["shape_type"] == "polygon" and shape.get("points"):
+                            flat_pts = []
+                            for pt in shape["points"]:
+                                flat_pts.append(pt[0] * img_info["width"])
+                                flat_pts.append(pt[1] * img_info["height"])
+                            segmentations = [flat_pts]
                         
                     coco_annotations.append({
                         "id": ann_id_counter,

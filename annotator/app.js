@@ -21,6 +21,8 @@ let isSaved = true;
 let polyPts = []; // In-progress polygon vertices [ [nx, ny], ... ]
 let mousePos = null; // Live normalized mouse position [ nx, ny ]
 let liveBbox = null; // Live bounding box being drawn
+let samSession = null;
+let samLoading = false; // Live bounding box being drawn
 
 // Undo / Redo stacks
 let historyStack = [];
@@ -63,6 +65,8 @@ const toolsContainer = document.getElementById('toolsContainer');
 const toolSelectBtn = document.getElementById('toolSelect');
 const toolBBoxBtn = document.getElementById('toolBBox');
 const toolPolygonBtn = document.getElementById('toolPolygon');
+const toolPointBtn = document.getElementById('toolPoint');
+const toolSamBtn = document.getElementById('toolSam');
 const toolPanBtn = document.getElementById('toolPan');
 
 // Sidebar toggle
@@ -191,9 +195,16 @@ async function loadProject() {
       await saveProjectClasses(project.classes);
     }
     
-    // Filter tools and UI layout based on task type
-    // task_types: object_detection, image_segmentation, image_classification
+    // Filter tools and UI layout based on task type and annotation type
     const task = project.task_type || '';
+    const annType = project.annotation_type || 'bbox';
+
+    // Show/hide tool buttons based on configuration
+    toolBBoxBtn.style.display = (task === 'object_detection' && annType === 'bbox') ? 'inline-block' : 'none';
+    toolPointBtn.style.display = (task === 'object_detection' && annType === 'point') ? 'inline-block' : 'none';
+    toolPolygonBtn.style.display = (task === 'image_segmentation') ? 'inline-block' : 'none';
+    toolSamBtn.style.display = (task === 'image_segmentation') ? 'inline-block' : 'none';
+
     if (task === 'image_classification') {
       // Classification configuration
       tool = 'select'; // no shapes drawn
@@ -208,16 +219,20 @@ async function loadProject() {
         <kbd>Scroll</kbd> Zoom ·
         Click sidebar classes to label image.
       `;
-    } else if (task === 'object_detection') {
-      tool = 'bbox';
-      toolPolygonBtn.style.display = 'none';
-      updateToolButtons();
-    } else if (task === 'image_segmentation') {
-      tool = 'polygon';
-      toolBBoxBtn.style.display = 'none';
-      updateToolButtons();
     } else {
-      tool = 'bbox';
+      toolsContainer.style.display = 'flex';
+      annotationsListSection.style.display = 'flex';
+      classificationSelectorSection.style.display = 'none';
+      classifHintEl.style.display = 'none';
+
+      // Set default active tool
+      if (task === 'object_detection') {
+        tool = (annType === 'point') ? 'point' : 'bbox';
+      } else if (task === 'image_segmentation') {
+        tool = 'polygon';
+      } else {
+        tool = 'select';
+      }
       updateToolButtons();
     }
 
@@ -313,6 +328,8 @@ async function loadImageIndex(idx) {
   polyPts = [];
   liveBbox = null;
   mousePos = null;
+  samSession = null;
+  samLoading = false;
   polyHintEl.style.display = 'none';
   setSavedStatus(true);
 
@@ -358,6 +375,9 @@ function apiToShape(a) {
   if (a.shape_type === 'polygon') {
     return { type: 'polygon', class_id: a.class_id, pts: a.points };
   }
+  if (a.shape_type === 'point') {
+    return { type: 'point', class_id: a.class_id, x: a.points[0]?.[0] ?? 0, y: a.points[0]?.[1] ?? 0 };
+  }
   if (a.shape_type === 'classification') {
     return { type: 'classification', class_id: a.class_id };
   }
@@ -390,6 +410,9 @@ function shapeToApi(s) {
       height: y2 - y1,
       points: s.pts
     };
+  }
+  if (s.type === 'point') {
+    return { class_id: s.class_id, shape_type: 'point', x_center: 0, y_center: 0, width: 0, height: 0, points: [[s.x, s.y]] };
   }
   if (s.type === 'classification') {
     return { class_id: s.class_id, shape_type: 'classification', x_center: 0, y_center: 0, width: 0, height: 0, points: [] };
@@ -501,6 +524,12 @@ function hitShape(nx, ny) {
     const s = shapes[i];
     if (s.type === 'bbox') {
       if (nx >= s.x && nx <= s.x + s.w && ny >= s.y && ny <= s.y + s.h) {
+        return i;
+      }
+    } else if (s.type === 'point') {
+      const hx = 8 / (zoom * canvas.width) * 1.5;
+      const hy = 8 / (zoom * canvas.height) * 1.5;
+      if (Math.abs(nx - s.x) < hx && Math.abs(ny - s.y) < hy) {
         return i;
       }
     } else if (s.type === 'polygon') {
@@ -617,8 +646,49 @@ function draw() {
       if (isSelected) {
         s.pts.forEach(p => drawDot(cx(p[0]), cy(p[1]), H / zoom, '#ffffff', color));
       }
+    } else if (s.type === 'point') {
+      const r = 8 / zoom;
+      ctx.fillStyle = color + '80';
+      ctx.beginPath();
+      ctx.arc(cx(s.x), cy(s.y), r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      drawLabelText(project.classes[s.class_id] || `cls${s.class_id}`, color, cx(s.x) + r, cy(s.y) - r, zoom);
+
+      if (isSelected) {
+        drawDot(cx(s.x), cy(s.y), (H + 2) / zoom, 'transparent', '#ffffff');
+      }
     }
   });
+
+  // Draw SAM session query prompts
+  if (tool === 'sam' && samSession) {
+    if (samSession.box) {
+      const [bx1, by1, bx2, by2] = samSession.box;
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 2 / zoom;
+      ctx.setLineDash([4 / zoom, 4 / zoom]);
+      ctx.strokeRect(cx(bx1), cy(by1), cx(bx2 - bx1), cy(by2 - by1));
+      ctx.setLineDash([]);
+    }
+    if (Array.isArray(samSession.points)) {
+      samSession.points.forEach((pt, idx) => {
+        if (!pt || pt.length < 2) return;
+        const [px, py] = pt;
+        const isPositive = samSession.labels && samSession.labels[idx] === 1;
+        const ptColor = isPositive ? '#22c55e' : '#ef4444';
+        drawDot(cx(px), cy(py), 6 / zoom, ptColor, '#ffffff');
+        
+        // Draw crosshair ring
+        ctx.beginPath();
+        ctx.arc(cx(px), cy(py), 10 / zoom, 0, Math.PI * 2);
+        ctx.strokeStyle = ptColor;
+        ctx.lineWidth = 1.5 / zoom;
+        ctx.stroke();
+      });
+    }
+  }
 
   // Draw in-progress polygon
   if (polyPts.length > 0) {
@@ -653,7 +723,7 @@ function draw() {
   }
 
   // Draw crosshair guide lines only when hovering (i.e. no active dragging/drawing and no polyPts)
-  if (mousePos && (tool === 'bbox' || tool === 'polygon') && drag.kind === 'none' && polyPts.length === 0) {
+  if (mousePos && (tool === 'bbox' || tool === 'polygon' || tool === 'point' || tool === 'sam') && drag.kind === 'none' && polyPts.length === 0) {
     ctx.save();
     ctx.globalCompositeOperation = 'difference';
     ctx.beginPath();
@@ -741,6 +811,7 @@ function setupCanvasEvents() {
 function onMouseDown(e) {
   const { cx, cy } = getCanvasPx(e);
   const [nx, ny] = toNorm(e);
+  console.log("onMouseDown: button =", e.button, "tool =", tool, "nx =", nx, "ny =", ny);
 
   // Pan action (Space + left click, middle click, right click, or Pan tool active)
   if (e.button === 1 || e.button === 2 || spaceHeld || tool === 'pan') {
@@ -774,6 +845,48 @@ function onMouseDown(e) {
       polyHintTextEl.textContent = `${polyPts.length} points - click first vertex to close path or double click`;
     }
     draw();
+    return;
+  }
+
+  // Point tool logic
+  if (tool === 'point') {
+    shapes.push({
+      type: 'point',
+      class_id: activeClass,
+      x: nx,
+      y: ny
+    });
+    snapshotHistory();
+    renderAnnotationsList();
+    draw();
+    return;
+  }
+
+  // SAM tool logic
+  if (tool === 'sam') {
+    const currentImage = images[currentIdx];
+    if (samLoading || !currentImage) return;
+    
+    // Shift-click -> negative point click refinement
+    if (e.shiftKey) {
+      if (samSession) {
+        samSession.points.push([nx, ny]);
+        samSession.labels.push(0);
+        runSam(samSession);
+      } else {
+        const ns = { points: [[nx, ny]], labels: [0], box: null, idx: -1 };
+        samSession = ns;
+        runSam(ns);
+      }
+      return;
+    }
+    
+    // Regular left-click initiates bounding box drag or positive point selection
+    drag = {
+      kind: 'sam-box',
+      start: [nx, ny]
+    };
+    liveBbox = null;
     return;
   }
 
@@ -884,12 +997,30 @@ function onMouseMove(e) {
     if (s.type === 'bbox') {
       s.x = clamp(drag.orig.x + dx, 0, 1 - s.w);
       s.y = clamp(drag.orig.y + dy, 0, 1 - s.h);
+    } else if (s.type === 'point') {
+      s.x = clamp(drag.orig.x + dx, 0, 1);
+      s.y = clamp(drag.orig.y + dy, 0, 1);
     } else if (s.type === 'polygon') {
       s.pts = drag.orig.pts.map(p => [
         clamp(p[0] + dx, 0, 1),
         clamp(p[1] + dy, 0, 1)
       ]);
     }
+    draw();
+    return;
+  }
+
+  if (drag.kind === 'sam-box') {
+    const x = Math.min(drag.start[0], nx);
+    const y = Math.min(drag.start[1], ny);
+    liveBbox = {
+      type: 'bbox',
+      class_id: activeClass,
+      x,
+      y,
+      w: Math.abs(nx - drag.start[0]),
+      h: Math.abs(ny - drag.start[1])
+    };
     draw();
     return;
   }
@@ -915,12 +1046,13 @@ function onMouseMove(e) {
   }
 
   // Redraw canvas during hover to position guidelines dynamically
-  if (drag.kind === 'none' && (tool === 'bbox' || tool === 'polygon')) {
+  if (drag.kind === 'none' && (tool === 'bbox' || tool === 'polygon' || tool === 'point' || tool === 'sam')) {
     draw();
   }
 }
 
 function onMouseUp() {
+  const prevDrag = { ...drag };
   const prevKind = drag.kind;
   drag = { kind: 'none' };
   
@@ -929,6 +1061,31 @@ function onMouseUp() {
     selectedIndex = shapes.length - 1;
     snapshotHistory();
     renderAnnotationsList();
+  } else if (prevKind === 'sam-box') {
+    const isDrag = liveBbox && liveBbox.w > 0.02 && liveBbox.h > 0.02;
+    if (isDrag && liveBbox) {
+      // Bounding box query
+      const ns = {
+        points: [],
+        labels: [],
+        box: [liveBbox.x, liveBbox.y, liveBbox.x + liveBbox.w, liveBbox.y + liveBbox.h],
+        idx: samSession ? samSession.idx : -1
+      };
+      samSession = ns;
+      runSam(ns);
+    } else {
+      // Single positive point click query
+      const p = prevDrag.start;
+      if (samSession) {
+        samSession.points.push(p);
+        samSession.labels.push(1);
+        runSam(samSession);
+      } else {
+        const ns = { points: [p], labels: [1], box: null, idx: -1 };
+        samSession = ns;
+        runSam(ns);
+      }
+    }
   } else if (prevKind === 'move-shape' || prevKind === 'move-vertex' || prevKind === 'bbox-handle') {
     snapshotHistory();
   }
@@ -1018,6 +1175,8 @@ function setupKeyboardShortcuts() {
       polyPts = [];
       liveBbox = null;
       selectedIndex = null;
+      samSession = null;
+      samLoading = false;
       polyHintEl.style.display = 'none';
       draw();
       renderAnnotationsList();
@@ -1040,11 +1199,14 @@ function setupKeyboardShortcuts() {
 
     // Toggle tools
     const task = project ? project.task_type : '';
+    const annType = project ? (project.annotation_type || 'bbox') : 'bbox';
     if (task !== 'image_classification') {
       if (e.key === '1') setTool('select');
-      if (e.key === '2' && task !== 'image_segmentation') setTool('bbox');
-      if (e.key === '3' && task !== 'object_detection') setTool('polygon');
-      if (e.key === '4') setTool('pan');
+      if (e.key === '2' && task === 'object_detection' && annType === 'bbox') setTool('bbox');
+      if (e.key === '3' && task === 'image_segmentation') setTool('polygon');
+      if (e.key === '4' && task === 'object_detection' && annType === 'point') setTool('point');
+      if (e.key === '5' && task === 'image_segmentation') setTool('sam');
+      if (e.key === '6') setTool('pan');
     }
 
     // Undo / Redo
@@ -1064,6 +1226,8 @@ function setupKeyboardShortcuts() {
       let dup = null;
       if (s.type === 'bbox') {
         dup = { ...s, x: Math.min(s.x + 0.02, 1 - s.w), y: Math.min(s.y + 0.02, 1 - s.h) };
+      } else if (s.type === 'point') {
+        dup = { ...s, x: Math.min(s.x + 0.02, 1), y: Math.min(s.y + 0.02, 1) };
       } else if (s.type === 'polygon') {
         dup = { ...s, pts: s.pts.map(p => [Math.min(p[0] + 0.02, 1), Math.min(p[1] + 0.02, 1)]) };
       }
@@ -1100,6 +1264,8 @@ function updateToolButtons() {
   toolSelectBtn.classList.toggle('active', tool === 'select');
   toolBBoxBtn.classList.toggle('active', tool === 'bbox');
   toolPolygonBtn.classList.toggle('active', tool === 'polygon');
+  if (toolPointBtn) toolPointBtn.classList.toggle('active', tool === 'point');
+  if (toolSamBtn) toolSamBtn.classList.toggle('active', tool === 'sam');
   if (toolPanBtn) toolPanBtn.classList.toggle('active', tool === 'pan');
 }
 
@@ -1206,6 +1372,7 @@ function renderAnnotationsList() {
     // Select Icon based on shape
     let iconName = 'square';
     if (s.type === 'polygon') iconName = 'hexagon';
+    if (s.type === 'point') iconName = 'crosshair';
     
     const div = document.createElement('div');
     div.className = `ann-item ${isSelected ? 'selected' : ''}`;
@@ -1232,6 +1399,8 @@ function renderAnnotationsList() {
       let dup = null;
       if (s.type === 'bbox') {
         dup = { ...s, x: Math.min(s.x + 0.02, 1 - s.w), y: Math.min(s.y + 0.02, 1 - s.h) };
+      } else if (s.type === 'point') {
+        dup = { ...s, x: Math.min(s.x + 0.02, 1), y: Math.min(s.y + 0.02, 1) };
       } else if (s.type === 'polygon') {
         dup = { ...s, pts: s.pts.map(p => [Math.min(p[0] + 0.02, 1), Math.min(p[1] + 0.02, 1)]) };
       }
@@ -1419,6 +1588,8 @@ function setupUIEvents() {
   toolSelectBtn.addEventListener('click', () => setTool('select'));
   toolBBoxBtn.addEventListener('click', () => setTool('bbox'));
   toolPolygonBtn.addEventListener('click', () => setTool('polygon'));
+  if (toolPointBtn) toolPointBtn.addEventListener('click', () => setTool('point'));
+  if (toolSamBtn) toolSamBtn.addEventListener('click', () => setTool('sam'));
   if (toolPanBtn) toolPanBtn.addEventListener('click', () => setTool('pan'));
 
   // Drag and drop uploading handlers
@@ -1553,6 +1724,24 @@ function setupUIEvents() {
     window.open(`/api/projects/${projectId}/export-zip`, '_blank');
     exportDatasetOverlay.style.display = 'none';
   });
+
+  // Project Statistics Summary overlay triggers
+  const summaryBtn = document.getElementById('summaryBtn');
+  const summaryOverlay = document.getElementById('summaryOverlay');
+  const closeSummaryBtn = document.getElementById('closeSummaryBtn');
+
+  if (summaryBtn) {
+    summaryBtn.addEventListener('click', () => {
+      summaryOverlay.style.display = 'flex';
+      loadStatistics();
+    });
+  }
+
+  if (closeSummaryBtn) {
+    closeSummaryBtn.addEventListener('click', () => {
+      summaryOverlay.style.display = 'none';
+    });
+  }
 }
 
 // Upload Files in Batch
@@ -1717,4 +1906,149 @@ function renderGalleryGrid() {
   if (window.lucide) {
     lucide.createIcons();
   }
+}
+
+async function runSam(sess) {
+  console.log("runSam: sess =", sess);
+  const currentImage = images[currentIdx];
+  if (!currentImage) {
+    console.warn("runSam: no currentImage!");
+    return;
+  }
+  samLoading = true;
+  showSamLoadingAlert(true);
+  try {
+    const fetchUrl = `/api/projects/${projectId}/images/${currentImage.id}/sam-segment`;
+    console.log("runSam: fetching", fetchUrl);
+    const res = await fetch(fetchUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        points: sess.points,
+        labels: sess.labels,
+        box: sess.box
+      })
+    });
+    console.log("runSam: response status =", res.status);
+    if (!res.ok) throw new Error("SAM failed with status " + res.status);
+    const data = await res.json();
+    console.log("runSam: received data =", data);
+    const pts = data.points;
+    if (!pts || pts.length < 3) return;
+    
+    if (sess.idx >= 0 && sess.idx < shapes.length && shapes[sess.idx].type === 'polygon') {
+      shapes[sess.idx] = { type: 'polygon', class_id: activeClass, pts };
+    } else {
+      shapes.push({ type: 'polygon', class_id: activeClass, pts });
+      sess.idx = shapes.length - 1;
+    }
+    snapshotHistory();
+    renderAnnotationsList();
+    draw();
+  } catch (err) {
+    console.error("SAM failed:", err);
+  } finally {
+    samLoading = false;
+    showSamLoadingAlert(false);
+  }
+}
+
+function showSamLoadingAlert(loading) {
+  if (loading) {
+    polyHintEl.style.display = 'flex';
+    polyHintTextEl.textContent = "Segmenting with SAM... Please wait...";
+  } else {
+    polyHintEl.style.display = 'none';
+  }
+}
+
+async function loadStatistics() {
+  const summaryLoadingState = document.getElementById('summaryLoadingState');
+  const summaryErrorState = document.getElementById('summaryErrorState');
+  const summaryStatsPanel = document.getElementById('summaryStatsPanel');
+  
+  summaryLoadingState.style.display = 'flex';
+  summaryErrorState.style.display = 'none';
+  summaryStatsPanel.style.display = 'none';
+  
+  try {
+    const res = await fetch(`/api/projects/${projectId}/analytics`);
+    if (!res.ok) throw new Error("Failed to fetch analytics");
+    const data = await res.json();
+    
+    summaryLoadingState.style.display = 'none';
+    renderStatistics(data);
+    summaryStatsPanel.style.display = 'flex';
+  } catch (err) {
+    console.error("Error loading project stats:", err);
+    summaryLoadingState.style.display = 'none';
+    summaryErrorState.style.display = 'block';
+  }
+}
+
+function renderStatistics(data) {
+  // 1. Update Labelling Status Pie Chart (SVG circular progress)
+  const total = data.total_images || 0;
+  const annotated = data.annotated_images || 0;
+  const unannotated = Math.max(0, total - annotated);
+  
+  document.getElementById('summaryTotalCount').textContent = total;
+  document.getElementById('summaryLabelledCount').textContent = `${annotated} (${total > 0 ? Math.round((annotated / total) * 100) : 0}%)`;
+  document.getElementById('summaryUnlabelledCount').textContent = `${unannotated} (${total > 0 ? Math.round((unannotated / total) * 100) : 0}%)`;
+  
+  const percentDone = total > 0 ? Math.round((annotated / total) * 100) : 0;
+  document.getElementById('summaryPercentText').textContent = `${percentDone}%`;
+  
+  // Set SVG circle stroke-dasharray (dasharray = percent, 100-percent)
+  const summaryStatusCircle = document.getElementById('summaryStatusCircle');
+  if (summaryStatusCircle) {
+    summaryStatusCircle.setAttribute('stroke-dasharray', `${percentDone} 100`);
+  }
+  
+  // 2. Render Object Distribution List (horizontal progress bars)
+  const classDistList = document.getElementById('summaryClassDistributionList');
+  classDistList.innerHTML = '';
+  
+  if (!project || !project.classes || project.classes.length === 0) {
+    classDistList.innerHTML = '<p style="color: var(--text3); font-size: 11px; text-align: center; padding-top: 20px;">No classes defined in project.</p>';
+    return;
+  }
+  
+  // Build chart data
+  const chartData = project.classes.map((cls, idx) => ({
+    name: cls,
+    count: data.class_distribution[cls] || 0,
+    color: getClassColor(idx)
+  }));
+  
+  const maxVal = Math.max(...chartData.map(d => d.count), 0);
+  
+  if (maxVal === 0) {
+    classDistList.innerHTML = '<p style="color: var(--text3); font-size: 11px; text-align: center; padding-top: 20px;">No annotations yet.</p>';
+    return;
+  }
+  
+  // Render horizontal progress bars
+  chartData.forEach(item => {
+    const barPercent = maxVal > 0 ? Math.round((item.count / maxVal) * 100) : 0;
+    
+    const wrapper = document.createElement('div');
+    wrapper.style.display = 'flex';
+    wrapper.style.flexDirection = 'column';
+    wrapper.style.gap = '4px';
+    
+    wrapper.innerHTML = `
+      <div style="display: flex; justify-content: space-between; font-size: 11px; align-items: center;">
+        <span style="color: var(--text2); display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%;">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: ${item.color}; display: inline-block; flex-shrink: 0;"></span>
+          ${item.name}
+        </span>
+        <span style="color: var(--text); font-family: 'JetBrains Mono', monospace; font-weight: 600;">${item.count}</span>
+      </div>
+      <div style="background: rgba(0,0,0,0.06); height: 6px; border-radius: 3px; overflow: hidden; width: 100%;">
+        <div style="background: ${item.color}; width: ${barPercent}%; height: 100%; border-radius: 3px; transition: width 0.3s ease;"></div>
+      </div>
+    `;
+    classDistList.appendChild(wrapper);
+  });
 }

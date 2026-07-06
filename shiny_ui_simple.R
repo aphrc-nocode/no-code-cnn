@@ -1595,6 +1595,10 @@ server <- function(input, output, session) {
       title = "Create New Project",
       textInput("new_project_name", "Project Name", ""),
       selectInput("new_project_task", "Task Type", choices = c("image_classification", "object_detection", "image_segmentation")),
+      conditionalPanel(
+        condition = "input.new_project_task == 'object_detection'",
+        selectInput("new_project_annotation", "Annotation Type", choices = c("Bounding Box" = "bbox", "Point" = "point"))
+      ),
       textInput("new_project_desc", "Description (Optional)", ""),
       
       # Classes builder section
@@ -1720,6 +1724,7 @@ server <- function(input, output, session) {
     body <- list(
       name = input$new_project_name,
       task_type = input$new_project_task,
+      annotation_type = if (input$new_project_task == "object_detection") input$new_project_annotation else "bbox",
       description = input$new_project_desc,
       classes = classes_list,
       class_colors = class_colors_dict

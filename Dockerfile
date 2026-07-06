@@ -22,6 +22,10 @@ RUN pip install --no-cache-dir --disable-pip-version-check --trusted-host pypi.o
 # Ensure Hugging Face dependencies are properly installed
 RUN pip install --no-cache-dir --disable-pip-version-check --trusted-host pypi.org --trusted-host files.pythonhosted.org datasets huggingface-hub transformers
 
+# Install Ultralytics for SAM segmentation
+RUN pip install --no-cache-dir --disable-pip-version-check --trusted-host pypi.org --trusted-host files.pythonhosted.org ultralytics
+
+
 # Copy the application code
 COPY . .
 
