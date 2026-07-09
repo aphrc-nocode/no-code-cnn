@@ -18,9 +18,77 @@ let pollingInterval = null;
 let sampleImages = [];
 let currentSampleIdx = 0;
 
+// Navigation switching helper
+function switchMainView(view) {
+  const landing = document.getElementById('landingView');
+  const projectsEl = document.getElementById('projectsView');
+  const about = document.getElementById('aboutView');
+  const workspace = document.getElementById('workspaceView');
+  
+  if (!landing || !projectsEl || !about || !workspace) return;
+
+  // Hide all main views
+  landing.style.display = 'none';
+  projectsEl.style.display = 'none';
+  about.style.display = 'none';
+  workspace.style.display = 'none';
+  
+  // Hide toggle button by default (only show in workspace view on small screens via CSS)
+  const mobileToggle = document.getElementById('mobileSidebarToggleBtn');
+  if (mobileToggle) {
+    mobileToggle.style.display = 'none';
+  }
+
+  // Remove active state from nav links
+  document.querySelectorAll('.header-nav .nav-link').forEach(link => link.classList.remove('active'));
+  
+  // Show target view
+  if (view === 'landing') {
+    landing.style.display = 'block';
+    const link = document.getElementById('navLinkLanding');
+    if (link) link.classList.add('active');
+  } else if (view === 'projects') {
+    projectsEl.style.display = 'block';
+    const link = document.getElementById('navLinkProjects');
+    if (link) link.classList.add('active');
+    loadProjects();
+  } else if (view === 'about') {
+    about.style.display = 'block';
+    const link = document.getElementById('navLinkAbout');
+    if (link) link.classList.add('active');
+  } else if (view === 'workspace') {
+    workspace.style.display = 'flex';
+    if (mobileToggle) {
+      mobileToggle.style.display = 'inline-flex';
+    }
+  }
+}
+
 // Page initialization
 document.addEventListener('DOMContentLoaded', () => {
-  loadProjects();
+  // Bind top navbar tabs
+  document.getElementById('navLinkLanding').addEventListener('click', () => switchMainView('landing'));
+  document.getElementById('navLinkProjects').addEventListener('click', () => switchMainView('projects'));
+  document.getElementById('navLinkAbout').addEventListener('click', () => switchMainView('about'));
+  
+  // Bind landing page action buttons
+  document.getElementById('landingGetStartedBtn').addEventListener('click', () => switchMainView('projects'));
+  document.getElementById('landingLearnMoreBtn').addEventListener('click', () => switchMainView('about'));
+
+  // Bind mobile sidebar toggle
+  const mobileToggle = document.getElementById('mobileSidebarToggleBtn');
+  if (mobileToggle) {
+    mobileToggle.addEventListener('click', () => {
+      const sidebar = document.querySelector('.workspace-sidebar');
+      if (sidebar) {
+        sidebar.classList.toggle('active');
+      }
+    });
+  }
+
+  // Go to Landing Page by default
+  switchMainView('landing');
+
   setupUIEvents();
   
   // Set up task cards in project modal
@@ -143,8 +211,7 @@ function setupUIEvents() {
       stopPolling();
       activeProjectId = null;
       activeProject = null;
-      document.getElementById('workspaceView').style.display = 'none';
-      document.getElementById('projectsView').style.display = 'block';
+      switchMainView('projects');
       loadProjects();
     });
   }
@@ -526,8 +593,7 @@ async function loadProjectWorkspace(id) {
     document.getElementById('tab-pipelineBuilder').classList.add('active');
     
     // Display Workspace View
-    document.getElementById('projectsView').style.display = 'none';
-    document.getElementById('workspaceView').style.display = 'flex';
+    switchMainView('workspace');
     
   } catch (err) {
     alert("Could not load project workspace: " + err.message);

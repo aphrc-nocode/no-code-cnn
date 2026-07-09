@@ -11,17 +11,88 @@
   <body>
     <header class="app-header">
       <div class="header-left">
+        <button class="mobile-sidebar-toggle-btn" id="mobileSidebarToggleBtn" style="display: none;">
+          <i data-lucide="menu"></i>
+        </button>
         <img src="https://air.ug/wp-content/uploads/2025/06/Mak-AI-06.png" alt="MakLens Logo" class="brand-logo" />
         <span class="brand-name">MakLens</span>
       </div>
-      <div class="header-right">
-        <span class="tagline">AI for Societal Good</span>
-      </div>
+      <nav class="header-nav">
+        <button class="nav-link active" id="navLinkLanding">Overview</button>
+        <button class="nav-link" id="navLinkProjects">Dashboard</button>
+        <button class="nav-link" id="navLinkAbout">About</button>
+      </nav>
     </header>
     <div id="appContainer">
       
+      <!-- ==================== 0. LANDING PAGE OVERVIEW ==================== -->
+      <div id="landingView">
+        <section class="landing-hero">
+          <div class="hero-content">
+            <h1>Build Computer Vision Models in Days</h1>
+            <p>MakLens simplifies laborious data upload, manual image annotation, pipeline construction, and model evaluation. Develop custom models for your operations with less data, powered by active learning.</p>
+            <div class="hero-actions">
+              <button class="btn primary btn-lg" id="landingGetStartedBtn">Launch Dashboard</button>
+              <button class="btn secondary btn-lg" id="landingLearnMoreBtn">About MakLens</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="landing-features">
+          <h2 class="section-title">Next-Generation Computer Vision Platform</h2>
+          <div class="feature-grid">
+            <div class="feature-card">
+              <div class="feature-icon"><i data-lucide="edit-3"></i></div>
+              <h3>Interactive Model Training</h3>
+              <p>Get started with as few as 20 to 30 images, then let active learning help you teach the model as it learns.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon"><i data-lucide="cpu"></i></div>
+              <h3>Multiple Computer Vision Tasks</h3>
+              <p>Train state-of-the-art neural networks for image classification, object detection, and semantic segmentation.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon"><i data-lucide="mouse-pointer"></i></div>
+              <h3>Smart Annotations</h3>
+              <p>Expedite data labeling with drawing assistants, box annotations, polygon tools, and the Segment Anything Model (SAM).</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon"><i data-lucide="bar-chart-3"></i></div>
+              <h3>Model Evaluation</h3>
+              <p>Assess performance in real time with comprehensive metrics, confusion matrices, and Responsible AI explanation heatmaps (Grad-CAM).</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="landing-steps">
+          <h2 class="section-title">How MakLens Works</h2>
+          <div class="steps-grid">
+            <div class="step-card">
+              <div class="step-num">1</div>
+              <h4>Create Project</h4>
+              <p>Define a new classification, detection, or segmentation workspace.</p>
+            </div>
+            <div class="step-card">
+              <div class="step-num">2</div>
+              <h4>Annotate Images</h4>
+              <p>Upload your dataset zip file and annotate labels with AI drawing tools.</p>
+            </div>
+            <div class="step-card">
+              <div class="step-num">3</div>
+              <h4>Design Workflow</h4>
+              <p>Connect data loading, neural net architecture, and evaluation nodes visually.</p>
+            </div>
+            <div class="step-card">
+              <div class="step-num">4</div>
+              <h4>Train & Deploy</h4>
+              <p>Execute jobs, track epochs in MLflow, and export production-ready models.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
       <!-- ==================== 1. PROJECTS LIST VIEW ==================== -->
-      <div id="projectsView">
+      <div id="projectsView" style="display: none;">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
           <div>
             <h1 style="font-size: 22px; font-weight: 700; letter-spacing: -0.02em;">Projects</h1>
@@ -48,6 +119,40 @@
 
         <!-- Grid -->
         <div class="project-grid" id="projectsGrid"></div>
+      </div>
+
+      <!-- ==================== 1.5 ABOUT PAGE VIEW ==================== -->
+      <div id="aboutView" style="display: none;">
+        <div class="about-container">
+          <section class="about-hero">
+            <h1>About MakLens</h1>
+            <p class="subtitle">Uganda's Leading No-Code Computer Vision Solution</p>
+          </section>
+          
+          <div class="about-grid">
+            <div class="about-main">
+              <h3>Our Mission</h3>
+              <p>MakLens was developed by the <strong>Mak-AI Research Centre</strong> (AI for Societal Good) at Makerere University. It lowers the barrier of entry for deploying computer vision solutions across diverse sectors, including defect detection, smart agriculture, urban planning, and medical imaging.</p>
+              
+              <h3>Integrated Technologies</h3>
+              <ul class="tech-list">
+                <li><strong>Neural Engines:</strong> PyTorch, TorchVision, and Hugging Face Transformers for state-of-the-art inference.</li>
+                <li><strong>Active Storage:</strong> MinIO Object Storage for securely indexing datasets, annotations, and model binaries.</li>
+                <li><strong>Experiment Tracking:</strong> MLflow Server for logging metrics, hyperparameter configs, and artifacts.</li>
+                <li><strong>Visual Interface:</strong> Drag-and-drop workflow builder using native HTML canvas and javascript nodes.</li>
+              </ul>
+            </div>
+            
+            <div class="about-sidebar-card">
+              <h4>Responsible AI Built-In</h4>
+              <p>MakLens includes visual explanation modules (Grad-CAM) to explain model predictions, class balance checkers to highlight dataset bias, and fairness reports to prevent algorithmic discrimination before models are built.</p>
+              <div class="makerere-badge">
+                <img src="https://air.ug/wp-content/uploads/2025/06/Mak-AI-06.png" alt="Mak-AI Logo" />
+                <span>AI for Societal Good</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- ==================== 2. PROJECT WORKSPACE VIEW ==================== -->

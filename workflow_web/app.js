@@ -700,7 +700,7 @@ function renderInspector() {
     taskField.innerHTML = `
       <label style="display: block; font-size: 11px; font-weight: bold; margin-bottom: 4px; color: #475569;">Task Type</label>
       <div style="padding: 8px 10px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 12px; color: #334155; font-weight: 500;">
-        ${taskName} (Locked to Project)
+        ${taskName}
       </div>
     `;
     els.nodeForm.appendChild(taskField);
