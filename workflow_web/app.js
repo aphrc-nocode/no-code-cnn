@@ -116,7 +116,12 @@ const state = {
   connecting: null,
   contextMenuNodeId: null,
   edgeRenderFrame: null,
+  currentProject: null,
+  projectRuns: [],
+  selectedRunId: "",
 };
+
+let activeConfigBackup = null;
 
 const els = {};
 
@@ -124,11 +129,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   cacheElements();
   bindEvents();
   
+  // Fetch current project details first
+  await fetchCurrentProject();
+  
   // Load workflow from server or fallback
   await loadWorkflowFromServer();
   
   // Fetch available datasets
   await fetchAvailableDatasets();
+  
+  // Fetch project runs (experiments)
+  await fetchProjectRuns();
+  updateRunSelectorDropdown();
   
   // Redraw
   renderWorkflow();
@@ -179,6 +191,13 @@ function cacheElements() {
 function bindEvents() {
   document.getElementById("saveWorkflow").addEventListener("click", saveWorkflow);
   document.getElementById("resetWorkflow").addEventListener("click", resetWorkflow);
+  
+  const runSelector = document.getElementById("runSelector");
+  if (runSelector) {
+    runSelector.addEventListener("change", (e) => {
+      selectRun(e.target.value);
+    });
+  }
   document.getElementById("openAnnotator").addEventListener("click", () => {
     if (PROJECT_ID) {
       window.location.href = `/annotator/index.html?project_id=${PROJECT_ID}`;
@@ -413,13 +432,19 @@ function renderInspector() {
   els.nodeForm.innerHTML = "";
 
   if (node.type === "dataset") {
-    // Dataset Select list using LOWERCASE fields from FastAPI
+    const projectTaskType = state.currentProject ? state.currentProject.task_type : null;
+    
+    // Filter choices to only those matching the project task type
     const choices = [["", "Select a dataset..."]];
     for (const dataset of state.availableDatasets) {
+      if (projectTaskType && dataset.task_type !== projectTaskType) {
+        continue;
+      }
       choices.push([dataset.id, `${dataset.name} (${dataset.task_type}, ${dataset.item_count} items)`]);
     }
     
     els.nodeForm.appendChild(makeSelectField("datasetId", "Select Dataset", node.config.datasetId, choices, (value) => {
+      switchToEditMode();
       node.config.datasetId = value;
       const d = state.availableDatasets.find(x => x.id === value);
       if (d) {
@@ -429,6 +454,7 @@ function renderInspector() {
       }
       renderWorkflow();
       saveWorkflow();
+      renderInspector();
     }));
     
     // Details
@@ -445,24 +471,242 @@ function renderInspector() {
       `;
       els.nodeForm.appendChild(details);
     }
+
+    // Render professional upload section if PROJECT_ID exists
+    if (PROJECT_ID) {
+      const uploadSec = document.createElement("div");
+      uploadSec.className = "upload-dataset-section";
+      uploadSec.style.marginTop = "16px";
+      uploadSec.style.borderTop = "1px solid var(--line)";
+      uploadSec.style.paddingTop = "14px";
+      
+      let taskName = "Image Classification";
+      if (projectTaskType === "object_detection") taskName = "Object Detection";
+      else if (projectTaskType === "image_segmentation") taskName = "Image Segmentation";
+
+      uploadSec.innerHTML = `
+        <h4 style="margin: 0 0 4px 0; font-size: 13px; font-weight: bold; color: #333;">Upload Dataset to Project</h4>
+        <p style="font-size: 11px; color: #64748b; margin: 0 0 12px 0;">
+          ZIP files only. The uploaded dataset task type will automatically be locked to <strong>${taskName}</strong>.
+        </p>
+        
+        <div class="form-group" style="margin-bottom: 10px;">
+          <label style="display: block; font-size: 11px; font-weight: bold; margin-bottom: 4px; color: #475569;">Dataset Name</label>
+          <input type="text" id="wfUploadName" placeholder="My New Dataset" style="width: 100%; height: 28px; padding: 4px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; outline: none;" />
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 10px;">
+          <label style="display: block; font-size: 11px; font-weight: bold; margin-bottom: 4px; color: #475569;">Dataset ZIP Archive</label>
+          <div class="upload-dropzone" id="wfDropzone">
+            <i data-lucide="upload-cloud" class="upload-dropzone-icon" style="width: 24px; height: 24px;"></i>
+            <div class="upload-dropzone-text">
+              Drag &amp; drop ZIP here or <strong>browse</strong>
+            </div>
+            <input type="file" id="wfFileInput" accept=".zip" style="display: none;" />
+          </div>
+          
+          <div id="wfFileInfo" class="file-info-box" style="display: none;">
+            <div class="file-info-details">
+              <span id="wfFileName" class="file-info-name"></span>
+              <span id="wfFileSize" class="file-info-size"></span>
+            </div>
+            <button type="button" id="wfFileRemoveBtn" class="file-info-remove" title="Remove selected file">
+              <i data-lucide="trash-2" style="width: 13px; height: 13px;"></i>
+            </button>
+          </div>
+        </div>
+        
+        <button type="button" class="button primary compact" id="wfUploadBtn" style="width: 100%; height: 30px; margin-top: 12px;" disabled>
+          <i data-lucide="upload-cloud" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle;"></i> Upload Dataset
+        </button>
+        
+        <div id="wfUploadProgressContainer" class="upload-progress-container" style="display: none;">
+          <div class="upload-progress-bar">
+            <div id="wfUploadProgressFill" class="upload-progress-fill"></div>
+          </div>
+          <div id="wfUploadProgressText" class="upload-progress-text">Uploading: 0%</div>
+        </div>
+      `;
+      els.nodeForm.appendChild(uploadSec);
+      
+      // Wire up upload events
+      const dropzone = uploadSec.querySelector("#wfDropzone");
+      const fileInput = uploadSec.querySelector("#wfFileInput");
+      const fileInfo = uploadSec.querySelector("#wfFileInfo");
+      const fileNameSpan = uploadSec.querySelector("#wfFileName");
+      const fileSizeSpan = uploadSec.querySelector("#wfFileSize");
+      const fileRemoveBtn = uploadSec.querySelector("#wfFileRemoveBtn");
+      const uploadBtn = uploadSec.querySelector("#wfUploadBtn");
+      const nameInput = uploadSec.querySelector("#wfUploadName");
+      
+      let selectedFile = null;
+      
+      const updateUploadBtnState = () => {
+        uploadBtn.disabled = !(selectedFile && nameInput.value.trim());
+      };
+      
+      nameInput.addEventListener("input", updateUploadBtnState);
+      
+      dropzone.addEventListener("click", () => fileInput.click());
+      
+      fileInput.addEventListener("change", (e) => {
+        if (e.target.files.length > 0) {
+          handleFileSelection(e.target.files[0]);
+        }
+      });
+      
+      dropzone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dropzone.classList.add("dragover");
+      });
+      
+      dropzone.addEventListener("dragleave", () => {
+        dropzone.classList.remove("dragover");
+      });
+      
+      dropzone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropzone.classList.remove("dragover");
+        if (e.dataTransfer.files.length > 0) {
+          handleFileSelection(e.dataTransfer.files[0]);
+        }
+      });
+      
+      function handleFileSelection(file) {
+        if (!file.name.toLowerCase().endsWith(".zip")) {
+          alert("Only ZIP archives are supported.");
+          return;
+        }
+        selectedFile = file;
+        fileNameSpan.textContent = file.name;
+        const sizeKb = file.size / 1024;
+        fileSizeSpan.textContent = sizeKb > 1024 
+          ? `${(sizeKb / 1024).toFixed(1)} MB` 
+          : `${sizeKb.toFixed(0)} KB`;
+          
+        dropzone.style.display = "none";
+        fileInfo.style.display = "flex";
+        updateUploadBtnState();
+      }
+      
+      fileRemoveBtn.addEventListener("click", () => {
+        selectedFile = null;
+        fileInput.value = "";
+        dropzone.style.display = "flex";
+        fileInfo.style.display = "none";
+        updateUploadBtnState();
+      });
+      
+      uploadBtn.addEventListener("click", () => {
+        const name = nameInput.value.trim();
+        const datasetId = name.toLowerCase().replace(/[^a-z0-9_]/g, '_') || 'dataset_' + Date.now();
+        const taskType = projectTaskType || "image_classification";
+        
+        uploadBtn.disabled = true;
+        nameInput.disabled = true;
+        fileRemoveBtn.disabled = true;
+        
+        const progressContainer = uploadSec.querySelector("#wfUploadProgressContainer");
+        const progressFill = uploadSec.querySelector("#wfUploadProgressFill");
+        const progressText = uploadSec.querySelector("#wfUploadProgressText");
+        
+        progressContainer.style.display = "flex";
+        progressFill.style.width = "0%";
+        progressText.textContent = "Uploading: 0%";
+        
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+        formData.append("project_id", PROJECT_ID);
+        if (taskType === "image_classification" || taskType === "image_segmentation") {
+          formData.append("file_type", "zip");
+        }
+        
+        const uploadUrl = taskType === 'object_detection' 
+          ? `/upload-detection-dataset/${datasetId}?task_type=${taskType}&dataset_name=${encodeURIComponent(name)}`
+          : `/upload-dataset/${datasetId}?task_type=${taskType}&dataset_name=${encodeURIComponent(name)}`;
+          
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", uploadUrl);
+        
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            progressFill.style.width = pct + "%";
+            progressText.textContent = `Uploading: ${pct}%`;
+          }
+        };
+        
+        xhr.onload = async () => {
+          if (xhr.status === 200) {
+            progressText.textContent = "Upload complete! Processing...";
+            progressFill.style.width = "100%";
+            
+            await fetchAvailableDatasets();
+            
+            switchToEditMode();
+            node.config.datasetId = datasetId;
+            node.subtitle = `${name} (ZIP)`;
+            
+            setTimeout(() => {
+              saveWorkflow();
+              renderWorkflow();
+              renderInspector();
+            }, 1000);
+          } else {
+            progressText.textContent = "Upload failed: " + xhr.statusText;
+            progressFill.style.backgroundColor = "#ef4444";
+            uploadBtn.disabled = false;
+            nameInput.disabled = false;
+            fileRemoveBtn.disabled = false;
+          }
+        };
+        
+        xhr.onerror = () => {
+          progressText.textContent = "Network error during upload.";
+          progressFill.style.backgroundColor = "#ef4444";
+          uploadBtn.disabled = false;
+          nameInput.disabled = false;
+          fileRemoveBtn.disabled = false;
+        };
+        
+        xhr.send(formData);
+      });
+      
+      if (window.lucide) {
+        window.lucide.createIcons();
+      }
+    }
   }
 
   if (node.type === "model_config") {
-    els.nodeForm.appendChild(makeSelectField("task_type", "Task Type", node.config.task_type, [
-      ["image_classification", "Image Classification"],
-      ["object_detection", "Object Detection"],
-      ["image_segmentation", "Image Segmentation"],
-    ], (value) => {
-      node.config.task_type = value;
-      if (value === "image_classification") node.config.architecture = "resnet18";
-      else if (value === "object_detection") node.config.architecture = "faster_rcnn";
-      else if (value === "image_segmentation") node.config.architecture = "fcn";
+    const projectTaskType = state.currentProject ? state.currentProject.task_type : "image_classification";
+    
+    // Automatically force project task type if mismatched
+    if (node.config.task_type !== projectTaskType) {
+      node.config.task_type = projectTaskType;
+      if (projectTaskType === "image_classification") node.config.architecture = "resnet18";
+      else if (projectTaskType === "object_detection") node.config.architecture = "faster_rcnn";
+      else if (projectTaskType === "image_segmentation") node.config.architecture = "fcn";
       saveWorkflow();
-      renderInspector();
-    }));
+    }
+    
+    // Render read-only task type
+    let taskName = "Image Classification";
+    if (projectTaskType === "object_detection") taskName = "Object Detection";
+    else if (projectTaskType === "image_segmentation") taskName = "Image Segmentation";
+    
+    const taskField = document.createElement("div");
+    taskField.className = "form-group";
+    taskField.innerHTML = `
+      <label style="display: block; font-size: 11px; font-weight: bold; margin-bottom: 4px; color: #475569;">Task Type</label>
+      <div style="padding: 8px 10px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 12px; color: #334155; font-weight: 500;">
+        ${taskName} (Locked to Project)
+      </div>
+    `;
+    els.nodeForm.appendChild(taskField);
 
     let archs = [];
-    if (node.config.task_type === "image_classification") {
+    if (projectTaskType === "image_classification") {
       archs = [
         ["resnet18", "ResNet-18"],
         ["resnet50", "ResNet-50"],
@@ -470,7 +714,7 @@ function renderInspector() {
         ["mobilenet", "MobileNet"],
         ["efficientnet", "EfficientNet"]
       ];
-    } else if (node.config.task_type === "object_detection") {
+    } else if (projectTaskType === "object_detection") {
       archs = [
         ["faster_rcnn", "Faster R-CNN"],
         ["ssd", "SSD"],
@@ -478,7 +722,7 @@ function renderInspector() {
         ["detr_resnet50", "DETR ResNet-50"],
         ["yolos_small", "YOLOS Small"]
       ];
-    } else if (node.config.task_type === "image_segmentation") {
+    } else if (projectTaskType === "image_segmentation") {
       archs = [
         ["fcn", "FCN"],
         ["deeplabv3", "DeepLabV3"],
@@ -487,36 +731,43 @@ function renderInspector() {
     }
     
     els.nodeForm.appendChild(makeSelectField("architecture", "Architecture", node.config.architecture, archs, (value) => {
+      switchToEditMode();
       node.config.architecture = value;
       saveWorkflow();
     }));
 
     els.nodeForm.appendChild(makeNumberField("epochs", "Epochs", node.config.epochs, 1, 100, (value) => {
+      switchToEditMode();
       node.config.epochs = value;
       saveWorkflow();
     }));
     
     els.nodeForm.appendChild(makeNumberField("batch_size", "Batch Size", node.config.batch_size, 1, 128, (value) => {
+      switchToEditMode();
       node.config.batch_size = value;
       saveWorkflow();
     }));
     
     els.nodeForm.appendChild(makeNumberField("learning_rate", "Learning Rate", node.config.learning_rate, 0.0001, 1, (value) => {
+      switchToEditMode();
       node.config.learning_rate = value;
       saveWorkflow();
     }, 0.0001));
 
     els.nodeForm.appendChild(makeTextField("image_size", "Image Size (width, height)", node.config.image_size, (value) => {
+      switchToEditMode();
       node.config.image_size = value;
       saveWorkflow();
     }));
 
     els.nodeForm.appendChild(makeToggleField("augmentation_enabled", "Data Augmentation", node.config.augmentation_enabled, (checked) => {
+      switchToEditMode();
       node.config.augmentation_enabled = checked;
       saveWorkflow();
     }));
 
     els.nodeForm.appendChild(makeToggleField("early_stopping", "Early Stopping", node.config.early_stopping, (checked) => {
+      switchToEditMode();
       node.config.early_stopping = checked;
       saveWorkflow();
     }));
@@ -1196,6 +1447,12 @@ async function startPipelineTraining(trainerId, datasetObj, cfg) {
     
     trainerNode.config.status = "running";
     trainerNode.config.logs.push("Training job triggered in background.");
+    
+    // Refresh project runs to include this new pending/running run!
+    await fetchProjectRuns();
+    state.selectedRunId = jobId;
+    updateRunSelectorDropdown();
+    
     saveWorkflow();
     renderWorkflow();
     renderInspector();
@@ -1248,6 +1505,10 @@ function startTrainerPolling(trainerId, jobId) {
           logEvent("Training Failed", `Pipeline ${trainerId} failed during training.`);
         }
         
+        // Refresh project runs
+        await fetchProjectRuns();
+        updateRunSelectorDropdown();
+        
         saveWorkflow();
         renderWorkflow();
       }
@@ -1299,20 +1560,32 @@ async function runPipelinePrediction(predictorId, jobId, file, imageUrl) {
   const data = await response.json();
   predictorNode.config.predictions = data;
   
+  predictorNode.config.resultsByJobId = predictorNode.config.resultsByJobId || {};
+  predictorNode.config.resultsByJobId[jobId] = {
+    predictions: data,
+    explanationImage: "",
+    annotatedImage: ""
+  };
+  
   if (data.explanation_image) {
     predictorNode.config.explanationImage = `data:image/png;base64,${data.explanation_image}`;
+    predictorNode.config.resultsByJobId[jobId].explanationImage = predictorNode.config.explanationImage;
   } else {
     predictorNode.config.explanationImage = "";
   }
   
   if (data.annotated_image) {
     predictorNode.config.annotatedImage = `data:image/jpeg;base64,${data.annotated_image}`;
+    predictorNode.config.resultsByJobId[jobId].annotatedImage = predictorNode.config.annotatedImage;
     saveWorkflow();
     renderInspector();
   } else {
     const reader = new FileReader();
     reader.onload = (e) => {
       predictorNode.config.annotatedImage = e.target.result;
+      if (predictorNode.config.resultsByJobId[jobId]) {
+        predictorNode.config.resultsByJobId[jobId].annotatedImage = e.target.result;
+      }
       saveWorkflow();
       renderInspector();
     };
@@ -1365,10 +1638,26 @@ async function runModelEvaluation(evaluatorId, jobId) {
     const data = await response.json();
     evaluatorNode.config.status = "completed";
     evaluatorNode.config.results = data;
+    
+    evaluatorNode.config.resultsByJobId = evaluatorNode.config.resultsByJobId || {};
+    evaluatorNode.config.resultsByJobId[jobId] = {
+      status: "completed",
+      results: data,
+      error: null
+    };
+    
     logEvent("Evaluation complete", `Successfully evaluated job ${jobId}. Accuracy/mAP: ${(data.accuracy * 100).toFixed(1)}%`);
   } catch (error) {
     evaluatorNode.config.status = "error";
     evaluatorNode.config.error = error.message;
+    
+    evaluatorNode.config.resultsByJobId = evaluatorNode.config.resultsByJobId || {};
+    evaluatorNode.config.resultsByJobId[jobId] = {
+      status: "error",
+      results: null,
+      error: error.message
+    };
+    
     logEvent("Evaluation failed", error.message);
   }
   saveWorkflow();
@@ -1407,6 +1696,15 @@ async function runRAIAnalysis(raiId, type) {
       if (data.distribution_plot_base64) {
         raiNode.config.classDistributionPlot = `data:image/png;base64,${data.distribution_plot_base64}`;
       }
+      
+      raiNode.config.resultsByDatasetId = raiNode.config.resultsByDatasetId || {};
+      raiNode.config.resultsByDatasetId[dsId] = {
+        status: "completed",
+        cardType: "dataset",
+        reportMarkdown: raiNode.config.reportMarkdown,
+        classDistributionPlot: raiNode.config.classDistributionPlot
+      };
+
       logEvent("RAI Analysis complete", `Data Card generated successfully for dataset ${dsId}.`);
     } else if (type === "model" && trainerNode) {
       const jobId = trainerNode.config.jobId;
@@ -1420,6 +1718,14 @@ async function runRAIAnalysis(raiId, type) {
       raiNode.config.status = "completed";
       raiNode.config.cardType = "model";
       raiNode.config.reportMarkdown = data.model_card_markdown;
+      
+      raiNode.config.resultsByJobId = raiNode.config.resultsByJobId || {};
+      raiNode.config.resultsByJobId[jobId] = {
+        status: "completed",
+        cardType: "model",
+        reportMarkdown: raiNode.config.reportMarkdown
+      };
+
       logEvent("RAI Analysis complete", `Model Card generated successfully for job ${jobId}.`);
     } else {
       throw new Error("Invalid RAI configuration or missing connection.");
@@ -1436,7 +1742,8 @@ async function runRAIAnalysis(raiId, type) {
 
 async function fetchAvailableDatasets() {
   try {
-    const response = await fetch("/datasets/available");
+    const url = PROJECT_ID ? `/datasets/available?project_id=${PROJECT_ID}` : "/datasets/available";
+    const response = await fetch(url);
     if (response.ok) {
       state.availableDatasets = await response.json();
     }
@@ -1763,6 +2070,8 @@ function parseMarkdownToHtml(md) {
 }
 
 function logEvent(title, detail) {
+  console.log(`[Event] ${title}: ${detail}`);
+  if (!els.eventLog) return;
   const item = document.createElement("li");
   item.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span>`;
   els.eventLog.prepend(item);
@@ -2058,3 +2367,132 @@ window.fetchTrainingCurves = async function(jobId, btn) {
     if (window.lucide) window.lucide.createIcons();
   }
 };
+
+// --- Helper functions for project metadata, runs & upload ---
+async function fetchCurrentProject() {
+  if (!PROJECT_ID) return;
+  try {
+    const response = await fetch(`/api/projects/${PROJECT_ID}`);
+    if (response.ok) {
+      state.currentProject = await response.json();
+    }
+  } catch (error) {
+    console.warn("Failed to fetch current project details:", error);
+  }
+}
+
+async function fetchProjectRuns() {
+  if (!PROJECT_ID) return;
+  try {
+    const response = await fetch(`/pipelines?project_id=${PROJECT_ID}`);
+    if (response.ok) {
+      state.projectRuns = await response.json();
+      state.projectRuns.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    }
+  } catch (error) {
+    console.warn("Failed to fetch project runs:", error);
+  }
+}
+
+function updateRunSelectorDropdown() {
+  const runSelector = document.getElementById("runSelector");
+  if (!runSelector) return;
+  
+  runSelector.innerHTML = "";
+  
+  const optNew = document.createElement("option");
+  optNew.value = "";
+  optNew.textContent = "🆕 Create New Run / Edit Canvas";
+  runSelector.appendChild(optNew);
+  
+  state.projectRuns.forEach((run) => {
+    const opt = document.createElement("option");
+    opt.value = run.id;
+    
+    const dateStr = run.created_at ? new Date(run.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "";
+    const arch = run.pipeline_config?.architecture || "unknown";
+    const status = run.status || "pending";
+    opt.textContent = `🏃 Run (${arch}) - ${status} [${dateStr}]`;
+    
+    runSelector.appendChild(opt);
+  });
+  
+  runSelector.value = state.selectedRunId;
+}
+
+function selectRun(runId) {
+  if (state.selectedRunId === "" && runId !== "") {
+    activeConfigBackup = JSON.parse(JSON.stringify(state.workflow.nodes));
+  }
+  
+  state.selectedRunId = runId;
+  const runSelector = document.getElementById("runSelector");
+  if (runSelector) {
+    runSelector.value = runId;
+  }
+  
+  const datasetNode = state.workflow.nodes.find(n => n.type === "dataset");
+  const modelConfigNode = state.workflow.nodes.find(n => n.type === "model_config");
+  const trainerNode = state.workflow.nodes.find(n => n.type === "trainer");
+  
+  if (runId === "") {
+    if (activeConfigBackup) {
+      state.workflow.nodes = JSON.parse(JSON.stringify(activeConfigBackup));
+    } else {
+      if (trainerNode) {
+        trainerNode.config.jobId = "";
+        trainerNode.config.status = "idle";
+        trainerNode.config.logs = [];
+        trainerNode.config.metrics = {};
+        trainerNode.config.history = [];
+        trainerNode.subtitle = "Run pipeline training";
+      }
+    }
+  } else {
+    const run = state.projectRuns.find(r => r.id === runId);
+    if (run) {
+      if (datasetNode) {
+        datasetNode.config.datasetId = run.linked_dataset_id || "";
+        const ds = state.availableDatasets.find(x => x.id === run.linked_dataset_id);
+        datasetNode.subtitle = ds ? `${ds.name} (${ds.is_coco_format ? 'COCO' : 'Standard'})` : "Select dataset source";
+      }
+      
+      if (modelConfigNode) {
+        modelConfigNode.config.task_type = run.pipeline_config.task_type;
+        modelConfigNode.config.architecture = run.pipeline_config.architecture;
+        modelConfigNode.config.epochs = run.pipeline_config.epochs;
+        modelConfigNode.config.batch_size = run.pipeline_config.batch_size;
+        modelConfigNode.config.learning_rate = run.pipeline_config.learning_rate;
+        modelConfigNode.config.image_size = Array.isArray(run.pipeline_config.image_size) 
+          ? run.pipeline_config.image_size.join(", ") 
+          : run.pipeline_config.image_size;
+        modelConfigNode.config.augmentation_enabled = run.pipeline_config.augmentation_enabled;
+        modelConfigNode.config.early_stopping = run.pipeline_config.early_stopping;
+      }
+      
+      if (trainerNode) {
+        trainerNode.config.jobId = run.id;
+        trainerNode.config.status = run.status;
+        trainerNode.config.logs = run.logs || [];
+        trainerNode.config.metrics = run.metrics || {};
+        trainerNode.config.history = run.history || [];
+        trainerNode.subtitle = `Status: ${run.status}`;
+      }
+    }
+  }
+  
+  saveWorkflow();
+  renderWorkflow();
+  renderInspector();
+}
+
+function switchToEditMode() {
+  if (state.selectedRunId !== "") {
+    activeConfigBackup = null;
+    selectRun("");
+  }
+}
+
+function init() {
+  // Dummy initialization to prevent crashes
+}

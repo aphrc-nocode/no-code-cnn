@@ -1000,14 +1000,11 @@ job_manager = JobManager()
 
 # ==================== API Endpoints ====================
 
+from fastapi.responses import RedirectResponse
+
 @app.get("/")
 async def root():
-    return {
-        "message": "No-Code AI Platform API", 
-        "version": "1.0.0",
-        "pytorch_version": torch.__version__,
-        "gpu_available": torch.cuda.is_available()
-    }
+    return RedirectResponse(url="/index.html")
 
 # MLflow integration endpoints
 @app.post("/mlflow/start-server")
@@ -4157,5 +4154,11 @@ if workflow_web_dir.exists():
 annotator_dir = Path(__file__).resolve().parent / "annotator"
 if annotator_dir.exists():
     app.mount("/annotator", StaticFiles(directory=str(annotator_dir), html=True), name="annotator")
+
+# Expose Unified Dashboard client assets as static folder at root
+dashboard_dir = Path(__file__).resolve().parent / "dashboard_web"
+if dashboard_dir.exists():
+    app.mount("/", StaticFiles(directory=str(dashboard_dir), html=True), name="dashboard")
+
 
 

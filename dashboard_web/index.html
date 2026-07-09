@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>No-Code Computer Vision Dashboard</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body>
+    <div id="appContainer">
+      
+      <!-- ==================== 1. PROJECTS LIST VIEW ==================== -->
+      <div id="projectsView">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+          <div>
+            <h1 style="font-size: 22px; font-weight: 700; letter-spacing: -0.02em;">Projects</h1>
+            <p style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">Each project trains one computer vision model</p>
+          </div>
+          <button class="btn primary" id="openCreateProjectModalBtn">
+            <i data-lucide="plus" style="width: 14px; height: 14px; stroke-width: 2.5;"></i> New Project
+          </button>
+        </div>
+
+        <!-- Search Bar -->
+        <div style="margin-bottom: 24px; max-width: 400px; position: relative;">
+          <input type="text" id="projectsSearch" class="form-input" placeholder="Search projects by name..." style="padding-left: 34px;" />
+          <i data-lucide="search" style="position: absolute; left: 10px; top: 10px; color: var(--text-secondary); width: 16px; height: 16px;"></i>
+        </div>
+
+        <div id="projectsListError" style="display: none; font-size: 13px; color: var(--danger); margin-bottom: 16px;"></div>
+
+        <!-- Empty state -->
+        <div id="projectsEmptyState" style="display: none; border: 1px dashed var(--border); border-radius: var(--radius); padding: 64px 24px; text-align: center; color: var(--text-secondary);">
+          <p style="font-size: 14px; margin-bottom: 4px; font-weight: 600; color: var(--text);">No projects yet</p>
+          <p style="font-size: 12px;">Create your first project to get started</p>
+        </div>
+
+        <!-- Grid -->
+        <div class="project-grid" id="projectsGrid"></div>
+      </div>
+
+      <!-- ==================== 2. PROJECT WORKSPACE VIEW ==================== -->
+      <div id="workspaceView" style="display: none;">
+        <!-- Left Sidebar -->
+        <aside class="workspace-sidebar">
+          <div class="sidebar-header">
+            <button class="sidebar-back-btn" id="backToProjectsBtn">
+              <i data-lucide="chevron-left" style="width: 14px; height: 14px;"></i> Back to Projects
+            </button>
+            <div class="project-meta-info">
+              <h2 id="wsProjectName">Project Name</h2>
+              <span class="task-badge" id="wsProjectTaskBadge">Task Type</span>
+            </div>
+          </div>
+          <ul class="sidebar-menu">
+            <li class="menu-item active" data-tab="pipelineBuilder">
+              <button><i data-lucide="git-branch" style="width: 16px; height: 16px;"></i> Visual Pipeline</button>
+            </li>
+            <li class="menu-item" data-tab="annotate">
+              <button><i data-lucide="edit-3" style="width: 16px; height: 16px;"></i> Annotate</button>
+            </li>
+            <li class="menu-item" data-tab="datasets">
+              <button><i data-lucide="database" style="width: 16px; height: 16px;"></i> Datasets</button>
+            </li>
+            <li class="menu-item" data-tab="modelGarden">
+              <button><i data-lucide="cpu" style="width: 16px; height: 16px;"></i> Model Garden</button>
+            </li>
+            <li class="menu-item" data-tab="trainingJobs">
+              <button><i data-lucide="activity" style="width: 16px; height: 16px;"></i> Training Jobs</button>
+            </li>
+          </ul>
+        </aside>
+
+        <!-- Main Viewport -->
+        <main class="workspace-viewport">
+          
+          <!-- Viewport Tab: Visual Pipeline Builder iframe -->
+          <div class="viewport-tab active iframe-tab" id="tab-pipelineBuilder">
+            <iframe id="pipelineBuilderIframe" src=""></iframe>
+          </div>
+
+          <!-- Viewport Tab: Annotator iframe -->
+          <div class="viewport-tab iframe-tab" id="tab-annotate">
+            <iframe id="annotateIframe" src=""></iframe>
+          </div>
+
+          <!-- Viewport Tab: Datasets -->
+          <div class="viewport-tab" id="tab-datasets">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+              <h2 style="font-size: 20px; font-weight: 700; letter-spacing: -0.01em; margin: 0;">Manage Datasets</h2>
+              <button class="btn primary" id="openUploadDatasetModalBtn" style="height: 34px;">
+                <i data-lucide="upload-cloud" style="width: 14px; height: 14px;"></i> Upload Dataset
+              </button>
+            </div>
+
+            <!-- Search -->
+            <div style="margin-bottom: 16px; max-width: 360px; position: relative;">
+              <input type="text" id="datasetsSearch" class="form-input" placeholder="Search datasets..." style="padding-left: 34px;" />
+              <i data-lucide="search" style="position: absolute; left: 10px; top: 10px; color: var(--text-secondary); width: 16px; height: 16px;"></i>
+            </div>
+
+            <!-- Full width datasets table -->
+            <div class="table-container">
+              <div style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--bg);">
+                <h3 style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); margin: 0;">Available Datasets</h3>
+                <button class="btn" id="refreshDatasetsBtn" style="padding: 4px 8px; height: 26px; font-size: 11px;">
+                  <i data-lucide="refresh-cw" style="width: 11px; height: 11px;"></i> Refresh
+                </button>
+              </div>
+              <table class="custom-table" id="datasetsTable">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Task Type</th>
+                    <th>Classes</th>
+                    <th>Items</th>
+                    <th>Format</th>
+                  </tr>
+                </thead>
+                <tbody id="datasetsTableBody">
+                  <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Loading datasets...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Viewport Tab: Model Garden -->
+          <div class="viewport-tab" id="tab-modelGarden">
+            <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 24px; letter-spacing: -0.01em;">Model Garden</h2>
+
+            <!-- Search -->
+            <div style="margin-bottom: 16px; max-width: 360px; position: relative;">
+              <input type="text" id="modelGardenSearch" class="form-input" placeholder="Search models..." style="padding-left: 34px;" />
+              <i data-lucide="search" style="position: absolute; left: 10px; top: 10px; color: var(--text-secondary); width: 16px; height: 16px;"></i>
+            </div>
+
+            <div class="table-container">
+              <div style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--bg);">
+                <h3 style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); margin: 0;">Trained Models &amp; Pipelines</h3>
+                <button class="btn" id="refreshModelGardenBtn" style="padding: 4px 8px; height: 26px; font-size: 11px;">
+                  <i data-lucide="refresh-cw" style="width: 11px; height: 11px;"></i> Refresh
+                </button>
+              </div>
+              <table class="custom-table" id="modelGardenTable">
+                <thead>
+                  <tr>
+                    <th>Job ID</th>
+                    <th>Pipeline Name</th>
+                    <th>Architecture</th>
+                    <th>Task</th>
+                    <th>Epochs</th>
+                    <th>Accuracy</th>
+                    <th>Loss</th>
+                    <th style="text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="modelGardenTableBody">
+                  <tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">Loading models...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Viewport Tab: Training Jobs -->
+          <div class="viewport-tab" id="tab-trainingJobs">
+            <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 24px; letter-spacing: -0.01em;">Training Jobs</h2>
+
+            <!-- Search -->
+            <div style="margin-bottom: 16px; max-width: 360px; position: relative;">
+              <input type="text" id="jobsSearch" class="form-input" placeholder="Search jobs..." style="padding-left: 34px;" />
+              <i data-lucide="search" style="position: absolute; left: 10px; top: 10px; color: var(--text-secondary); width: 16px; height: 16px;"></i>
+            </div>
+
+            <!-- Pipelines List -->
+            <div class="table-container">
+              <div style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--bg);">
+                <h3 style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); margin: 0;">Recent Training Pipelines</h3>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <button class="btn" id="refreshJobsBtn" style="padding: 4px 8px; height: 26px; font-size: 11px;">
+                    <i data-lucide="refresh-cw" style="width: 11px; height: 11px;"></i> Refresh
+                  </button>
+                  <button class="btn" id="startMlflowBtn" style="padding: 4px 8px; height: 26px; font-size: 11px;">
+                    <i data-lucide="external-link" style="width: 11px; height: 11px;"></i> Open MLflow UI
+                  </button>
+                </div>
+              </div>
+              <table class="custom-table" id="jobsTable">
+                <thead>
+                  <tr>
+                    <th>Job ID</th>
+                    <th>Pipeline Name</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Model</th>
+                    <th>Task</th>
+                    <th style="text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="jobsTableBody">
+                  <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">Loading pipelines...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </main>
+      </div>
+
+    </div>
+
+    <!-- ==================== MODALS & OVERLAYS ==================== -->
+
+    <!-- Modal: New Project Form -->
+    <div class="modal-overlay" id="createProjectOverlay">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3>New Project</h3>
+          <button class="modal-close-btn" id="closeCreateProjectModalBtn">&times;</button>
+        </div>
+        <div class="modal-content">
+          <div class="field">
+            <label for="newProjectName">Project Name *</label>
+            <input type="text" class="form-input" id="newProjectName" placeholder="e.g. Fire Detection" />
+          </div>
+          <div class="field">
+            <label for="newProjectDesc">Description</label>
+            <textarea class="form-textarea" id="newProjectDesc" placeholder="Optional"></textarea>
+          </div>
+          <div class="field">
+            <label>Task Type</label>
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
+              <div class="task-option-card active" data-task="object_detection">
+                <i data-lucide="crosshair" style="width:16px; height:16px; color: var(--accent);"></i>
+                <div>
+                  <div class="task-option-card-title">Object Detection</div>
+                  <div class="task-option-card-desc">Locate objects with bounding boxes</div>
+                </div>
+              </div>
+              <div class="task-option-card" data-task="image_segmentation">
+                <i data-lucide="hexagon" style="width:16px; height:16px; color: var(--text-secondary);"></i>
+                <div>
+                  <div class="task-option-card-title">Instance Segmentation</div>
+                  <div class="task-option-card-desc">Trace object shapes with polygon masks</div>
+                </div>
+              </div>
+              <div class="task-option-card" data-task="image_classification">
+                <i data-lucide="scan-line" style="width:16px; height:16px; color: var(--text-secondary);"></i>
+                <div>
+                  <div class="task-option-card-title">Image Classification</div>
+                  <div class="task-option-card-desc">Classify whole images into categories</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Conditional Annotation Type Selector -->
+          <div class="field" id="newProjectAnnotationContainer">
+            <label for="newProjectAnnotation">Annotation Type</label>
+            <select class="form-select" id="newProjectAnnotation">
+              <option value="bbox">Bounding Box</option>
+              <option value="point">Point</option>
+            </select>
+          </div>
+
+          <!-- Classes Builder Section -->
+          <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border);">
+            <h4 style="font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 10px;">Configure Dataset Classes</h4>
+            <div style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 12px;">
+              <div style="flex: 1;">
+                <label style="font-size: 10px; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 4px;">Class Name</label>
+                <input type="text" class="form-input" id="newClassInputName" placeholder="e.g. dog" style="height: 32px;" />
+              </div>
+              <div style="width: 60px;">
+                <label style="font-size: 10px; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 4px;">Color</label>
+                <input type="color" id="newClassInputColor" value="#ef4444" style="width: 100%; height: 32px; padding: 0 2px; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; background: white;" />
+              </div>
+              <button class="btn primary" id="addNewClassBtn" style="height: 32px; padding: 0 12px; font-size: 12px;">Add</button>
+            </div>
+            <div id="modalClassesPreview" style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 120px; overflow-y: auto; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); font-size: 12px;">
+              <span style="color: var(--text-secondary); font-size: 11px;">No classes added yet. Default 'class0' will be used if none are specified.</span>
+            </div>
+          </div>
+
+          <div id="newProjectError" style="display: none; color: var(--danger); font-size: 12px; margin-top: 8px;"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="cancelCreateProjectBtn">Cancel</button>
+          <button class="btn primary" id="saveCreateProjectBtn">Create Project</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Dataset Card Validation Drawer -->
+    <div class="modal-overlay" id="datacardOverlay">
+      <div class="modal-box large">
+        <div class="modal-header">
+          <h3 id="datacardModalTitle">Data Card Details</h3>
+          <button class="modal-close-btn" id="closeDatacardModalBtn">&times;</button>
+        </div>
+        
+        <!-- Tabbed view inside Data Card modal -->
+        <div style="background: var(--bg); border-bottom: 1px solid var(--border); display: flex; gap: 20px; padding: 0 24px;">
+          <button class="btn" style="border: none; background: transparent; padding: 12px 4px; border-bottom: 2px solid var(--accent); border-radius: 0; color: var(--accent); font-weight: 600;" id="tabBtnReport">Data Validation Report</button>
+          <button class="btn" style="border: none; background: transparent; padding: 12px 4px; border-radius: 0; color: var(--text-secondary);" id="tabBtnDistribution">Class Distribution</button>
+          <button class="btn" style="border: none; background: transparent; padding: 12px 4px; border-radius: 0; color: var(--text-secondary);" id="tabBtnSamples">Sample Images</button>
+        </div>
+
+        <div class="modal-content" style="height: 50vh;">
+          
+          <!-- Sub-view 1: Markdown validation report -->
+          <div id="datacardReportView" class="datacard-subview">
+            <div class="markdown-card-container" id="datacardMarkdown">Loading...</div>
+          </div>
+          
+          <!-- Sub-view 2: Class distribution custom horizontal graph -->
+          <div id="datacardDistributionView" class="datacard-subview" style="display: none;">
+            <div style="display: flex; flex-direction: column; gap: 12px; padding: 10px 0;" id="datacardDistributionContainer">
+              <!-- Dynamically populated with bar progress meters -->
+            </div>
+          </div>
+          
+          <!-- Sub-view 3: Sample images slideshow slider -->
+          <div id="datacardSamplesView" class="datacard-subview" style="display: none; text-align: center;">
+            <div style="margin-bottom: 16px; display: flex; justify-content: center; align-items: center; gap: 15px;">
+              <button class="btn" id="prevSampleBtn" style="padding: 4px 8px; font-size: 11px;"><i data-lucide="chevron-left" style="width:12px; height:12px;"></i> Previous</button>
+              <span style="font-weight: 600; font-size: 14px;" id="sampleImageCounter">0 / 0</span>
+              <button class="btn" id="nextSampleBtn" style="padding: 4px 8px; font-size: 11px;">Next <i data-lucide="chevron-right" style="width:12px; height:12px;"></i></button>
+            </div>
+            <div style="border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; background: var(--bg); display: inline-block; max-width: 100%;">
+              <img id="sampleImageDisplay" src="" style="max-height: 35vh; max-width: 100%; border-radius: 4px; box-shadow: var(--shadow);" />
+              <h4 id="sampleImageLabel" style="font-size: 14px; font-weight: 700; color: var(--text); margin-top: 12px;">Class Label</h4>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Models Metrics Curves Plot -->
+    <div class="modal-overlay" id="curvesOverlay">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3 id="curvesModalTitle">Training History Curves</h3>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <select class="form-select" id="curvesMetricSelect" style="height: 28px; font-size: 11px; padding: 0 8px; width: 110px;">
+              <option value="accuracy">Accuracy</option>
+              <option value="loss">Loss</option>
+            </select>
+            <button class="modal-close-btn" id="closeCurvesModalBtn">&times;</button>
+          </div>
+        </div>
+        <div class="modal-content" style="text-align: center;">
+          <canvas id="curvesCanvas" width="400" height="260" style="width: 100%; height: auto; display: block; background: white; border: 1px solid var(--border); border-radius: 4px;"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Model Card Viewer -->
+    <div class="modal-overlay" id="modelCardOverlay">
+      <div class="modal-box large">
+        <div class="modal-header">
+          <h3>Model Card & Pipeline Metadata</h3>
+          <button class="modal-close-btn" id="closeModelCardModalBtn">&times;</button>
+        </div>
+        <div class="modal-content" style="height: 55vh;">
+          <div class="markdown-card-container" id="modelCardMarkdown">Loading model card report...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Active Job Logs viewer (from recent jobs list table) -->
+    <div class="modal-overlay" id="logsOverlay">
+      <div class="modal-box large">
+        <div class="modal-header">
+          <h3>Pipeline Logs</h3>
+          <button class="modal-close-btn" id="closeLogsModalBtn">&times;</button>
+        </div>
+        <div class="modal-content" style="background: #1a1a24; padding: 0;">
+          <pre id="logsModalConsole" style="color: #a1e2a1; padding: 20px; font-family: monospace; font-size: 11px; overflow-y: auto; white-space: pre-wrap; margin: 0; height: 50vh;"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Upload Dataset Form -->
+    <div class="modal-overlay" id="uploadDatasetOverlay">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3>Upload New Dataset</h3>
+          <button class="modal-close-btn" id="closeUploadDatasetModalBtn">&times;</button>
+        </div>
+        <div class="modal-content">
+          <div class="field">
+            <label for="datasetUploadName">Dataset Name</label>
+            <input type="text" class="form-input" id="datasetUploadName" value="My Custom Dataset" />
+          </div>
+          <div class="field">
+            <label for="datasetUploadTask">Task Type</label>
+            <select class="form-select" id="datasetUploadTask">
+              <option value="image_classification">Image Classification</option>
+              <option value="object_detection">Object Detection</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="datasetUploadFile">Select ZIP File (.zip)</label>
+            <input type="file" id="datasetUploadFile" accept=".zip" style="font-size: 12px; margin-top: 4px;" />
+          </div>
+          <button class="btn primary" id="datasetUploadSubmitBtn" style="width: 100%; margin-top: 10px; height: 36px;">
+            <i data-lucide="upload-cloud" style="width: 14px; height: 14px;"></i> Upload Dataset
+          </button>
+          
+          <!-- Progress Indicator -->
+          <div class="upload-progress-box" id="uploadProgressBox" style="margin-top: 16px;">
+            <span class="progress-bar-text" id="uploadProgressText">Preparing upload...</span>
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill" id="uploadProgressFill"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </body>
+</html>
