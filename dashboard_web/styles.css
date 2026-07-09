@@ -1,24 +1,24 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-  --bg: #f5f5f7;
+  --bg: #F3F8FE;
   --surface: #ffffff;
   --surface-hover: #fafafa;
   --border: #d2d2d7;
   --border-strong: #86868b;
   
-  --text: #1d1d1f;
-  --text-secondary: #86868b;
-  --text-muted: #a1a1a6;
+  --text: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #64748B;
   
-  --accent: #0071e3;
-  --accent-soft: rgba(0, 113, 227, 0.08);
-  --accent-dark: #0066cc;
+  --accent: #0067FF;
+  --accent-soft: rgba(0, 103, 255, 0.08);
+  --accent-dark: #005ce6;
   
   --success: #34c759;
   --success-soft: rgba(52, 199, 89, 0.08);
-  --warning: #ff9500;
-  --warning-soft: rgba(255, 149, 0, 0.08);
+  --warning: #f26d25;
+  --warning-soft: rgba(242, 109, 37, 0.08);
   --danger: #ff3b30;
   --danger-soft: rgba(255, 59, 48, 0.08);
   
@@ -46,13 +46,57 @@ body {
   line-height: 1.5;
   height: 100vh;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== App Header Styling ===== */
+.app-header {
+  height: 60px;
+  background: #0F172A;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 24px;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.brand-logo {
+  height: 36px;
+  width: auto;
+  object-fit: contain;
+}
+.brand-name {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, #ffffff 30%, #E7F6FF 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.header-right .tagline {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #94A3B8; /* Slate 400 */
+  background: rgba(255, 255, 255, 0.05);
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 /* ===== Global App Layout ===== */
 #appContainer {
   display: flex;
   width: 100%;
-  height: 100vh;
+  height: calc(100vh - 60px);
 }
 
 /* Projects View (Dashboard launcher) */

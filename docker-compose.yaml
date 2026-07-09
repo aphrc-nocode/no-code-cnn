@@ -7,7 +7,7 @@ services:
     mem_limit: 8g
     mem_reservation: 6g
     ports:
-      - "8090:8000"
+      - "${HOST_BACKEND_PORT:-8090}:8000"
     volumes:
       - .:/app
     env_file:
@@ -29,7 +29,7 @@ services:
       context: .
       dockerfile: Dockerfile.mlflow
     ports:
-      - "5000:5000"
+      - "${HOST_MLFLOW_PORT:-5000}:5000"
     volumes:
       - ./mlruns:/mlruns
       - ./logs/mlflow:/mlflow-logs
@@ -52,8 +52,8 @@ services:
   minio:
     image: minio/minio:latest
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${HOST_MINIO_PORT:-9000}:9000"
+      - "${HOST_MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio-data:/data
     environment:
@@ -68,18 +68,19 @@ services:
       timeout: 5s
       retries: 3
 
-  shiny-ui:
-    build:
-      context: .
-      dockerfile: Dockerfile.shiny
-    ports:
-      - "3838:3838"
-    environment:
-      - API_URL=http://host.docker.internal:8090
-    depends_on:
-      - app
-    networks:
-      - ai-network
+#  shiny-ui:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile.shiny
+#    ports:
+#      - "${HOST_SHINY_PORT:-3838}:3838"
+#    environment:
+#      - API_URL=http://host.docker.internal:${HOST_BACKEND_PORT:-8090}
+#      - CLIENT_API_URL=${CLIENT_API_URL:-http://localhost:8090}
+#    depends_on:
+#      - app
+#    networks:
+#      - ai-network
 
 networks:
   ai-network:

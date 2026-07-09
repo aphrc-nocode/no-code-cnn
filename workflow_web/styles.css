@@ -5,18 +5,18 @@
   --surface: #ffffff;
   --surface-2: #f9f9f9;
   --surface-3: #f4f4f4;
-  --ink: #333333;
-  --ink-dim: #444444;
-  --muted: #777777;
-  --muted-2: #999999;
-  --line: #d2d6de;       /* AdminLTE border color */
-  --line-strong: #b5bbc8;
-  --primary: #3c8dbc;    /* AdminLTE primary blue */
-  --primary-soft: rgba(60, 141, 188, 0.12);
-  --primary-glow: rgba(60, 141, 188, 0.25);
-  --primary-dark: #357ca5;
+  --ink: #0F172A;
+  --ink-dim: #1E293B;
+  --muted: #64748B;
+  --muted-2: #94A3B8;
+  --line: #E2E8F0;       /* AdminLTE border color */
+  --line-strong: #CBD5E1;
+  --primary: #0067FF;    /* AdminLTE primary blue */
+  --primary-soft: rgba(0, 103, 255, 0.12);
+  --primary-glow: rgba(0, 103, 255, 0.25);
+  --primary-dark: #005ce6;
   --ok: #00a65a;         /* AdminLTE success green */
-  --warning: #f39c12;    /* AdminLTE warning orange */
+  --warning: #f26d25;    /* AdminLTE warning orange */
   --danger: #dd4b39;     /* AdminLTE danger red */
   --info: #00c0ef;       /* AdminLTE info teal */
   --violet: #605ca8;     /* AdminLTE purple */
