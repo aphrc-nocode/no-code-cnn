@@ -24,6 +24,22 @@ services:
       retries: 3
       start_period: 10s
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "${HOST_FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=${CLIENT_API_URL:-http://localhost:8090}
+    depends_on:
+      - app
+    networks:
+      - ai-network
+
   mlflow:
     build:
       context: .
