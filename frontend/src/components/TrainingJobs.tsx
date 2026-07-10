@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import { Search, RefreshCw, ExternalLink, Activity, Play, AlertTriangle } from "lucide-react";
 import api from "../api";
 
@@ -17,6 +18,7 @@ interface PipelineJob {
 }
 
 export default function TrainingJobs() {
+  const { id: projectId } = useParams<{ id: string }>();
   const [jobs, setJobs] = useState<PipelineJob[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -25,7 +27,7 @@ export default function TrainingJobs() {
   const fetchJobs = async () => {
     setLoading(true);
     try {
-      const res = await api.get("/pipelines");
+      const res = await api.get(projectId ? `/pipelines?project_id=${projectId}` : "/pipelines");
       setJobs(res.data || []);
     } catch {
       // Fallbacks
@@ -57,7 +59,7 @@ export default function TrainingJobs() {
   useEffect(() => {
     fetchJobs();
     fetchMlflowUrl();
-  }, []);
+  }, [projectId]);
 
   const handleOpenMlflow = () => {
     window.open(mlflowUrl || "http://localhost:5000", "_blank");

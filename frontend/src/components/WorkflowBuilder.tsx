@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useParams } from "react-router-dom";
 import {
   Database,
   Sliders,
@@ -130,8 +130,9 @@ const DEFAULT_WORKFLOW = {
 };
 
 export default function WorkflowBuilder() {
+  const { id: projectIdParam } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
-  const projectId = searchParams.get("project_id") || "default_project";
+  const projectId = projectIdParam || searchParams.get("project_id") || "default_project";
 
   const [project, setProject] = useState<Project | null>(null);
   const [nodes, setNodes] = useState<WorkflowNode[]>([]);
@@ -161,7 +162,7 @@ export default function WorkflowBuilder() {
       .catch(() => setProject({ id: Number(projectId) || 1, name: "Project", task_type: "classification", classes: ["Class A", "Class B"] }));
 
     // Fetch Datasets
-    api.get("/datasets")
+    api.get(projectId ? `/datasets/available?project_id=${projectId}` : "/datasets/available")
       .then(res => setAvailableDatasets(res.data))
       .catch(() => setAvailableDatasets([
         { id: "ds_1", name: "Mock Image Dataset (Cats vs Dogs)" },

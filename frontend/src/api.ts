@@ -29,6 +29,15 @@ export interface ExternalModel {
   name: string;
 }
 
+const resolveUrl = (url: string) => {
+  if (url.startsWith("http")) return url;
+  let formattedUrl = url;
+  if (url.startsWith("/projects") || url.startsWith("/workflow")) {
+    formattedUrl = `/api${url}`;
+  }
+  return `${BASE_URL}${formattedUrl}`;
+};
+
 const handleResponse = async (res: Response) => {
   if (!res.ok) {
     let detail = "Request failed";
@@ -48,7 +57,7 @@ const handleResponse = async (res: Response) => {
 
 const api = {
   get: async (url: string, config?: any) => {
-    let fullUrl = url.startsWith("http") ? url : `${BASE_URL}${url}`;
+    let fullUrl = resolveUrl(url);
     if (config?.params) {
       const q = new URLSearchParams(config.params as any).toString();
       fullUrl += `?${q}`;
@@ -63,23 +72,47 @@ const api = {
     return handleResponse(res);
   },
   post: async (url: string, body?: any, config?: any) => {
-    let fullUrl = url.startsWith("http") ? url : `${BASE_URL}${url}`;
+    let fullUrl = resolveUrl(url);
     if (config?.params) {
       const q = new URLSearchParams(config.params as any).toString();
       fullUrl += `?${q}`;
     }
+    const isFormData = body instanceof FormData;
+    const headers: Record<string, string> = {
+      ...(config?.headers || {}),
+    };
+    if (!isFormData) {
+      headers["Content-Type"] = "application/json";
+    }
     const res = await fetch(fullUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(config?.headers || {}),
-      },
-      body: body ? (body instanceof FormData ? body : JSON.stringify(body)) : undefined,
+      headers,
+      body: body ? (isFormData ? body : JSON.stringify(body)) : undefined,
+    });
+    return handleResponse(res);
+  },
+  put: async (url: string, body?: any, config?: any) => {
+    let fullUrl = resolveUrl(url);
+    if (config?.params) {
+      const q = new URLSearchParams(config.params as any).toString();
+      fullUrl += `?${q}`;
+    }
+    const isFormData = body instanceof FormData;
+    const headers: Record<string, string> = {
+      ...(config?.headers || {}),
+    };
+    if (!isFormData) {
+      headers["Content-Type"] = "application/json";
+    }
+    const res = await fetch(fullUrl, {
+      method: "PUT",
+      headers,
+      body: body ? (isFormData ? body : JSON.stringify(body)) : undefined,
     });
     return handleResponse(res);
   },
   delete: async (url: string, config?: any) => {
-    let fullUrl = url.startsWith("http") ? url : `${BASE_URL}${url}`;
+    let fullUrl = resolveUrl(url);
     if (config?.params) {
       const q = new URLSearchParams(config.params as any).toString();
       fullUrl += `?${q}`;

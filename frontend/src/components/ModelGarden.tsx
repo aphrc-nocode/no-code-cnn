@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import { Search, RefreshCw, Cpu, Play, Trash2 } from "lucide-react";
 import api from "../api";
 
@@ -15,6 +16,7 @@ interface ModelJob {
 }
 
 export default function ModelGarden() {
+  const { id: projectId } = useParams<{ id: string }>();
   const [jobs, setJobs] = useState<ModelJob[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -29,7 +31,7 @@ export default function ModelGarden() {
   const fetchJobs = async () => {
     setLoading(true);
     try {
-      const res = await api.get("/pipelines");
+      const res = await api.get(projectId ? `/pipelines?project_id=${projectId}` : "/pipelines");
       // filter only completed jobs
       const completed = (res.data || []).filter((j: any) =>
         ["completed", "success"].includes(j.status?.toLowerCase())
@@ -52,7 +54,7 @@ export default function ModelGarden() {
 
   useEffect(() => {
     fetchJobs();
-  }, []);
+  }, [projectId]);
 
   const handleDeleteModel = async (jobId: string) => {
     if (!window.confirm("Are you sure you want to delete this model and pipeline?")) return;

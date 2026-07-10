@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Search, UploadCloud, RefreshCw, Database } from "lucide-react";
+import { useParams } from "react-router-dom";
 import api from "../api";
 
 interface Dataset {
@@ -7,11 +8,12 @@ interface Dataset {
   name: string;
   task_type: string;
   classes: string[];
-  num_images: number;
+  item_count: number;
   format?: string;
 }
 
 export default function DatasetManager() {
+  const { id: projectId } = useParams<{ id: string }>();
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -26,13 +28,13 @@ export default function DatasetManager() {
   const fetchDatasets = async () => {
     setLoading(true);
     try {
-      const res = await api.get("/datasets");
+      const res = await api.get(projectId ? `/datasets/available?project_id=${projectId}` : "/datasets/available");
       setDatasets(res.data || []);
     } catch {
       // Fallback mocks
       setDatasets([
-        { id: "ds_1", name: "Plant Disease Classification", task_type: "classification", classes: ["healthy", "rust"], num_images: 45 },
-        { id: "ds_2", name: "Defects Object Detection", task_type: "detection", classes: ["scratch", "crack"], num_images: 32 }
+        { id: "ds_1", name: "Plant Disease Classification", task_type: "classification", classes: ["healthy", "rust"], item_count: 45 },
+        { id: "ds_2", name: "Defects Object Detection", task_type: "detection", classes: ["scratch", "crack"], item_count: 32 }
       ]);
     } finally {
       setLoading(false);
@@ -41,7 +43,7 @@ export default function DatasetManager() {
 
   useEffect(() => {
     fetchDatasets();
-  }, []);
+  }, [projectId]);
 
   const handleUploadDataset = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,12 +51,21 @@ export default function DatasetManager() {
 
     setUploading(true);
     try {
+      const datasetId = datasetName.toLowerCase().replace(/[^a-z0-9_]/g, '_') || 'dataset_' + Date.now();
       const formData = new FormData();
       formData.append("file", selectedFile);
-      formData.append("name", datasetName.trim());
-      formData.append("task_type", taskType);
+      if (projectId) {
+        formData.append("project_id", projectId);
+      }
+      if (taskType === "image_classification") {
+        formData.append("file_type", "zip");
+      }
 
-      await api.post("/datasets/upload", formData);
+      const uploadUrl = taskType === "object_detection"
+        ? `/upload-detection-dataset/${datasetId}?task_type=${taskType}&dataset_name=${encodeURIComponent(datasetName)}`
+        : `/upload-dataset/${datasetId}?task_type=${taskType}&dataset_name=${encodeURIComponent(datasetName)}`;
+
+      await api.post(uploadUrl, formData);
       setShowUploadModal(false);
       setDatasetName("");
       setSelectedFile(null);
@@ -141,7 +152,7 @@ export default function DatasetManager() {
                     {d.classes ? d.classes.join(", ") : "-"}
                   </td>
                   <td className="p-4 text-right font-mono font-bold text-foreground">
-                    {d.num_images}
+                    {d.item_count}
                   </td>
                 </tr>
               ))
