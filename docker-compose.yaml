@@ -34,7 +34,7 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=${CLIENT_API_URL:-http://localhost:8090}
+      - VITE_API_URL=http://app:8000
     depends_on:
       - app
     networks:
