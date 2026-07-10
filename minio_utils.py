@@ -29,6 +29,10 @@ def get_minio_client() -> Minio:
     # Resolve routing within docker if running in docker mode
     if os.getenv("DOCKER_MODE") == "true" and "localhost" in endpoint:
         endpoint = endpoint.replace("localhost", "minio")
+        # If the port was mapped to a custom host port, replace it with internal container port 9000
+        if ":" in endpoint:
+            parts = endpoint.split(":")
+            endpoint = f"{parts[0]}:9000"
         
     access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
     secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin")
