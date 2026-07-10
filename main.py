@@ -4156,8 +4156,12 @@ if annotator_dir.exists():
     app.mount("/annotator", StaticFiles(directory=str(annotator_dir), html=True), name="annotator")
 
 # Expose Unified Dashboard client assets as static folder at root
+react_dist_dir = Path(__file__).resolve().parent / "frontend" / "dist"
 dashboard_dir = Path(__file__).resolve().parent / "dashboard_web"
-if dashboard_dir.exists():
+
+if react_dist_dir.exists():
+    app.mount("/", StaticFiles(directory=str(react_dist_dir), html=True), name="frontend")
+elif dashboard_dir.exists():
     app.mount("/", StaticFiles(directory=str(dashboard_dir), html=True), name="dashboard")
 
 
