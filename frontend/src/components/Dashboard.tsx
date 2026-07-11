@@ -261,7 +261,7 @@ export default function Dashboard() {
               <div
                 key={p.id}
                 onClick={() => navigate(`/projects/${p.id}/workflow`)}
-                className="group bg-card border border-border rounded-xl cursor-pointer transition-all duration-200 flex flex-row min-h-[108px] h-auto shadow-sm overflow-hidden hover:-translate-y-0.5 hover:shadow-md hover:border-primary"
+                className="group bg-card border border-border rounded-xl cursor-pointer transition-all duration-200 flex flex-row h-[108px] shadow-sm overflow-hidden hover:-translate-y-0.5 hover:shadow-md hover:border-primary"
               >
                 {/* Left Thumbnail area */}
                 <div className="w-[110px] bg-muted/20 flex items-center justify-center overflow-hidden shrink-0 border-r border-border relative self-stretch">

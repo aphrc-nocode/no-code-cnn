@@ -305,7 +305,10 @@ export default function Annotate() {
     const cont   = containerRef.current
     if (!canvas || !cont || !imgRef.current) return
     const img    = imgRef.current
-    const scale  = Math.min((cont.clientWidth - 4) / img.width, (cont.clientHeight - 4) / img.height, 1)
+    // Fill the full container — scale up or down as needed
+    const scaleW = cont.clientWidth  / img.width
+    const scaleH = cont.clientHeight / img.height
+    const scale  = Math.min(scaleW, scaleH)   // fit-inside (shows full image)
     canvas.width  = img.width  * scale
     canvas.height = img.height * scale
     setZoom(1); setPan({ x: 0, y: 0 })
