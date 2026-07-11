@@ -180,25 +180,107 @@ export default function Annotate() {
   const batchCancelRef = useRef(false)
 
   // ─── Load project + image list ────────��─────────────────────────────────
+  // File upload state
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadingProgress, setUploadingProgress] = useState<number | null>(null)
+  const [uploadingText, setUploadingText] = useState("")
+  const [isDragOver, setIsDragOver] = useState(false)
+
+  const triggerFileSelect = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(true)
+  }
+
+  const handleDragLeave = () => {
+    setIsDragOver(false)
+  }
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    if (e.dataTransfer.files) {
+      await uploadFiles(e.dataTransfer.files)
+    }
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      await uploadFiles(e.target.files)
+    }
+  }
+
+  const uploadFiles = async (filesList: FileList) => {
+    const filesArray = Array.from(filesList).filter(f =>
+      /\.(jpe?g|png|bmp|webp)$/i.test(f.name)
+    )
+    if (filesArray.length === 0) {
+      alert("Please select valid image files.")
+      return
+    }
+
+    setUploadingProgress(0)
+    const total = filesArray.length
+    let doneCount = 0
+
+    for (let i = 0; i < total; i++) {
+      const formData = new FormData()
+      formData.append('files', filesArray[i])
+
+      try {
+        setUploadingText(`Uploading ${i + 1}/${total}: ${filesArray[i].name}`)
+        setUploadingProgress(Math.round((i / total) * 100))
+
+        await api.post(`/projects/${projectId}/images`, formData)
+        doneCount++
+      } catch (err) {
+        console.error("Upload error for file:", filesArray[i].name, err)
+      }
+    }
+
+    setUploadingProgress(100)
+    setUploadingText(`Finished: added ${doneCount} images`)
+    setTimeout(async () => {
+      setUploadingProgress(null)
+      try {
+        const iRes = await api.get(`/projects/${projectId}/images`)
+        const imgs: ImageItem[] = iRes.data || []
+        setImages(imgs)
+        if (imgs.length > 0) {
+          setCurrentIdx(0)
+        }
+      } catch (err) {
+        console.error("Error refreshing images", err)
+      }
+    }, 1000)
+  }
+
   useEffect(() => {
     Promise.all([
       api.get(`/projects/${projectId}`),
       api.get(`/projects/${projectId}/images`),
-      api.get(`/projects/${projectId}/training/runs`),
-      api.get('/models/external'),
-    ]).then(([pRes, iRes, rRes, extRes]) => {
+      api.get(`/pipelines?project_id=${projectId}`),
+    ]).then(([pRes, iRes, rRes]) => {
       setProject(pRes.data)
       const imgs: ImageItem[] = iRes.data
       setImages(imgs)
       const idx = imgs.findIndex(i => i.id === Number(imageId))
       setCurrentIdx(idx >= 0 ? idx : 0)
-      const doneRuns = (rRes.data as {id:number;model_base:string;status:string}[])
-        .filter(r => r.status === 'done')
-      setTrainingRuns(doneRuns)
-      const ext: ExternalModel[] = extRes.data
-      setExternalModels(ext)
+      const doneRuns = (rRes.data as {id:string;pipeline_config?:any;status:string}[])
+        .filter(r => r.status === 'completed' || r.status === 'success')
+        .map(r => ({
+          id: Number(r.id) || 1, // Keep number typing if required internally, otherwise fallback
+          model_base: r.pipeline_config?.architecture || 'custom',
+          status: r.status
+        }))
+      setTrainingRuns(doneRuns as any)
+      setExternalModels([])
       if (doneRuns.length > 0) setAutoRunId(`run:${doneRuns[doneRuns.length - 1].id}`)
-      else if (ext.length > 0) setAutoRunId(`ext:${ext[ext.length - 1].id}`)
+    }).catch(err => {
+      console.error("Error loading project/images", err)
     })
   }, [projectId, imageId])
 
@@ -846,19 +928,19 @@ export default function Annotate() {
   const tbBtn = (active = false): React.CSSProperties => ({
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
     padding: '4px 8px', height: 30, borderRadius: 4,
-    border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-    background: active ? 'var(--accent-s)' : 'transparent',
-    color: active ? 'var(--accent)' : 'var(--text2)', cursor: 'pointer',
+    border: `1px solid ${active ? 'var(--annotator-accent)' : 'var(--annotator-border)'}`,
+    background: active ? 'var(--annotator-accent-s)' : 'transparent',
+    color: active ? 'var(--annotator-accent)' : 'var(--text2)', cursor: 'pointer',
     fontSize: 11, fontWeight: 500, transition: 'all 0.1s', whiteSpace: 'nowrap',
   })
   const tbIconBtn: React.CSSProperties = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     width: 30, height: 30, borderRadius: 4,
-    border: '1px solid var(--border)', background: 'transparent',
+    border: '1px solid var(--annotator-border)', background: 'transparent',
     color: 'var(--text2)', cursor: 'pointer', transition: 'all 0.1s',
   }
   const panelSection: React.CSSProperties = {
-    padding: '10px 12px', borderBottom: '1px solid var(--border)',
+    padding: '10px 12px', borderBottom: '1px solid var(--annotator-border)',
   }
   const panelLabel: React.CSSProperties = {
     fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
@@ -872,7 +954,7 @@ export default function Annotate() {
       {/* ═══ Top toolbar ═══ */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 0, flexShrink: 0,
-        height: 42, background: 'var(--surface)', borderBottom: '1px solid var(--border)',
+        height: 42, background: 'var(--surface)', borderBottom: '1px solid var(--annotator-border)',
         padding: '0 8px',
       }}>
         {/* Left: Back + filename + counter */}
@@ -889,7 +971,7 @@ export default function Annotate() {
         </span>
 
         {/* Separator */}
-        <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 10px' }} />
+        <div style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
 
         {/* Tools — horizontal strip */}
         <div style={{ display: 'flex', gap: 2 }}>
@@ -904,7 +986,7 @@ export default function Annotate() {
         </div>
 
         {/* Separator */}
-        <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 10px' }} />
+        <div style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
 
         {/* Zoom controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -924,7 +1006,7 @@ export default function Annotate() {
         </div>
 
         {/* Separator */}
-        <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 10px' }} />
+        <div style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
 
         {/* Undo / Redo */}
         <div style={{ display: 'flex', gap: 2 }}>
@@ -936,6 +1018,16 @@ export default function Annotate() {
             </button>
           )}
         </div>
+
+        <div style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
+        <button
+          onClick={triggerFileSelect}
+          style={{ ...tbIconBtn, width: 'auto', padding: '0 8px', gap: 4, color: 'var(--text2)' }}
+          title="Upload more images"
+        >
+          <Download size={14} />
+          <span style={{ fontSize: 11 }}>Upload</span>
+        </button>
 
         {/* Spacer */}
         <div style={{ flex: 1 }} />
@@ -951,12 +1043,12 @@ export default function Annotate() {
             <ChevronRight size={14} />
           </button>
 
-          <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 6px' }} />
+          <div style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 6px' }} />
 
           <button onClick={save} style={{
             display: 'flex', alignItems: 'center', gap: 5, padding: '5px 14px', height: 30,
-            borderRadius: 4, border: `1px solid ${saved ? 'var(--success)' : 'var(--accent)'}`,
-            background: saved ? 'rgba(34,197,94,0.12)' : 'var(--accent)',
+            borderRadius: 4, border: `1px solid ${saved ? 'var(--success)' : 'var(--annotator-accent)'}`,
+            background: saved ? 'rgba(34,197,94,0.12)' : 'var(--annotator-accent)',
             color: saved ? 'var(--success)' : '#fff', cursor: 'pointer',
             fontSize: 12, fontWeight: 500, transition: 'all 0.12s',
           }}>
@@ -991,8 +1083,8 @@ export default function Annotate() {
           {tool === 'polygon' && polyPts.length > 0 && (
             <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
               zIndex: 5, padding: '5px 14px', borderRadius: 20, fontSize: 11,
-              background: 'rgba(12,12,16,0.88)', color: 'var(--accent)',
-              border: '1px solid var(--accent)', backdropFilter: 'blur(8px)',
+              background: 'rgba(12,12,16,0.88)', color: 'var(--annotator-accent)',
+              border: '1px solid var(--annotator-accent)', backdropFilter: 'blur(8px)',
               display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'none' }}>
               <Hexagon size={12} />
               {polyPts.length} points — click start to close or double-click
@@ -1002,15 +1094,55 @@ export default function Annotate() {
           {/* Canvas */}
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', alignItems: 'center',
             justifyContent: 'center', minHeight: 0 }}>
-            <canvas ref={canvasRef} style={{ display: 'block' }}
-              onMouseDown={onMouseDown}
-              onMouseMove={onMouseMove}
-              onMouseUp={onMouseUp}
-              onMouseLeave={() => { setMouse(null); onMouseUp() }}
-              onWheel={onWheel}
-              onDoubleClick={onDblClick}
-              onContextMenu={e => e.preventDefault()}
-            />
+            {images.length === 0 ? (
+              <div
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onClick={triggerFileSelect}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  border: '2px dashed var(--annotator-border)', borderRadius: 12, padding: '40px 30px', cursor: 'pointer',
+                  background: isDragOver ? 'var(--annotator-accent-s)' : 'transparent',
+                  borderColor: isDragOver ? 'var(--annotator-accent)' : 'var(--annotator-border)',
+                  transition: 'all 0.2s', color: 'var(--text2)', textAlign: 'center', maxWidth: 400, width: '100%', margin: 20
+                }}
+              >
+                <Download style={{ color: 'var(--annotator-accent)', marginBottom: 12, opacity: 0.8 }} size={48} />
+                <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: '0 0 4px 0' }}>No images in project</h3>
+                <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0 }}>
+                  Drag & drop image files here, or click to browse
+                </p>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  multiple
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  style={{ display: 'none' }}
+                />
+                {uploadingProgress !== null && (
+                  <div style={{ marginTop: 16, width: '100%', maxWidth: 250 }}>
+                    <div style={{ background: 'var(--surface3)', borderRadius: 99, height: 6, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', background: 'var(--annotator-accent)', width: `${uploadingProgress}%`, transition: 'width 0.1s' }} />
+                    </div>
+                    <span style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4, display: 'block', fontFamily: 'monospace' }}>
+                      {uploadingText}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <canvas ref={canvasRef} style={{ display: 'block' }}
+                onMouseDown={onMouseDown}
+                onMouseMove={onMouseMove}
+                onMouseUp={onMouseUp}
+                onMouseLeave={() => { setMouse(null); onMouseUp() }}
+                onWheel={onWheel}
+                onDoubleClick={onDblClick}
+                onContextMenu={e => e.preventDefault()}
+              />
+            )}
           </div>
 
           {/* Bottom status bar */}
@@ -1035,7 +1167,7 @@ export default function Annotate() {
         {/* ── Right panel (collapsible) ── */}
         <div style={{
           width: rightPanelOpen ? 240 : 0, flexShrink: 0, overflow: 'hidden',
-          transition: 'width 0.2s ease', borderLeft: rightPanelOpen ? '1px solid var(--border)' : 'none',
+          transition: 'width 0.2s ease', borderLeft: rightPanelOpen ? '1px solid var(--annotator-border)' : 'none',
           background: 'var(--surface)', display: 'flex', flexDirection: 'column',
         }}>
           <div style={{ width: 240, height: '100%', display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
@@ -1047,9 +1179,9 @@ export default function Annotate() {
                 {project?.classes.map((c, i) => (
                   <button key={i} onClick={() => setActiveClass(i)}
                     style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px',
-                      borderRadius: 4, border: `1px solid ${activeClass === i ? 'var(--accent)' : 'var(--border)'}`,
-                      background: activeClass === i ? 'var(--accent-s)' : 'transparent',
-                      color: activeClass === i ? 'var(--accent)' : 'var(--text2)',
+                      borderRadius: 4, border: `1px solid ${activeClass === i ? 'var(--annotator-accent)' : 'var(--annotator-border)'}`,
+                      background: activeClass === i ? 'var(--annotator-accent-s)' : 'transparent',
+                      color: activeClass === i ? 'var(--annotator-accent)' : 'var(--text2)',
                       cursor: 'pointer', fontSize: 12, textAlign: 'left', transition: 'all 0.1s', width: '100%' }}>
                     <span style={{ width: 10, height: 10, borderRadius: 3, flexShrink: 0,
                       background: COLORS[i % COLORS.length] }} />
@@ -1078,8 +1210,8 @@ export default function Annotate() {
                   <div key={i} onClick={() => { setSelected(i); setTool('select') }}
                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       padding: '4px 8px', borderRadius: 4, cursor: 'pointer',
-                      border: `1px solid ${selected === i ? 'var(--accent)' : 'transparent'}`,
-                      background: selected === i ? 'var(--accent-t)' : 'transparent',
+                      border: `1px solid ${selected === i ? 'var(--annotator-accent)' : 'transparent'}`,
+                      background: selected === i ? 'var(--annotator-accent-t)' : 'transparent',
                       transition: 'all 0.08s' }}
                     onMouseEnter={e => { if (selected !== i) e.currentTarget.style.background = 'var(--surface2)' }}
                     onMouseLeave={e => { if (selected !== i) e.currentTarget.style.background = 'transparent' }}
@@ -1134,7 +1266,7 @@ export default function Annotate() {
                 <select value={autoRunId} onChange={e => setAutoRunId(e.target.value)}
                   disabled={trainingRuns.length === 0 && externalModels.length === 0}
                   style={{ width: '100%', padding: '5px 8px', background: 'var(--surface2)',
-                    border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text)',
+                    border: '1px solid var(--annotator-border)', borderRadius: 4, color: 'var(--text)',
                     fontSize: 11, fontFamily: 'inherit', outline: 'none',
                     cursor: trainingRuns.length === 0 && externalModels.length === 0 ? 'default' : 'pointer',
                     opacity: trainingRuns.length === 0 && externalModels.length === 0 ? 0.4 : 1 }}>
@@ -1166,7 +1298,7 @@ export default function Annotate() {
                       onChange={e => { const f = e.target.files?.[0]; if (f) importModel(f); e.target.value = '' }} />
                     <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
                       padding: '4px 6px', background: 'var(--surface2)',
-                      border: '1px solid var(--border)', borderRadius: 4, fontSize: 10,
+                      border: '1px solid var(--annotator-border)', borderRadius: 4, fontSize: 10,
                       color: 'var(--text2)', cursor: 'inherit' }}>
                       {importing ? '…' : <><Download size={10} /> .pt</>}
                     </span>
@@ -1177,7 +1309,7 @@ export default function Annotate() {
                       onChange={e => { if (e.target.files?.length) importHfModel(e.target.files); e.target.value = '' }} />
                     <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
                       padding: '4px 6px', background: 'var(--surface2)',
-                      border: '1px solid var(--border)', borderRadius: 4, fontSize: 10,
+                      border: '1px solid var(--annotator-border)', borderRadius: 4, fontSize: 10,
                       color: 'var(--text2)', cursor: 'inherit' }}>
                       {importing ? '…' : <><Download size={10} /> HF</>}
                     </span>
@@ -1190,11 +1322,11 @@ export default function Annotate() {
                     onKeyDown={e => { if (e.key === 'Enter' && !importing) importHfHub() }}
                     placeholder="owner/model (Hub)" disabled={importing}
                     style={{ flex: 1, minWidth: 0, padding: '4px 8px', background: 'var(--surface2)',
-                      border: '1px solid var(--border)', borderRadius: 4, fontSize: 10,
+                      border: '1px solid var(--annotator-border)', borderRadius: 4, fontSize: 10,
                       color: 'var(--text)', outline: 'none' }} />
                   <button onClick={importHfHub} disabled={importing || !hfRepo.trim()}
                     style={{ padding: '4px 8px', background: 'var(--surface2)',
-                      border: '1px solid var(--border)', borderRadius: 4, fontSize: 10,
+                      border: '1px solid var(--annotator-border)', borderRadius: 4, fontSize: 10,
                       color: 'var(--text2)', cursor: importing || !hfRepo.trim() ? 'default' : 'pointer',
                       opacity: importing || !hfRepo.trim() ? 0.5 : 1 }}>
                     <Download size={11} />
@@ -1225,8 +1357,8 @@ export default function Annotate() {
                         <button onClick={autoAnnotate} disabled={busy || !autoRunId || noModel}
                           title="Auto-annotate this image"
                           style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            gap: 4, padding: '5px 0', background: 'var(--accent)',
-                            border: '1px solid var(--accent)', borderRadius: 4, color: '#fff',
+                            gap: 4, padding: '5px 0', background: 'var(--annotator-accent)',
+                            border: '1px solid var(--annotator-accent)', borderRadius: 4, color: '#fff',
                             fontSize: 11, fontFamily: 'inherit',
                             cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.6 : 1 }}>
                           {autoLoading ? 'Running…' : <><Zap size={12} /> This</>}
@@ -1235,7 +1367,7 @@ export default function Annotate() {
                           title="Auto-annotate all images"
                           style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
                             gap: 4, padding: '5px 0', background: 'var(--surface2)',
-                            border: '1px solid var(--accent)', borderRadius: 4, color: 'var(--accent)',
+                            border: '1px solid var(--annotator-accent)', borderRadius: 4, color: 'var(--annotator-accent)',
                             fontSize: 11, fontFamily: 'inherit',
                             cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.6 : 1 }}>
                           <Zap size={12} /> All ({targetCount})
@@ -1251,7 +1383,7 @@ export default function Annotate() {
                       {batchProgress && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                           <div style={{ background: 'var(--surface2)', borderRadius: 99, height: 4, overflow: 'hidden' }}>
-                            <div style={{ height: '100%', background: 'var(--accent)',
+                            <div style={{ height: '100%', background: 'var(--annotator-accent)',
                               width: `${Math.round(batchProgress.done / batchProgress.total * 100)}%`,
                               transition: 'width 0.2s', borderRadius: 99 }} />
                           </div>
@@ -1261,7 +1393,7 @@ export default function Annotate() {
                             </span>
                             <button onClick={() => { batchCancelRef.current = true }}
                               style={{ fontSize: 9, padding: '1px 6px', background: 'transparent',
-                                border: '1px solid var(--border)', borderRadius: 3,
+                                border: '1px solid var(--annotator-border)', borderRadius: 3,
                                 color: 'var(--text2)', cursor: 'pointer' }}>Stop</button>
                           </div>
                         </div>
@@ -1286,7 +1418,7 @@ export default function Annotate() {
           style={{
             position: 'absolute', right: rightPanelOpen ? 240 : 0, top: 52,
             zIndex: 10, width: 20, height: 40, borderRadius: '4px 0 0 4px',
-            border: '1px solid var(--border)', borderRight: 'none',
+            border: '1px solid var(--annotator-border)', borderRight: 'none',
             background: 'var(--surface)', color: 'var(--text3)', cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             transition: 'right 0.2s ease',

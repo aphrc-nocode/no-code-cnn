@@ -3367,6 +3367,26 @@ async def update_project_metadata(project_id: str, project_data: Project):
     project_manager.save_projects()
     return project
 
+@app.delete("/api/projects/{project_id}")
+async def delete_project(project_id: str):
+    import shutil
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project_id in project_manager.projects:
+        del project_manager.projects[project_id]
+        project_manager.save_projects()
+        
+    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+    if project_dir.exists():
+        try:
+            shutil.rmtree(project_dir)
+        except Exception as e:
+            print(f"Error deleting project directory: {e}")
+            
+    return {"message": "Project deleted successfully"}
+
 @app.get("/api/projects/{project_id}/images")
 async def list_project_images(project_id: str):
     import os, json

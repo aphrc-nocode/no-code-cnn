@@ -1,15 +1,20 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Plus, Search, Cpu, Database, MousePointer, BarChart3, Shield, Info, ArrowRight } from "lucide-react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { Plus, Search, Cpu, Database, MousePointer, BarChart3, Shield, Info, ArrowRight, Trash2, Tags, Image as ImageIcon } from "lucide-react";
 import api, { type Project } from "../api";
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [projects, setProjects] = useState<Project[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isLanding, setIsLanding] = useState(true);
+
+  // Stats loading state
+  const [imageCounts, setImageCounts] = useState<Record<string, number>>({});
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
 
   // New Project Form State
   const [projectName, setProjectName] = useState("");
@@ -25,7 +30,7 @@ export default function Dashboard() {
       }
     } catch (e: any) {
       setError("Failed to load projects from server.");
-      // Set some mock data for development
+      // Set mock data for fallback
       setProjects([
         { id: 1, name: "Defect Detection", task_type: "detection", classes: ["scratch", "crack", "dent"] },
         { id: 2, name: "Plant Classification", task_type: "classification", classes: ["healthy", "blight", "rust"] }
@@ -36,6 +41,36 @@ export default function Dashboard() {
   useEffect(() => {
     fetchProjects();
   }, []);
+
+  // Determine landing view based on route path
+  useEffect(() => {
+    if (location.pathname === "/projects") {
+      setIsLanding(false);
+    } else if (location.pathname === "/") {
+      setIsLanding(true);
+    }
+  }, [location]);
+
+  // Load project stats asynchronously
+  useEffect(() => {
+    if (projects.length > 0) {
+      projects.forEach(async (p) => {
+        try {
+          const res = await api.get(`/projects/${p.id}/images`);
+          const imgs = res.data || [];
+          setImageCounts((prev) => ({ ...prev, [p.id]: imgs.length }));
+          if (imgs.length > 0) {
+            setThumbnails((prev) => ({
+              ...prev,
+              [p.id]: `/api/projects/${p.id}/images/${imgs[0].id}/file`
+            }));
+          }
+        } catch (err) {
+          console.error("Error loading stats for project", p.id, err);
+        }
+      });
+    }
+  }, [projects]);
 
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,6 +98,17 @@ export default function Dashboard() {
     }
   };
 
+  const handleDeleteProject = async (projectId: string | number) => {
+    if (confirm("Delete this project and all its annotations/images?")) {
+      try {
+        await api.delete(`/projects/${projectId}`);
+        fetchProjects();
+      } catch (err) {
+        alert("Failed to delete project");
+      }
+    }
+  };
+
   const filteredProjects = projects.filter((p) =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -71,25 +117,34 @@ export default function Dashboard() {
     return (
       <div className="flex flex-col min-h-screen bg-background text-foreground">
         {/* Hero Section */}
-        <section className="flex flex-col items-center justify-center text-center px-4 py-20 bg-gradient-to-b from-primary/5 to-transparent">
-          <div className="max-w-3xl">
+        <section className="relative flex flex-col items-center justify-center text-center px-4 py-24 bg-gradient-to-b from-primary/10 to-transparent overflow-hidden">
+          {/* Subtle Grid Background */}
+          <div className="absolute inset-0 bg-[radial-gradient(circle,hsla(var(--primary),0.06)_1px,transparent_1px)] [background-size:32px_32px] pointer-events-none z-0" />
+          
+          {/* Neon Glow Blob */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[350px] sm:w-[500px] h-[350px] sm:h-[500px] bg-primary/10 rounded-full blur-[100px] sm:blur-[120px] pointer-events-none z-0" />
+          
+          <div className="max-w-3xl relative z-10">
             <h1 className="text-4xl sm:text-6xl font-black tracking-tight leading-none mb-6">
               Build Computer Vision <br />
               <span className="text-primary bg-clip-text">Models in Days</span>
             </h1>
-            <p className="text-lg text-muted-foreground mb-8">
+            <p className="text-base sm:text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
               MakLens simplifies laborious data upload, manual image annotation, pipeline construction, and model evaluation. Develop custom models for your operations with less data, powered by active learning.
             </p>
-            <div className="flex items-center justify-center gap-4">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <button
-                onClick={() => setIsLanding(false)}
-                className="bg-primary hover:bg-primary/90 text-white font-semibold px-6 py-3 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center gap-2 text-sm"
+                onClick={() => {
+                  setIsLanding(false);
+                  navigate("/projects");
+                }}
+                className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-white font-semibold px-6 py-3 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm"
               >
                 Launch Dashboard <ArrowRight size={16} />
               </button>
               <a
                 href="#features"
-                className="bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border font-semibold px-6 py-3 rounded-lg text-sm transition-all"
+                className="w-full sm:w-auto bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border font-semibold px-6 py-3 rounded-lg text-sm text-center transition-all"
               >
                 Learn More
               </a>
@@ -102,42 +157,50 @@ export default function Dashboard() {
           <h2 className="text-2xl sm:text-3xl font-black text-center mb-12">
             Next-Generation Computer Vision Platform
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="bg-card border border-border p-6 rounded-xl shadow-sm hover:border-primary/50 transition-all">
-              <span className="p-3 bg-blue-500/10 text-blue-500 rounded-lg inline-flex items-center justify-center mb-4">
-                <Cpu size={24} />
-              </span>
-              <h3 className="font-bold text-lg mb-2">Interactive Training</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Get started with as few as 20 to 30 images, then let active learning help you teach the model as it learns.
-              </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="bg-card border border-border p-6 rounded-xl shadow-sm hover:border-primary/50 transition-all flex flex-col justify-between">
+              <div>
+                <span className="p-3 bg-primary/10 text-primary rounded-lg inline-flex items-center justify-center mb-4">
+                  <Cpu size={24} />
+                </span>
+                <h3 className="font-bold text-lg mb-2">Interactive Training</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Get started with as few as 20 to 30 images, then let active learning help you teach the model as it learns.
+                </p>
+              </div>
             </div>
-            <div className="bg-card border border-border p-6 rounded-xl shadow-sm hover:border-violet-500/50 transition-all">
-              <span className="p-3 bg-violet-500/10 text-violet-500 rounded-lg inline-flex items-center justify-center mb-4">
-                <Database size={24} />
-              </span>
-              <h3 className="font-bold text-lg mb-2">Multiple CV Tasks</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Train state-of-the-art neural networks for classification, object detection, and semantic segmentation.
-              </p>
+            <div className="bg-card border border-border p-6 rounded-xl shadow-sm hover:border-primary/50 transition-all flex flex-col justify-between">
+              <div>
+                <span className="p-3 bg-primary/10 text-primary rounded-lg inline-flex items-center justify-center mb-4">
+                  <Database size={24} />
+                </span>
+                <h3 className="font-bold text-lg mb-2">Multiple CV Tasks</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Train state-of-the-art neural networks for classification, object detection, and semantic segmentation.
+                </p>
+              </div>
             </div>
-            <div className="bg-card border border-border p-6 rounded-xl shadow-sm hover:border-emerald-500/50 transition-all">
-              <span className="p-3 bg-emerald-500/10 text-emerald-500 rounded-lg inline-flex items-center justify-center mb-4">
-                <MousePointer size={24} />
-              </span>
-              <h3 className="font-bold text-lg mb-2">Smart Annotations</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Expedite data labeling with drawing assistants, bounding boxes, polygons, and Segment Anything Model (SAM).
-              </p>
+            <div className="bg-card border border-border p-6 rounded-xl shadow-sm hover:border-primary/50 transition-all flex flex-col justify-between">
+              <div>
+                <span className="p-3 bg-primary/10 text-primary rounded-lg inline-flex items-center justify-center mb-4">
+                  <MousePointer size={24} />
+                </span>
+                <h3 className="font-bold text-lg mb-2">Smart Annotations</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Expedite data labeling with drawing assistants, bounding boxes, polygons, and Segment Anything Model (SAM).
+                </p>
+              </div>
             </div>
-            <div className="bg-card border border-border p-6 rounded-xl shadow-sm hover:border-amber-500/50 transition-all">
-              <span className="p-3 bg-amber-500/10 text-amber-500 rounded-lg inline-flex items-center justify-center mb-4">
-                <BarChart3 size={24} />
-              </span>
-              <h3 className="font-bold text-lg mb-2">Model Evaluation</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Assess performance in real time with metrics, confusion matrices, and explainability maps (Grad-CAM).
-              </p>
+            <div className="bg-card border border-border p-6 rounded-xl shadow-sm hover:border-primary/50 transition-all flex flex-col justify-between">
+              <div>
+                <span className="p-3 bg-primary/10 text-primary rounded-lg inline-flex items-center justify-center mb-4">
+                  <BarChart3 size={24} />
+                </span>
+                <h3 className="font-bold text-lg mb-2">Model Evaluation</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Assess performance in real time with metrics, confusion matrices, and explainability maps (Grad-CAM).
+                </p>
+              </div>
             </div>
           </div>
         </section>
@@ -155,7 +218,7 @@ export default function Dashboard() {
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="bg-primary hover:bg-primary/95 text-white font-semibold px-4 py-2 rounded-lg text-sm shadow flex items-center gap-1.5"
+          className="w-full sm:w-auto bg-primary hover:bg-primary/95 text-white font-semibold px-4 py-2 rounded-lg text-sm shadow flex items-center justify-center gap-1.5"
         >
           <Plus size={16} /> New Project
         </button>
@@ -183,33 +246,70 @@ export default function Dashboard() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredProjects.map((p) => (
-            <div
-              key={p.id}
-              onClick={() => navigate(`/projects/${p.id}/workflow`)}
-              className="bg-card border border-border hover:border-primary/50 p-5 rounded-xl cursor-pointer hover:shadow-md transition-all flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex justify-between items-start mb-3">
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                    {p.task_type.replace("_", " ")}
-                  </span>
+          {filteredProjects.map((p) => {
+            const typeLabel = p.task_type.replace('_', ' ');
+            let badgeClass = "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200";
+            if (p.task_type === "classification") {
+              badgeClass = "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200";
+            } else if (p.task_type === "segmentation") {
+              badgeClass = "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-200";
+            }
+
+            const thumbnailUrl = thumbnails[p.id];
+
+            return (
+              <div
+                key={p.id}
+                onClick={() => navigate(`/projects/${p.id}/workflow`)}
+                className="group bg-card border border-border rounded-xl cursor-pointer transition-all duration-200 flex flex-row min-h-[108px] h-auto shadow-sm overflow-hidden hover:-translate-y-0.5 hover:shadow-md hover:border-primary"
+              >
+                {/* Left Thumbnail area */}
+                <div className="w-[110px] bg-muted/20 flex items-center justify-center overflow-hidden shrink-0 border-r border-border relative self-stretch">
+                  {thumbnailUrl ? (
+                    <img src={thumbnailUrl} alt={p.name} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                  ) : (
+                    <Database size={24} className="opacity-20 text-muted-foreground" />
+                  )}
                 </div>
-                <h3 className="font-bold text-base text-foreground mb-1 hover:text-primary transition-colors">
-                  {p.name}
-                </h3>
-                <p className="text-xs text-muted-foreground line-clamp-2">
-                  Classes: {p.classes ? p.classes.join(", ") : "None defined"}
-                </p>
+
+                {/* Right Details content area */}
+                <div className="p-4 flex flex-col justify-between flex-1 min-w-0 bg-card">
+                  <div className="flex justify-between items-start gap-2 shrink-0">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-sm sm:text-base text-foreground leading-tight truncate hover:text-primary transition-colors">
+                        {p.name}
+                      </h3>
+                      <span className={`px-2.5 py-0.5 rounded-full font-bold uppercase text-[9px] tracking-wider mt-1 inline-block ${badgeClass}`}>
+                        {typeLabel}
+                      </span>
+                    </div>
+                    <button
+                      className="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-secondary transition-colors shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteProject(p.id);
+                      }}
+                      title="Delete project"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                  
+                  <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-2 shrink-0">
+                    <span className="inline-flex items-center gap-1 font-medium">
+                      <Tags size={11} className="text-primary" />
+                      <strong>{p.classes ? p.classes.length : 0}</strong> Classes
+                    </span>
+                    <span>&bull;</span>
+                    <span className="inline-flex items-center gap-1 font-medium">
+                      <ImageIcon size={11} className="text-primary" />
+                      <strong>{imageCounts[p.id] !== undefined ? imageCounts[p.id] : '...'}</strong> Images
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="mt-4 pt-4 border-t border-border/50 flex justify-between items-center text-[10px] text-muted-foreground">
-                <span>ID: {p.id}</span>
-                <span className="text-primary font-semibold flex items-center gap-0.5">
-                  Open Workspace <ArrowRight size={10} />
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

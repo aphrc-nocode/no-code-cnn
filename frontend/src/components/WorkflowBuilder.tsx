@@ -154,6 +154,46 @@ export default function WorkflowBuilder() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const pollingIntervals = useRef<Record<string, any>>({});
 
+  // ─── Global Mouse Event Listeners for Smooth Dragging ─────────────────────
+  useEffect(() => {
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (dragNodeId) {
+        const x = e.clientX - dragOffset.x;
+        const y = e.clientY - dragOffset.y;
+        setNodes(prev =>
+          prev.map(n => (n.id === dragNodeId ? { ...n, x: Math.max(0, x), y: Math.max(0, y) } : n))
+        );
+      } else if (connectingFromId && canvasRef.current) {
+        const rect = canvasRef.current.getBoundingClientRect();
+        setConnectMousePos({
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top
+        });
+      }
+    };
+
+    const handleGlobalMouseUp = () => {
+      if (dragNodeId) {
+        setDragNodeId(null);
+        handleSaveWorkflow();
+      }
+      if (connectingFromId) {
+        setConnectingFromId(null);
+        setConnectMousePos(null);
+      }
+    };
+
+    if (dragNodeId || connectingFromId) {
+      window.addEventListener("mousemove", handleGlobalMouseMove);
+      window.addEventListener("mouseup", handleGlobalMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener("mousemove", handleGlobalMouseMove);
+      window.removeEventListener("mouseup", handleGlobalMouseUp);
+    };
+  }, [dragNodeId, dragOffset, connectingFromId, nodes, edges]);
+
   // ─── Fetch Initial Data ──────────────────────────────────────────────────
   useEffect(() => {
     // Fetch Project Details
@@ -262,32 +302,7 @@ export default function WorkflowBuilder() {
     });
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (dragNodeId) {
-      const x = e.clientX - dragOffset.x;
-      const y = e.clientY - dragOffset.y;
-      setNodes(prev =>
-        prev.map(n => (n.id === dragNodeId ? { ...n, x: Math.max(0, x), y: Math.max(0, y) } : n))
-      );
-    } else if (connectingFromId && canvasRef.current) {
-      const rect = canvasRef.current.getBoundingClientRect();
-      setConnectMousePos({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      });
-    }
-  };
 
-  const handleMouseUp = () => {
-    if (dragNodeId) {
-      setDragNodeId(null);
-      handleSaveWorkflow();
-    }
-    if (connectingFromId) {
-      setConnectingFromId(null);
-      setConnectMousePos(null);
-    }
-  };
 
   // ─── Connections ────────────────────────────────────────────────────────
   const handleStartConnection = (e: React.MouseEvent, nodeId: string) => {
@@ -983,8 +998,6 @@ export default function WorkflowBuilder() {
           {/* Interactive Flow Canvas */}
           <div
             ref={canvasRef}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
             className="flex-1 w-full h-full relative overflow-auto select-none bg-[radial-gradient(#ccc_1px,transparent_1px)] dark:bg-[radial-gradient(#444_1px,transparent_1px)] [background-size:16px_16px]"
           >
             {/* SVG Edge Connectors Layer */}
@@ -999,7 +1012,7 @@ export default function WorkflowBuilder() {
                     key={idx}
                     d={path}
                     fill="none"
-                    stroke="rgba(var(--primary), 0.55)"
+                    stroke="hsla(var(--primary), 0.55)"
                     strokeWidth="3.5"
                     className="hover:stroke-primary transition-colors duration-150"
                   />
@@ -1016,7 +1029,7 @@ export default function WorkflowBuilder() {
                   <path
                     d={path}
                     fill="none"
-                    stroke="rgba(var(--primary), 0.75)"
+                    stroke="hsla(var(--primary), 0.75)"
                     strokeWidth="2.5"
                     strokeDasharray="5,5"
                   />

@@ -13,8 +13,8 @@
     --popover: 0, 0%, 100%;
     --popover-foreground: 222.2, 84%, 4.9%;
 
-    --primary: 221.2, 83.2%, 53.3%;
-    --primary-foreground: 210, 40%, 98%;
+    --primary: 22, 65%, 49%;
+    --primary-foreground: 0, 0%, 100%;
 
     --secondary: 210, 40%, 96.1%;
     --secondary-foreground: 222.2, 47.4%, 11.2%;
@@ -30,9 +30,25 @@
 
     --border: 214.3, 31.8%, 91.4%;
     --input: 214.3, 31.8%, 91.4%;
-    --ring: 221.2, 83.2%, 53.3%;
+    --ring: 22, 65%, 49%;
 
     --radius: 0.5rem;
+
+    /* Real CSS variables for inline styles in components */
+    --surface: #ffffff;
+    --surface2: #f9f9f9;
+    --surface3: #f4f4f4;
+    --text: hsl(var(--foreground));
+    --text2: hsl(var(--foreground) / 0.7);
+    --text3: hsl(var(--muted-foreground));
+    --success: hsl(142.1, 76.2%, 36.3%);
+    --danger: hsl(var(--destructive));
+    --bg-elev: #ffffff;
+
+    --annotator-border: hsl(var(--border));
+    --annotator-accent: hsl(var(--primary));
+    --annotator-accent-s: hsla(var(--primary), 0.12);
+    --annotator-accent-t: hsla(var(--primary), 0.08);
   }
 
   .dark {
@@ -45,8 +61,8 @@
     --popover: 222.2, 47.4%, 11.2%;
     --popover-foreground: 210, 40%, 98%;
 
-    --primary: 217.2, 91.2%, 59.8%;
-    --primary-foreground: 222.2, 47.4%, 11.2%;
+    --primary: 22, 75%, 55%;
+    --primary-foreground: 0, 0%, 100%;
 
     --secondary: 217.2, 32.6%, 17.5%;
     --secondary-foreground: 210, 40%, 98%;
@@ -62,7 +78,23 @@
 
     --border: 217.2, 32.6%, 17.5%;
     --input: 217.2, 32.6%, 17.5%;
-    --ring: 224.3, 76.3%, 48%;
+    --ring: 22, 75%, 55%;
+
+    /* Real CSS variables for inline styles in components */
+    --surface: #1e1e24;
+    --surface2: #16161b;
+    --surface3: #121215;
+    --text: hsl(var(--foreground));
+    --text2: hsl(var(--foreground) / 0.7);
+    --text3: hsl(var(--muted-foreground));
+    --success: hsl(142.1, 70.2%, 45.3%);
+    --danger: hsl(var(--destructive));
+    --bg-elev: #1e1e24;
+
+    --annotator-border: hsl(var(--border));
+    --annotator-accent: hsl(var(--primary));
+    --annotator-accent-s: hsla(var(--primary), 0.15);
+    --annotator-accent-t: hsla(var(--primary), 0.10);
   }
 }
 
@@ -72,6 +104,7 @@
   }
   body {
     @apply bg-background text-foreground transition-colors duration-200;
+    font-family: 'Outfit', sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 }
