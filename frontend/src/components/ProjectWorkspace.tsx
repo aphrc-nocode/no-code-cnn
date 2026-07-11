@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { GitBranch, Edit3, Database, Cpu, Activity, ChevronLeft } from "lucide-react";
+import { GitBranch, Edit3, Database, Cpu, Activity, ChevronLeft, Menu, X } from "lucide-react";
 import api, { type Project } from "../api";
 
 import WorkflowBuilder from "./WorkflowBuilder";
@@ -12,15 +12,31 @@ import TrainingJobs from "./TrainingJobs";
 
 type TabType = "workflow" | "annotate" | "datasets" | "models" | "jobs";
 
+const TABS: { id: TabType; label: string; Icon: any }[] = [
+  { id: "workflow",  label: "Visual Pipeline",  Icon: GitBranch },
+  { id: "annotate",  label: "Annotate",         Icon: Edit3 },
+  { id: "datasets",  label: "Datasets",         Icon: Database },
+  { id: "models",    label: "Model Garden",     Icon: Cpu },
+  { id: "jobs",      label: "Training Jobs",    Icon: Activity },
+];
+
+const TASK_BADGE: Record<string, { color: string; bg: string }> = {
+  detection:            { color: "#8b5cf6", bg: "rgba(139,92,246,0.12)" },
+  image_segmentation:   { color: "#22c55e", bg: "rgba(34,197,94,0.12)"  },
+  segmentation:         { color: "#22c55e", bg: "rgba(34,197,94,0.12)"  },
+  image_classification: { color: "#06b6d4", bg: "rgba(6,182,212,0.12)"  },
+  classification:       { color: "#06b6d4", bg: "rgba(6,182,212,0.12)"  },
+};
+
 export default function ProjectWorkspace() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  
+
   const [project, setProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>("workflow");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Determine active tab from URL path
   useEffect(() => {
     const path = location.pathname;
     if (path.includes("/annotate")) setActiveTab("annotate");
@@ -34,26 +50,18 @@ export default function ProjectWorkspace() {
     if (id) {
       api.get(`/projects/${id}`)
         .then((res) => setProject(res.data))
-        .catch(() => {
-          setProject({
-            id: Number(id) || 1,
-            name: "Project",
-            task_type: "classification",
-            classes: ["Class A", "Class B"]
-          });
-        });
+        .catch(() => setProject({ id: Number(id) || 1, name: "Project", task_type: "classification", classes: [] }));
     }
   }, [id]);
 
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);
+    setSidebarOpen(false);
     navigate(`/projects/${id}/${tab}`);
   };
 
   const renderActiveView = () => {
     const path = location.pathname;
-    // /projects/:id/annotate/:imageId  → canvas editor
-    // /projects/:id/annotate           → image gallery
     if (activeTab === "annotate") {
       const hasImageId = /\/annotate\/\d+/.test(path);
       return hasImageId ? <Annotator /> : <ImageGallery />;
@@ -67,85 +75,95 @@ export default function ProjectWorkspace() {
     }
   };
 
+  const taskStyle = TASK_BADGE[project?.task_type ?? ""] ?? { color: "#64748b", bg: "rgba(100,116,139,0.1)" };
+
   return (
-    <div className="flex h-[calc(100vh-64px)] w-full overflow-hidden bg-background text-foreground">
-      {/* Sidebar navigation */}
-      <aside className="w-64 border-r border-border bg-card flex flex-col shrink-0">
-        {/* Sidebar Header */}
-        <div className="p-4 border-b border-border">
-          <button
-            onClick={() => navigate("/projects")}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground font-semibold mb-3 transition-colors"
-          >
+    <div style={{ display: 'flex', height: 'calc(100vh - 64px)', width: '100%',
+      overflow: 'hidden', position: 'relative' }}>
+
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 30 }}
+          onClick={() => setSidebarOpen(false)} />
+      )}
+
+      {/* Sidebar */}
+      <aside className="workspace-aside" style={{
+        width: 240, flexShrink: 0, background: 'hsl(var(--card))', display: 'flex',
+        flexDirection: 'column', borderRight: '1px solid hsl(var(--border))',
+        transition: 'transform 0.25s ease', zIndex: 40,
+      }}>
+        <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid hsl(var(--border))' }}>
+          <button onClick={() => navigate("/projects")}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12,
+              fontWeight: 600, color: 'hsl(var(--muted-foreground))', background: 'none',
+              border: 'none', cursor: 'pointer', marginBottom: 14, padding: 0 }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'hsl(var(--foreground))')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'hsl(var(--muted-foreground))')}>
             <ChevronLeft size={14} /> Back to Projects
           </button>
-          <div className="flex flex-col">
-            <h2 className="font-black text-sm text-foreground truncate">{project?.name || "Loading..."}</h2>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-primary/80 mt-0.5">
-              {project?.task_type.replace("_", " ") || ""}
+          <div>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: 'hsl(var(--foreground))',
+              margin: '0 0 5px', letterSpacing: '-0.01em',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {project?.name || "Loading..."}
+            </h2>
+            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase',
+              padding: '2px 7px', borderRadius: 4, letterSpacing: '0.06em',
+              background: taskStyle.bg, color: taskStyle.color, display: 'inline-block' }}>
+              {project?.task_type?.replace(/_/g, " ") || ""}
             </span>
           </div>
         </div>
 
-        {/* Sidebar Navigation Options */}
-        <nav className="flex-1 p-2 space-y-1.5 overflow-y-auto">
-          <button
-            onClick={() => handleTabChange("workflow")}
-            className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === "workflow"
-                ? "bg-primary text-primary-foreground shadow"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-            }`}
-          >
-            <GitBranch size={16} /> Visual Pipeline
-          </button>
-          <button
-            onClick={() => handleTabChange("annotate")}
-            className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === "annotate"
-                ? "bg-primary text-primary-foreground shadow"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-            }`}
-          >
-            <Edit3 size={16} /> Annotate
-          </button>
-          <button
-            onClick={() => handleTabChange("datasets")}
-            className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === "datasets"
-                ? "bg-primary text-primary-foreground shadow"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-            }`}
-          >
-            <Database size={16} /> Datasets
-          </button>
-          <button
-            onClick={() => handleTabChange("models")}
-            className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === "models"
-                ? "bg-primary text-primary-foreground shadow"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-            }`}
-          >
-            <Cpu size={16} /> Model Garden
-          </button>
-          <button
-            onClick={() => handleTabChange("jobs")}
-            className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === "jobs"
-                ? "bg-primary text-primary-foreground shadow"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-            }`}
-          >
-            <Activity size={16} /> Training Jobs
-          </button>
+        <nav style={{ flex: 1, padding: '12px 10px', display: 'flex',
+          flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
+          {TABS.map(({ id: tab, label, Icon }) => {
+            const active = activeTab === tab;
+            return (
+              <button key={tab} onClick={() => handleTabChange(tab)}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 14px', border: 'none', borderRadius: 6,
+                  background: active ? 'hsl(var(--primary))' : 'transparent',
+                  color: active ? '#fff' : 'hsl(var(--muted-foreground))',
+                  fontSize: 13, fontWeight: active ? 600 : 500, textAlign: 'left',
+                  cursor: 'pointer', transition: 'all 0.12s ease' }}
+                onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'hsl(var(--secondary))'; e.currentTarget.style.color = 'hsl(var(--foreground))'; }}}
+                onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'hsl(var(--muted-foreground))'; }}}>
+                <Icon size={15} />
+                {label}
+              </button>
+            );
+          })}
         </nav>
       </aside>
 
-      {/* Main workspace content area */}
-      <main className="flex-1 h-full overflow-hidden bg-background">
+      {/* Mobile hamburger */}
+      <button onClick={() => setSidebarOpen(!sidebarOpen)}
+        className="mobile-sidebar-btn"
+        style={{ display: 'none', position: 'absolute', top: 8, left: 8, zIndex: 50,
+          background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))',
+          borderRadius: 6, padding: '6px', cursor: 'pointer',
+          color: 'hsl(var(--foreground))', alignItems: 'center', justifyContent: 'center' }}>
+        {sidebarOpen ? <X size={16} /> : <Menu size={16} />}
+      </button>
+
+      {/* Main content */}
+      <main style={{ flex: 1, height: '100%', overflow: 'hidden',
+        background: 'hsl(var(--background))', minWidth: 0 }}>
         {renderActiveView()}
       </main>
+
+      <style>{`
+        @media (max-width: 767px) {
+          .mobile-sidebar-btn { display: flex !important; }
+          .workspace-aside {
+            position: fixed !important;
+            top: 0; left: 0; bottom: 0;
+            transform: ${sidebarOpen ? 'translateX(0)' : 'translateX(-100%)'};
+          }
+        }
+      `}</style>
     </div>
   );
 }

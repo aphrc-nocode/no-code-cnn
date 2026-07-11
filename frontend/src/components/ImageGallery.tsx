@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   BarChart3, Check, Circle, CloudUpload, Download,
@@ -40,6 +40,7 @@ export default function ImageGallery() {
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [analytics, setAnalytics] = useState<Analytics | null>(null)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
+  const [imagesLoading, setImagesLoading] = useState(true)
 
   useEffect(() => {
     if (!projectId) return
@@ -51,10 +52,12 @@ export default function ImageGallery() {
   }, [projectId])
 
   const loadImages = useCallback(async () => {
+    setImagesLoading(true)
     try {
       const r = await api.get(`/projects/${projectId}/images`)
       setImages(r.data)
     } catch { }
+    finally { setImagesLoading(false) }
   }, [projectId])
 
   const filtered = images.filter(img => {
@@ -212,14 +215,23 @@ export default function ImageGallery() {
               <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
               <span style={{ fontSize: 12, color: 'var(--text2)' }}>{uploadText}</span>
             </div>
-            <div style={{ background: 'var(--surface-3)', borderRadius: 99, height: 5, overflow: 'hidden' }}>
+            <div style={{ background: 'var(--surface2)', borderRadius: 99, height: 5, overflow: 'hidden' }}>
               <div style={{ height: '100%', background: 'var(--primary)',
                 width: `${uploadPct}%`, transition: 'width 0.15s' }} />
             </div>
           </div>
         )}
 
-        {images.length === 0 && !uploading && (
+        {/* Loading skeleton */}
+        {imagesLoading && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', minHeight: 320, gap: 12, color: 'var(--text3)' }}>
+            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
+            <span style={{ fontSize: 13 }}>Loading images…</span>
+          </div>
+        )}
+
+        {!imagesLoading && images.length === 0 && !uploading && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
             justifyContent: 'center', minHeight: 320, gap: 16, color: 'var(--text3)',
             border: '2px dashed var(--border)', borderRadius: 8, cursor: 'pointer',

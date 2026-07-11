@@ -157,9 +157,11 @@ export default function WorkflowBuilder() {
   // ─── Global Mouse Event Listeners for Smooth Dragging ─────────────────────
   useEffect(() => {
     const handleGlobalMouseMove = (e: MouseEvent) => {
-      if (dragNodeId) {
-        const x = e.clientX - dragOffset.x;
-        const y = e.clientY - dragOffset.y;
+      if (dragNodeId && canvasRef.current) {
+        const rect = canvasRef.current.getBoundingClientRect();
+        // Compute position relative to canvas, accounting for scroll
+        const x = e.clientX - rect.left + canvasRef.current.scrollLeft - dragOffset.x;
+        const y = e.clientY - rect.top  + canvasRef.current.scrollTop  - dragOffset.y;
         setNodes(prev =>
           prev.map(n => (n.id === dragNodeId ? { ...n, x: Math.max(0, x), y: Math.max(0, y) } : n))
         );
@@ -294,11 +296,13 @@ export default function WorkflowBuilder() {
     if ((e.target as HTMLElement).closest(".port")) return; // Don't drag if clicking port
     e.preventDefault();
     const node = nodes.find(n => n.id === nodeId);
-    if (!node) return;
+    if (!node || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    // Store offset between mouse position (canvas-relative) and node top-left
     setDragNodeId(nodeId);
     setDragOffset({
-      x: e.clientX - node.x,
-      y: e.clientY - node.y
+      x: e.clientX - rect.left + canvasRef.current.scrollLeft - node.x,
+      y: e.clientY - rect.top  + canvasRef.current.scrollTop  - node.y
     });
   };
 

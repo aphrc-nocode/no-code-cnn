@@ -52,44 +52,44 @@
   }
 
   .dark {
-    --background: 220, 25%, 10%;
-    --foreground: 210, 40%, 98%;
+    --background: 0, 0%, 7%;         /* #121212 - near black */
+    --foreground: 210, 17%, 90%;     /* #dde3ec - light neutral text */
 
-    --card: 222.2, 47.4%, 11.2%;
-    --card-foreground: 210, 40%, 98%;
+    --card: 0, 0%, 10%;              /* #1a1a1a - elevated card surface */
+    --card-foreground: 210, 17%, 90%;
 
-    --popover: 222.2, 47.4%, 11.2%;
-    --popover-foreground: 210, 40%, 98%;
+    --popover: 0, 0%, 10%;
+    --popover-foreground: 210, 17%, 90%;
 
     --primary: 22, 75%, 55%;
     --primary-foreground: 0, 0%, 100%;
 
-    --secondary: 217.2, 32.6%, 17.5%;
-    --secondary-foreground: 210, 40%, 98%;
+    --secondary: 0, 0%, 14%;         /* #242424 - subtle contrast */
+    --secondary-foreground: 210, 17%, 80%;
 
-    --muted: 217.2, 32.6%, 17.5%;
-    --muted-foreground: 215, 20.2%, 65.1%;
+    --muted: 0, 0%, 14%;
+    --muted-foreground: 0, 0%, 55%;  /* #8c8c8c - muted grey */
 
-    --accent: 217.2, 32.6%, 17.5%;
-    --accent-foreground: 210, 40%, 98%;
+    --accent: 0, 0%, 14%;
+    --accent-foreground: 210, 17%, 90%;
 
-    --destructive: 0, 62.8%, 30.6%;
+    --destructive: 0, 62.8%, 45%;
     --destructive-foreground: 210, 40%, 98%;
 
-    --border: 217.2, 32.6%, 17.5%;
-    --input: 217.2, 32.6%, 17.5%;
+    --border: 0, 0%, 18%;            /* #2e2e2e - subtle border */
+    --input: 0, 0%, 14%;
     --ring: 22, 75%, 55%;
 
     /* Real CSS variables for inline styles in components */
-    --surface: #1e1e24;
-    --surface2: #16161b;
-    --surface3: #121215;
+    --surface: #1a1a1a;
+    --surface2: #141414;
+    --surface3: #0f0f0f;
     --text: hsl(var(--foreground));
-    --text2: hsl(var(--foreground) / 0.7);
+    --text2: hsl(var(--foreground) / 0.72);
     --text3: hsl(var(--muted-foreground));
     --success: hsl(142.1, 70.2%, 45.3%);
     --danger: hsl(var(--destructive));
-    --bg-elev: #1e1e24;
+    --bg-elev: #1a1a1a;
 
     --annotator-border: hsl(var(--border));
     --annotator-accent: hsl(var(--primary));
@@ -193,4 +193,31 @@ input[type="range"]::-moz-range-track {
 }
 div:hover > .class-btn-actions {
   display: flex;
+}
+
+/* ── Responsive: App header nav on small screens ── */
+@media (max-width: 600px) {
+  /* Hide nav text labels, keep icons */
+  header nav button span { display: none; }
+  /* Reduce header padding */
+  header { padding: 0 12px !important; }
+}
+
+/* ── Responsive: Dashboard project list ── */
+@media (max-width: 640px) {
+  .project-list-card {
+    flex-direction: column !important;
+  }
+  .project-list-thumb {
+    width: 100% !important;
+    height: 120px !important;
+    border-right: none !important;
+    border-bottom: 1px solid hsl(var(--border));
+  }
+}
+
+/* ── Spin keyframe for loaders ── */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
