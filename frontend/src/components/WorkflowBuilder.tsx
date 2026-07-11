@@ -13,7 +13,9 @@ import {
   Play,
   FileText,
   AlertCircle,
-  Loader2
+  Loader2,
+  Plus,
+  ChevronDown
 } from "lucide-react";
 import api, { type Project } from "../api";
 
@@ -142,6 +144,10 @@ export default function WorkflowBuilder() {
   const [projectRuns, setProjectRuns] = useState<any[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string>("");
   const [workflowStatus, setWorkflowStatus] = useState<string>("Idle");
+
+  // Popover + mobile panel state
+  const [addNodeOpen, setAddNodeOpen] = useState(false);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
 
   // Dragging state
   const [dragNodeId, setDragNodeId] = useState<string | null>(null);
@@ -926,30 +932,43 @@ export default function WorkflowBuilder() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] w-full overflow-hidden bg-background text-foreground">
-      {/* Top action bar */}
-      <header className="flex justify-between items-center px-4 py-3 border-b border-border bg-card">
-        <div className="flex items-center gap-2">
-          <h2 className="text-base font-bold flex items-center gap-1.5 text-foreground">
-            Visual Workflow Workspace
+    <div className="flex flex-col h-full w-full overflow-hidden bg-background text-foreground">
+      {/* ── Top action bar ──────────────────────────────────────────────── */}
+      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '0 12px', height: 44, borderBottom: '1px solid hsl(var(--border))',
+        background: 'hsl(var(--card))', gap: 8, flexShrink: 0 }}>
+        {/* Title + project tag — hidden on mobile */}
+        <div className="wf-title-group" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <h2 style={{ fontSize: 13, fontWeight: 700, margin: 0, whiteSpace: 'nowrap' }}>
+            Visual Pipeline
           </h2>
-          <span className="text-xs px-2 py-0.5 bg-secondary text-secondary-foreground rounded-full">
-            Project: {project?.name || "Loading..."}
+          <span style={{ fontSize: 10, padding: '2px 8px', background: 'hsl(var(--secondary))',
+            color: 'hsl(var(--muted-foreground))', borderRadius: 99, whiteSpace: 'nowrap',
+            overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>
+            {project?.name || 'Loading...'}
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Status: <strong className="text-foreground">{workflowStatus}</strong></span>
-          <button
-            onClick={handleResetWorkflow}
-            className="flex items-center gap-1 bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border px-3 py-1.5 rounded-md text-xs font-semibold"
-          >
-            <RefreshCw size={12} /> Reset Canvas
+        {/* Status indicator */}
+        <div className="wf-status" style={{ display: 'flex', alignItems: 'center', gap: 6,
+          fontSize: 11, color: 'hsl(var(--muted-foreground))', whiteSpace: 'nowrap' }}>
+          Status: <strong style={{ color: 'hsl(var(--foreground))' }}>{workflowStatus}</strong>
+        </div>
+        {/* Actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <button onClick={handleResetWorkflow}
+            className="wf-reset-btn"
+            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px',
+              background: 'hsl(var(--secondary))', color: 'hsl(var(--secondary-foreground))',
+              border: '1px solid hsl(var(--border))', borderRadius: 6,
+              fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <RefreshCw size={11} /> Reset
           </button>
-          <button
-            onClick={() => handleSaveWorkflow()}
-            className="flex items-center gap-1 bg-primary text-primary-foreground hover:bg-primary/95 px-3 py-1.5 rounded-md text-xs font-semibold"
-          >
-            <Save size={12} /> Save Workflow
+          <button onClick={() => handleSaveWorkflow()}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px',
+              background: 'hsl(var(--primary))', color: '#fff',
+              border: 'none', borderRadius: 6,
+              fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <Save size={11} /> Save
           </button>
         </div>
       </header>
@@ -958,50 +977,61 @@ export default function WorkflowBuilder() {
       <div className="flex flex-1 overflow-hidden">
         {/* Left Side Visual Canvas */}
         <div className="flex flex-col flex-1 relative bg-muted/20">
-          {/* Quick Node Spawners */}
-          <div className="absolute top-3 left-3 z-10 bg-card/85 backdrop-blur-md p-2 rounded-lg border border-border flex items-center gap-2 shadow-sm text-xs">
-            <span className="font-semibold text-muted-foreground mr-1.5">Add Node:</span>
+          {/* ── Add Node popover button ──────────────────────────────────── */}
+          <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 10 }}>
             <button
-              onClick={() => handleAddNode("dataset")}
-              className="flex items-center gap-1 bg-background hover:bg-secondary px-2.5 py-1.5 rounded border border-border font-medium"
-            >
-              <Database size={12} className="text-primary" /> Dataset
+              onClick={() => setAddNodeOpen(prev => !prev)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 12px', background: 'hsl(var(--card) / 0.92)',
+                backdropFilter: 'blur(8px)', border: '1px solid hsl(var(--border))',
+                borderRadius: 8, fontSize: 12, fontWeight: 600,
+                color: 'hsl(var(--foreground))', cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+              <Plus size={13} style={{ color: 'hsl(var(--primary))' }} />
+              Add Node
+              <ChevronDown size={11} style={{
+                transform: addNodeOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.15s',
+                color: 'hsl(var(--muted-foreground))' }} />
             </button>
-            <button
-              onClick={() => handleAddNode("model_config")}
-              className="flex items-center gap-1 bg-background hover:bg-secondary px-2.5 py-1.5 rounded border border-border font-medium"
-            >
-              <Sliders size={12} className="text-primary" /> Config
-            </button>
-            <button
-              onClick={() => handleAddNode("trainer")}
-              className="flex items-center gap-1 bg-background hover:bg-secondary px-2.5 py-1.5 rounded border border-border font-medium"
-            >
-              <Cpu size={12} className="text-orange-500" /> Trainer
-            </button>
-            <button
-              onClick={() => handleAddNode("predictor")}
-              className="flex items-center gap-1 bg-background hover:bg-secondary px-2.5 py-1.5 rounded border border-border font-medium"
-            >
-              <Eye size={12} className="text-emerald-500" /> Predictor
-            </button>
-            <button
-              onClick={() => handleAddNode("evaluator")}
-              className="flex items-center gap-1 bg-background hover:bg-secondary px-2.5 py-1.5 rounded border border-border font-medium"
-            >
-              <BarChart2 size={12} className="text-amber-500" /> Evaluator
-            </button>
-            <button
-              onClick={() => handleAddNode("responsible_ai")}
-              className="flex items-center gap-1 bg-background hover:bg-secondary px-2.5 py-1.5 rounded border border-border font-medium"
-            >
-              <Shield size={12} className="text-rose-500" /> Responsible AI
-            </button>
+
+            {/* Dropdown menu */}
+            {addNodeOpen && (
+              <div
+                style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0,
+                  background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))',
+                  borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                  padding: '6px', minWidth: 160, zIndex: 50,
+                  display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {([
+                  { type: 'dataset',        label: 'Dataset',        Icon: Database,  color: 'hsl(var(--primary))' },
+                  { type: 'model_config',   label: 'Config',         Icon: Sliders,   color: 'hsl(var(--primary))' },
+                  { type: 'trainer',        label: 'Trainer',        Icon: Cpu,       color: 'hsl(var(--primary))' },
+                  { type: 'predictor',      label: 'Predictor',      Icon: Eye,       color: 'hsl(var(--primary))' },
+                  { type: 'evaluator',      label: 'Evaluator',      Icon: BarChart2, color: 'hsl(var(--primary))' },
+                  { type: 'responsible_ai', label: 'Responsible AI', Icon: Shield,    color: 'hsl(var(--primary))' },
+                ] as const).map(({ type, label, Icon, color }) => (
+                  <button key={type}
+                    onClick={() => { handleAddNode(type); setAddNodeOpen(false); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '7px 10px', border: 'none', borderRadius: 6,
+                      background: 'transparent', cursor: 'pointer',
+                      fontSize: 12, fontWeight: 500,
+                      color: 'hsl(var(--foreground))', textAlign: 'left',
+                      width: '100%', transition: 'background 0.1s' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'hsl(var(--secondary))')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                    <Icon size={13} style={{ color, flexShrink: 0 }} /> {label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Interactive Flow Canvas */}
           <div
             ref={canvasRef}
+            onClick={() => setAddNodeOpen(false)}
             className="flex-1 w-full h-full relative overflow-auto select-none bg-[radial-gradient(#ccc_1px,transparent_1px)] dark:bg-[radial-gradient(#444_1px,transparent_1px)] [background-size:16px_16px]"
           >
             {/* SVG Edge Connectors Layer */}
@@ -1058,7 +1088,7 @@ export default function WorkflowBuilder() {
                 <div
                   key={node.id}
                   onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
-                  onClick={() => setSelectedNodeId(node.id)}
+                  onClick={() => { setSelectedNodeId(node.id); setMobilePanelOpen(true); }}
                   style={{
                     left: `${node.x}px`,
                     top: `${node.y}px`,
@@ -1126,23 +1156,77 @@ export default function WorkflowBuilder() {
           </div>
         </div>
 
-        {/* Right Side Inspector Properties Panel */}
-        <aside className="w-80 border-l border-border bg-card flex flex-col overflow-y-auto">
-          <div className="p-4 border-b border-border bg-muted/15 flex items-center justify-between">
-            <h3 className="text-sm font-bold flex items-center gap-1.5">
-              <Sliders size={16} /> Properties
+        {/* ── Properties panel — hidden on mobile; opens as bottom sheet ── */}
+        <aside
+          className={`wf-props-panel ${mobilePanelOpen ? 'wf-props-panel--open' : ''}`}
+          style={{ width: 288, borderLeft: '1px solid hsl(var(--border))',
+            background: 'hsl(var(--card))', display: 'flex', flexDirection: 'column',
+            overflowY: 'auto', flexShrink: 0 }}>
+          <div style={{ padding: '12px 14px', borderBottom: '1px solid hsl(var(--border))',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: 'hsl(var(--muted) / 0.15)', flexShrink: 0 }}>
+            <h3 style={{ fontSize: 12, fontWeight: 700, margin: 0,
+              display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Sliders size={14} /> Properties
             </h3>
-            {selectedNodeId && (
-              <span className="text-[10px] font-semibold text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">
-                {nodes.find(n => n.id === selectedNodeId)?.id}
-              </span>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {selectedNodeId && (
+                <span style={{ fontSize: 9, fontWeight: 600,
+                  color: 'hsl(var(--muted-foreground))',
+                  background: 'hsl(var(--secondary))', padding: '2px 7px',
+                  borderRadius: 99 }}>
+                  {nodes.find(n => n.id === selectedNodeId)?.title}
+                </span>
+              )}
+              {/* Close button — only visible on mobile */}
+              <button className="wf-props-close"
+                onClick={() => setMobilePanelOpen(false)}
+                style={{ display: 'none', background: 'none', border: 'none',
+                  cursor: 'pointer', color: 'hsl(var(--muted-foreground))',
+                  padding: 2, lineHeight: 1, fontSize: 16 }}>✕</button>
+            </div>
           </div>
-          <div className="p-4 flex-1">
+          <div style={{ padding: 14, flex: 1 }}>
             {renderConfigForm()}
           </div>
         </aside>
       </div>
+
+      {/* Mobile CSS */}
+      <style>{`
+        /* Desktop: title + status visible, reset button visible, panel inline */
+        .wf-title-group { display: flex; }
+        .wf-status      { display: flex; }
+        .wf-reset-btn   { display: flex; }
+        .wf-props-panel { position: relative; }
+        .wf-props-close { display: none !important; }
+
+        @media (max-width: 767px) {
+          /* Header: hide title group and status on mobile */
+          .wf-title-group { display: none !important; }
+          .wf-status      { display: none !important; }
+          .wf-reset-btn   { display: none !important; }
+
+          /* Properties panel: hide unless open */
+          .wf-props-panel {
+            position: fixed !important;
+            bottom: 0; left: 0; right: 0;
+            width: 100% !important;
+            max-height: 55vh;
+            z-index: 300;
+            border-left: none !important;
+            border-top: 1px solid hsl(var(--border));
+            border-radius: 14px 14px 0 0;
+            box-shadow: 0 -8px 32px rgba(0,0,0,0.18);
+            transform: translateY(100%);
+            transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
+          }
+          .wf-props-panel.wf-props-panel--open {
+            transform: translateY(0);
+          }
+          .wf-props-close { display: flex !important; }
+        }
+      `}</style>
     </div>
   );
 }
