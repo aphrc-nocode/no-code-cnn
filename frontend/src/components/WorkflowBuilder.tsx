@@ -961,13 +961,13 @@ export default function WorkflowBuilder() {
               onClick={() => handleAddNode("dataset")}
               className="flex items-center gap-1 bg-background hover:bg-secondary px-2.5 py-1.5 rounded border border-border font-medium"
             >
-              <Database size={12} className="text-blue-500" /> Dataset
+              <Database size={12} className="text-primary" /> Dataset
             </button>
             <button
               onClick={() => handleAddNode("model_config")}
               className="flex items-center gap-1 bg-background hover:bg-secondary px-2.5 py-1.5 rounded border border-border font-medium"
             >
-              <Sliders size={12} className="text-violet-500" /> Config
+              <Sliders size={12} className="text-primary" /> Config
             </button>
             <button
               onClick={() => handleAddNode("trainer")}
@@ -1042,13 +1042,13 @@ export default function WorkflowBuilder() {
               const isSelected = selectedNodeId === node.id;
               
               // Map icon color
-              let iconColor = "text-blue-500 bg-blue-500/10";
+              let iconColor = "text-primary bg-primary/10";
               let NodeIcon = Database;
-              if (node.type === "model_config") { NodeIcon = Sliders; iconColor = "text-violet-500 bg-violet-500/10"; }
-              else if (node.type === "trainer") { NodeIcon = Cpu; iconColor = "text-orange-500 bg-orange-500/10"; }
-              else if (node.type === "predictor") { NodeIcon = Eye; iconColor = "text-emerald-500 bg-emerald-500/10"; }
-              else if (node.type === "evaluator") { NodeIcon = BarChart2; iconColor = "text-amber-500 bg-amber-500/10"; }
-              else if (node.type === "responsible_ai") { NodeIcon = Shield; iconColor = "text-rose-500 bg-rose-500/10"; }
+              if (node.type === "model_config") { NodeIcon = Sliders; iconColor = "text-primary bg-primary/10"; }
+              else if (node.type === "trainer") { NodeIcon = Cpu; iconColor = "text-primary bg-primary/10"; }
+              else if (node.type === "predictor") { NodeIcon = Eye; iconColor = "text-primary bg-primary/10"; }
+              else if (node.type === "evaluator") { NodeIcon = BarChart2; iconColor = "text-primary bg-primary/10"; }
+              else if (node.type === "responsible_ai") { NodeIcon = Shield; iconColor = "text-primary bg-primary/10"; }
 
               return (
                 <div
@@ -1109,7 +1109,7 @@ export default function WorkflowBuilder() {
                   {node.config.status && (
                     <div className="text-[9px] flex items-center gap-1 text-muted-foreground">
                       <span className={`w-1.5 h-1.5 rounded-full ${
-                        node.config.status === "running" ? "bg-blue-500 animate-pulse" :
+                        node.config.status === "running" ? "bg-primary animate-pulse" :
                         node.config.status === "completed" || node.config.status === "success" ? "bg-green-500" :
                         node.config.status === "error" || node.config.status === "failed" ? "bg-red-500" : "bg-gray-400"
                       }`} />

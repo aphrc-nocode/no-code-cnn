@@ -248,11 +248,11 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredProjects.map((p) => {
             const typeLabel = p.task_type.replace('_', ' ');
-            let badgeClass = "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200";
+            let badgeClass = "bg-primary/10 text-primary";
             if (p.task_type === "classification") {
-              badgeClass = "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200";
+              badgeClass = "bg-primary/10 text-primary";
             } else if (p.task_type === "segmentation") {
-              badgeClass = "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-200";
+              badgeClass = "bg-primary/10 text-primary";
             }
 
             const thumbnailUrl = thumbnails[p.id];

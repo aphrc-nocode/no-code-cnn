@@ -74,7 +74,7 @@ function shapeToApi(s: Shape): Omit<AnnData, 'id'> {
 // ─── Component ────────────────────────────���───────────────────────────────────
 export default function Annotate() {
   const { id, imageId } = useParams<{ id: string; imageId: string }>()
-  const projectId = Number(id)
+  const projectId = id ?? ''
   const navigate  = useNavigate()
   const isIframe = typeof window !== 'undefined' && window.self !== window.top;
 
@@ -267,12 +267,12 @@ export default function Annotate() {
       setProject(pRes.data)
       const imgs: ImageItem[] = iRes.data
       setImages(imgs)
-      const idx = imgs.findIndex(i => i.id === Number(imageId))
+      const idx = imgs.findIndex(i => String(i.id) === String(imageId))
       setCurrentIdx(idx >= 0 ? idx : 0)
       const doneRuns = (rRes.data as {id:string;pipeline_config?:any;status:string}[])
         .filter(r => r.status === 'completed' || r.status === 'success')
         .map(r => ({
-          id: Number(r.id) || 1, // Keep number typing if required internally, otherwise fallback
+          id: r.id,
           model_base: r.pipeline_config?.architecture || 'custom',
           status: r.status
         }))
