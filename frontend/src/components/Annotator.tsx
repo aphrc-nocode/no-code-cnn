@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   ChevronLeft, ChevronRight, Save, Trash2, RotateCcw,
-  MousePointer2, Square, Hexagon, Crosshair, Sparkles,
-  ZoomIn, ZoomOut, Maximize2, Copy, Undo2, Redo2, Zap, Download
+  MousePointer2, Square, Hexagon, Crosshair, Sparkles, Hand,
+  ZoomIn, ZoomOut, Maximize2, Copy, Undo2, Redo2, Zap, Download, Pencil, Plus
 } from 'lucide-react'
 import api, { type AnnData, type ImageItem, type Project, type ExternalModel } from '../api'
 
@@ -14,7 +14,7 @@ const SNAP_PX = 14 // polygon close-snap distance in screen px
 const DOT_PX  = 8  // point dot radius in screen px
 
 // ─── Shape types ───────────────────────────────────────────────────────────
-type Tool = 'select' | 'bbox' | 'polygon' | 'point' | 'sam'
+type Tool = 'select' | 'bbox' | 'polygon' | 'point' | 'sam' | 'pan'
 
 interface BBoxShape   { type: 'bbox';    class_id: number; x: number; y: number; w: number; h: number }
 interface PolygonShape{ type: 'polygon'; class_id: number; pts: [number,number][] }
@@ -305,11 +305,10 @@ export default function Annotate() {
     const cont   = containerRef.current
     if (!canvas || !cont || !imgRef.current) return
     const img    = imgRef.current
-    // Fit image inside container without exceeding natural resolution
+    // Vanilla behaviour: fit-inside with 20px padding each side, no upper scale cap
     const scale  = Math.min(
       (cont.clientWidth  - 40) / img.width,
-      (cont.clientHeight - 40) / img.height,
-      1
+      (cont.clientHeight - 40) / img.height
     )
     canvas.width  = img.width  * scale
     canvas.height = img.height * scale
@@ -496,8 +495,8 @@ export default function Annotate() {
     const { cx, cy } = canvasPx(e)
     const [nx, ny]   = toNorm(e)
 
-    // Pan: middle-click or Space+LMB
-    if (e.button === 1 || spaceHeld.current) {
+    // Pan: middle-click, Space+LMB, right-click, or Pan tool active
+    if (e.button === 1 || e.button === 2 || spaceHeld.current || toolRef.current === 'pan') {
       drag.current = { kind: 'pan', cx0: cx, cy0: cy, px0: panRef.current.x, py0: panRef.current.y }
       return
     }
@@ -1153,24 +1152,6 @@ export default function Annotate() {
               />
             )}
           </div>
-
-          {/* Bottom status bar */}
-          <div style={{
-            flexShrink: 0, padding: '4px 12px', height: 28,
-            borderTop: '1px solid rgba(255,255,255,0.06)',
-            display: 'flex', alignItems: 'center', gap: 16,
-            fontSize: 10, color: 'rgba(255,255,255,0.35)', fontFamily: 'JetBrains Mono, monospace',
-            background: 'rgba(0,0,0,0.3)',
-          }}>
-            {[['1','Select'],['2','Rect'],['3','Poly'],['4','Point'],['5','SAM'],['Del','Del'],['⌘D','Dupe']].map(([k,v]) => (
-              <span key={k} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                <kbd style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)',
-                  borderRadius: 3, padding: '0px 4px', fontSize: 9, lineHeight: '16px' }}>{k}</kbd>
-                <span>{v}</span>
-              </span>
-            ))}
-            <span style={{ marginLeft: 'auto', opacity: 0.7 }}>Scroll=Zoom · Space+Drag=Pan</span>
-          </div>
         </div>
 
         {/* ── Right panel (collapsible) ── */}
@@ -1183,20 +1164,74 @@ export default function Annotate() {
 
             {/* Classes */}
             <div style={panelSection}>
-              <p style={panelLabel}>Classes</p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <p style={{ ...panelLabel, marginBottom: 0 }}>Classes</p>
+                <button
+                  title="Add class"
+                  onClick={async () => {
+                    const name = window.prompt('New class name:', `class${(project?.classes.length ?? 0)}`);
+                    if (!name?.trim() || !project) return;
+                    const cleaned = name.trim();
+                    if (project.classes.includes(cleaned)) { alert('Class already exists.'); return; }
+                    const newClasses = [...project.classes, cleaned];
+                    setProject({ ...project, classes: newClasses });
+                    await api.put(`/projects/${projectId}`, { ...project, classes: newClasses });
+                  }}
+                  style={{ border: 'none', background: 'transparent', color: 'var(--text3)',
+                    cursor: 'pointer', padding: 2, display: 'flex', borderRadius: 3 }}>
+                  <Plus size={11} />
+                </button>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {project?.classes.map((c, i) => (
-                  <button key={i} onClick={() => setActiveClass(i)}
+                  <div key={i}
+                    onClick={() => setActiveClass(i)}
                     style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px',
                       borderRadius: 4, border: `1px solid ${activeClass === i ? 'var(--annotator-accent)' : 'var(--annotator-border)'}`,
                       background: activeClass === i ? 'var(--annotator-accent-s)' : 'transparent',
                       color: activeClass === i ? 'var(--annotator-accent)' : 'var(--text2)',
-                      cursor: 'pointer', fontSize: 12, textAlign: 'left', transition: 'all 0.1s', width: '100%' }}>
+                      cursor: 'pointer', fontSize: 12, transition: 'all 0.1s', width: '100%',
+                      position: 'relative' }}>
                     <span style={{ width: 10, height: 10, borderRadius: 3, flexShrink: 0,
                       background: COLORS[i % COLORS.length] }} />
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{c}</span>
-                    {activeClass === i && <span style={{ fontSize: 9, opacity: 0.6 }}>●</span>}
-                  </button>
+                    {/* Rename + delete actions — shown on hover */}
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto', flexShrink: 0 }}
+                      className="class-btn-actions">
+                      <span title="Rename class"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (!project) return;
+                          const newName = window.prompt(`Rename "${c}" to:`, c);
+                          if (!newName?.trim()) return;
+                          const cleaned = newName.trim();
+                          if (project.classes.includes(cleaned) && cleaned !== c) { alert('Name already exists.'); return; }
+                          const newClasses = project.classes.map((x, j) => j === i ? cleaned : x);
+                          setProject({ ...project, classes: newClasses });
+                          await api.put(`/projects/${projectId}`, { ...project, classes: newClasses });
+                        }}
+                        style={{ color: 'var(--text3)', cursor: 'pointer', display: 'flex',
+                          padding: 2, borderRadius: 3 }}>
+                        <Pencil size={10} />
+                      </span>
+                      <span title="Delete class"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (!project) return;
+                          if (project.classes.length <= 1) { alert('Project must have at least one class.'); return; }
+                          if (!window.confirm(`Delete class "${c}"?`)) return;
+                          const newClasses = project.classes.filter((_, j) => j !== i);
+                          const newActive = activeClass >= newClasses.length ? newClasses.length - 1 : activeClass;
+                          setProject({ ...project, classes: newClasses });
+                          setActiveClass(newActive);
+                          await api.put(`/projects/${projectId}`, { ...project, classes: newClasses });
+                        }}
+                        style={{ color: 'var(--text3)', cursor: 'pointer', display: 'flex',
+                          padding: 2, borderRadius: 3 }}>
+                        <Trash2 size={10} />
+                      </span>
+                    </span>
+                  </div>
                 ))}
               </div>
             </div>
@@ -1445,7 +1480,8 @@ const TOOLS: { id: Tool; label: string; hint?: string; icon: React.ReactNode }[]
   { id: 'bbox',    label: 'Rect',     hint: '2', icon: <Square size={16}/> },
   { id: 'polygon', label: 'Polygon',  hint: '3', icon: <Hexagon size={16}/> },
   { id: 'point',   label: 'Point',    hint: '4', icon: <Crosshair size={16}/> },
-  { id: 'sam',     label: 'SAM',   hint: '5', icon: <Sparkles size={16}/> },
+  { id: 'sam',     label: 'SAM',      hint: '5', icon: <Sparkles size={16}/> },
+  { id: 'pan',     label: 'Pan',      hint: '6', icon: <Hand size={16}/> },
 ]
 
 const HANDLE_CURSORS: Record<string, string> = {
