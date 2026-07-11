@@ -305,10 +305,12 @@ export default function Annotate() {
     const cont   = containerRef.current
     if (!canvas || !cont || !imgRef.current) return
     const img    = imgRef.current
-    // Fill the full container — scale up or down as needed
-    const scaleW = cont.clientWidth  / img.width
-    const scaleH = cont.clientHeight / img.height
-    const scale  = Math.min(scaleW, scaleH)   // fit-inside (shows full image)
+    // Fit image inside container without exceeding natural resolution
+    const scale  = Math.min(
+      (cont.clientWidth  - 40) / img.width,
+      (cont.clientHeight - 40) / img.height,
+      1
+    )
     canvas.width  = img.width  * scale
     canvas.height = img.height * scale
     setZoom(1); setPan({ x: 0, y: 0 })
@@ -1136,7 +1138,11 @@ export default function Annotate() {
                 )}
               </div>
             ) : (
-              <canvas ref={canvasRef} style={{ display: 'block' }}
+              <canvas ref={canvasRef} style={{
+                  display: 'block',
+                  boxShadow: '0 0 32px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.06)',
+                  imageRendering: 'crisp-edges',
+                }}
                 onMouseDown={onMouseDown}
                 onMouseMove={onMouseMove}
                 onMouseUp={onMouseUp}
