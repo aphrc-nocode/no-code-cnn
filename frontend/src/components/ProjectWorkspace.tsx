@@ -5,6 +5,7 @@ import api, { type Project } from "../api";
 
 import WorkflowBuilder from "./WorkflowBuilder";
 import Annotator from "./Annotator";
+import ImageGallery from "./ImageGallery";
 import DatasetManager from "./DatasetManager";
 import ModelGarden from "./ModelGarden";
 import TrainingJobs from "./TrainingJobs";
@@ -50,19 +51,19 @@ export default function ProjectWorkspace() {
   };
 
   const renderActiveView = () => {
+    const path = location.pathname;
+    // /projects/:id/annotate/:imageId  → canvas editor
+    // /projects/:id/annotate           → image gallery
+    if (activeTab === "annotate") {
+      const hasImageId = /\/annotate\/\d+/.test(path);
+      return hasImageId ? <Annotator /> : <ImageGallery />;
+    }
     switch (activeTab) {
-      case "workflow":
-        return <WorkflowBuilder />;
-      case "annotate":
-        return <Annotator />;
-      case "datasets":
-        return <DatasetManager />;
-      case "models":
-        return <ModelGarden />;
-      case "jobs":
-        return <TrainingJobs />;
-      default:
-        return <WorkflowBuilder />;
+      case "workflow":  return <WorkflowBuilder />;
+      case "datasets":  return <DatasetManager />;
+      case "models":    return <ModelGarden />;
+      case "jobs":      return <TrainingJobs />;
+      default:          return <WorkflowBuilder />;
     }
   };
 

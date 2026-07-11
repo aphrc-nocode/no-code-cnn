@@ -962,7 +962,7 @@ export default function Annotate() {
         padding: '0 8px',
       }}>
         {/* Left: Back + filename + counter */}
-        <button onClick={() => navigate(`/projects/${projectId}/images`)}
+        <button onClick={() => navigate(`/projects/${projectId}/annotate`)}
           style={{ ...tbIconBtn, border: 'none', marginRight: 4 }} title="Back to images">
           <ChevronLeft size={16} />
         </button>
