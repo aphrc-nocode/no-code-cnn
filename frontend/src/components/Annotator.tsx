@@ -322,6 +322,11 @@ export default function Annotate() {
     img.src = `/api/projects/${projectId}/images/${currentImage.id}/file`
   }, [currentImage?.id])
 
+  useEffect(() => {
+    window.addEventListener('resize', fitToContainer)
+    return () => window.removeEventListener('resize', fitToContainer)
+  }, [fitToContainer])
+
   // ─── Draw canvas ───────────────────────────────────────────────────────────
   const draw = useCallback(() => {
     const canvas = canvasRef.current
@@ -926,7 +931,12 @@ export default function Annotate() {
   }
 
   // ─── Render ─────────────────────────────────────────────────────────────
-  const [rightPanelOpen, setRightPanelOpen] = useState(true)
+  const [rightPanelOpen, setRightPanelOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 768
+    }
+    return true
+  })
 
   // Compact toolbar button style
   const tbBtn = (active = false): React.CSSProperties => ({
@@ -1160,9 +1170,9 @@ export default function Annotate() {
         </div>
 
         {/* ── Right panel (collapsible) ── */}
-        <div style={{
+        <div className="annotator-right-panel" style={{
           width: rightPanelOpen ? 240 : 0, flexShrink: 0, overflow: 'hidden',
-          transition: 'width 0.2s ease', borderLeft: rightPanelOpen ? '1px solid var(--annotator-border)' : 'none',
+          transition: 'all 0.2s ease', borderLeft: rightPanelOpen ? '1px solid var(--annotator-border)' : 'none',
           background: 'var(--surface)', display: 'flex', flexDirection: 'column',
         }}>
           <div style={{ width: 240, height: '100%', display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
@@ -1463,10 +1473,11 @@ export default function Annotate() {
 
         {/* Panel toggle */}
         <button onClick={() => setRightPanelOpen(p => !p)}
+          className="annotator-panel-toggle"
           title={rightPanelOpen ? 'Collapse panel' : 'Expand panel'}
           style={{
             position: 'absolute', right: rightPanelOpen ? 240 : 0, top: 52,
-            zIndex: 10, width: 20, height: 40, borderRadius: '4px 0 0 4px',
+            zIndex: 210, width: 20, height: 40, borderRadius: '4px 0 0 4px',
             border: '1px solid var(--annotator-border)', borderRight: 'none',
             background: 'var(--surface)', color: 'var(--text3)', cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1492,6 +1503,18 @@ export default function Annotate() {
           .ann-group-zoom { order: 4; margin-left: auto; }
           .ann-group-actions { order: 5; }
           .ann-group-upload { order: 6; }
+          
+          /* Make right panel display as absolute overlay/drawer on mobile */
+          .annotator-right-panel {
+            position: absolute !important;
+            right: 0;
+            top: 42px; /* aligns with header height */
+            bottom: 0;
+            height: calc(100% - 42px) !important;
+            z-index: 200 !important;
+            box-shadow: -4px 0 16px rgba(0, 0, 0, 0.25) !important;
+            background: var(--surface) !important;
+          }
         }
       `}</style>
     </div>
