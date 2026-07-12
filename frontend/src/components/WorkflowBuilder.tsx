@@ -15,7 +15,8 @@ import {
   AlertCircle,
   Loader2,
   Plus,
-  ChevronDown
+  ChevronDown,
+  MoreVertical
 } from "lucide-react";
 import api, { type Project } from "../api";
 
@@ -148,6 +149,33 @@ export default function WorkflowBuilder() {
   // Popover + mobile panel state
   const [addNodeOpen, setAddNodeOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  const [activeMenuNodeId, setActiveMenuNodeId] = useState<string | null>(null);
+
+  // Keyboard deletion hook
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const el = document.activeElement as HTMLElement | null;
+      if (
+        el?.tagName === "INPUT" ||
+        el?.tagName === "TEXTAREA" ||
+        el?.isContentEditable
+      ) {
+        return;
+      }
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedNodeId) {
+        handleRemoveNode(selectedNodeId);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedNodeId, nodes]);
+
+  // Close menus on click-outside/global click
+  useEffect(() => {
+    const closeMenu = () => setActiveMenuNodeId(null);
+    window.addEventListener("click", closeMenu);
+    return () => window.removeEventListener("click", closeMenu);
+  }, []);
 
   // Dragging state
   const [dragNodeId, setDragNodeId] = useState<string | null>(null);
@@ -201,6 +229,27 @@ export default function WorkflowBuilder() {
       window.removeEventListener("mouseup", handleGlobalMouseUp);
     };
   }, [dragNodeId, dragOffset, connectingFromId, nodes, edges]);
+
+  // ─── Keyboard: Delete selected node on Delete/Backspace ──────────────────
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedNodeId) {
+        e.preventDefault();
+        handleRemoveNode(selectedNodeId);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedNodeId, nodes, edges]);
 
   // ─── Fetch Initial Data ──────────────────────────────────────────────────
   useEffect(() => {
@@ -978,7 +1027,7 @@ export default function WorkflowBuilder() {
         {/* Left Side Visual Canvas */}
         <div className="flex flex-col flex-1 relative bg-muted/20">
           {/* ── Add Node popover button ──────────────────────────────────── */}
-          <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 10 }}>
+          <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 200 }}>
             <button
               onClick={() => setAddNodeOpen(prev => !prev)}
               style={{ display: 'flex', alignItems: 'center', gap: 6,
@@ -1001,7 +1050,7 @@ export default function WorkflowBuilder() {
                 style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0,
                   background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))',
                   borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-                  padding: '6px', minWidth: 160, zIndex: 50,
+                  padding: '6px', minWidth: 160, zIndex: 300,
                   display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {([
                   { type: 'dataset',        label: 'Dataset',        Icon: Database,  color: 'hsl(var(--primary))' },
@@ -1074,15 +1123,15 @@ export default function WorkflowBuilder() {
             {/* Nodes Render Layer */}
             {nodes.map(node => {
               const isSelected = selectedNodeId === node.id;
-              
-              // Map icon color
-              let iconColor = "text-primary bg-primary/10";
+
+              // Map icon + background color per node type (matching vanilla workflow_web)
+              let iconBg = "#3b82f6";
               let NodeIcon = Database;
-              if (node.type === "model_config") { NodeIcon = Sliders; iconColor = "text-primary bg-primary/10"; }
-              else if (node.type === "trainer") { NodeIcon = Cpu; iconColor = "text-primary bg-primary/10"; }
-              else if (node.type === "predictor") { NodeIcon = Eye; iconColor = "text-primary bg-primary/10"; }
-              else if (node.type === "evaluator") { NodeIcon = BarChart2; iconColor = "text-primary bg-primary/10"; }
-              else if (node.type === "responsible_ai") { NodeIcon = Shield; iconColor = "text-primary bg-primary/10"; }
+              if (node.type === "model_config") { NodeIcon = Sliders; iconBg = "#f59e0b"; }
+              else if (node.type === "trainer") { NodeIcon = Cpu; iconBg = "#a855f7"; }
+              else if (node.type === "predictor") { NodeIcon = Eye; iconBg = "#10b981"; }
+              else if (node.type === "evaluator") { NodeIcon = BarChart2; iconBg = "#00c0ef"; }
+              else if (node.type === "responsible_ai") { NodeIcon = Shield; iconBg = "#605ca8"; }
 
               return (
                 <div
@@ -1093,62 +1142,88 @@ export default function WorkflowBuilder() {
                     left: `${node.x}px`,
                     top: `${node.y}px`,
                     width: `${NODE_WIDTH}px`,
-                    height: `${NODE_HEIGHT}px`
+                    minHeight: `${NODE_HEIGHT}px`,
+                    display: 'grid',
+                    gridTemplateColumns: '44px 1fr',
                   }}
-                  className={`absolute z-10 rounded-xl border p-3 flex flex-col justify-between cursor-move shadow-md bg-card transition-all select-none ${
+                  className={`absolute z-10 rounded-lg border overflow-hidden cursor-move shadow-md bg-card transition-all select-none ${
                     isSelected ? "border-primary ring-2 ring-primary/20 shadow-lg" : "border-border hover:border-muted-foreground/40 hover:shadow-md"
                   }`}
                 >
-                  {/* Node Header */}
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2 overflow-hidden">
-                      <span className={`p-1.5 rounded-lg flex items-center justify-center shrink-0 ${iconColor}`}>
-                        <NodeIcon size={16} />
-                      </span>
-                      <div className="flex flex-col overflow-hidden">
-                        <span className="font-bold text-xs truncate leading-tight">{node.title}</span>
-                        <span className="text-[10px] text-muted-foreground truncate leading-tight">{node.subtitle}</span>
+                  {/* Col 1: Colored Icon Block */}
+                  <div
+                    style={{ backgroundColor: iconBg }}
+                    className="flex items-center justify-center text-white border-r border-black/10"
+                  >
+                    <NodeIcon size={18} strokeWidth={2.2} />
+                  </div>
+
+                  {/* Col 2: Node Body */}
+                  <div className="px-3 py-2.5 flex flex-col justify-between min-w-0 gap-1">
+                    {/* Title row with options */}
+                    <div className="flex items-start justify-between gap-1 min-w-0">
+                      <div className="flex flex-col min-w-0 overflow-hidden">
+                        <span className="font-bold text-xs truncate leading-tight text-foreground" title={node.title}>{node.title}</span>
+                        <span className="text-[10px] text-muted-foreground truncate leading-tight mt-0.5" title={node.subtitle}>{node.subtitle}</span>
+                      </div>
+                      {/* Three-dot options */}
+                      <div style={{ position: "relative" }} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => setActiveMenuNodeId(activeMenuNodeId === node.id ? null : node.id)}
+                          className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors shrink-0"
+                        >
+                          <MoreVertical size={13} />
+                        </button>
+                        {activeMenuNodeId === node.id && (
+                          <div style={{
+                            position: "absolute", right: 0, top: "100%",
+                            background: "hsl(var(--card))", border: "1px solid hsl(var(--border))",
+                            borderRadius: 6, boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                            zIndex: 200, minWidth: 90, padding: 4,
+                          }}>
+                            <button
+                              onClick={() => { handleRemoveNode(node.id); setActiveMenuNodeId(null); }}
+                              style={{
+                                width: "100%", padding: "5px 10px", background: "transparent",
+                                border: "none", color: "hsl(var(--destructive))", fontSize: 11,
+                                fontWeight: 600, textAlign: "left", cursor: "pointer", borderRadius: 4,
+                              }}
+                              className="hover:bg-destructive/10"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
-                    {/* Delete Icon button */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleRemoveNode(node.id); }}
-                      className="text-muted-foreground hover:text-destructive p-1 rounded-md transition-colors shrink-0"
-                    >
-                      <Trash2 size={12} />
-                    </button>
+
+                    {/* Status Indicator */}
+                    {node.config.status && (
+                      <div className="text-[9px] flex items-center gap-1.5 text-muted-foreground select-none">
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          node.config.status === "running" ? "bg-primary animate-pulse" :
+                          node.config.status === "completed" || node.config.status === "success" ? "bg-green-500" :
+                          node.config.status === "error" || node.config.status === "failed" ? "bg-red-500" : "bg-gray-400"
+                        }`} />
+                        <span className="capitalize font-semibold">{node.config.status}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Input Port */}
                   {node.type !== "dataset" && node.type !== "model_config" && (
                     <div
                       onMouseUp={(e) => handleEndConnection(e, node.id)}
-                      className="port absolute -left-2 top-[38px] w-4 h-4 bg-muted border-2 border-border hover:border-primary rounded-full cursor-pointer flex items-center justify-center z-20 group"
-                    >
-                      <span className="w-1.5 h-1.5 bg-foreground group-hover:bg-primary rounded-full transition-colors"></span>
-                    </div>
+                      className="port absolute -left-[7px] top-1/2 -translate-y-1/2 w-3 h-3 bg-card border-2 border-slate-400 hover:border-primary rounded-full cursor-crosshair z-20 transition-all hover:scale-125"
+                    />
                   )}
 
                   {/* Output Port */}
                   {node.type !== "predictor" && node.type !== "evaluator" && (
                     <div
                       onMouseDown={(e) => handleStartConnection(e, node.id)}
-                      className="port absolute -right-2 top-[38px] w-4 h-4 bg-muted border-2 border-border hover:border-primary rounded-full cursor-pointer flex items-center justify-center z-20 group"
-                    >
-                      <span className="w-1.5 h-1.5 bg-foreground group-hover:bg-primary rounded-full transition-colors"></span>
-                    </div>
-                  )}
-
-                  {/* Status Indicator */}
-                  {node.config.status && (
-                    <div className="text-[9px] flex items-center gap-1 text-muted-foreground">
-                      <span className={`w-1.5 h-1.5 rounded-full ${
-                        node.config.status === "running" ? "bg-primary animate-pulse" :
-                        node.config.status === "completed" || node.config.status === "success" ? "bg-green-500" :
-                        node.config.status === "error" || node.config.status === "failed" ? "bg-red-500" : "bg-gray-400"
-                      }`} />
-                      <span className="capitalize">{node.config.status}</span>
-                    </div>
+                      className="port absolute -right-[7px] top-1/2 -translate-y-1/2 w-3 h-3 bg-card border-2 border-slate-400 hover:border-primary rounded-full cursor-crosshair z-20 transition-all hover:scale-125"
+                    />
                   )}
                 </div>
               );

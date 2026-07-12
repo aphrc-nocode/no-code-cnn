@@ -131,60 +131,69 @@ export default function ImageGallery() {
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 48px)',
       width: '100%', overflow: 'hidden', background: 'var(--bg)' }}>
 
-      <header style={{ display: 'flex', alignItems: 'center', gap: 0, flexShrink: 0,
+      <header className="gallery-header" style={{ display: 'flex', alignItems: 'center', gap: 0, flexShrink: 0,
         height: 42, background: 'var(--surface)', borderBottom: '1px solid var(--border)',
         padding: '0 8px' }}>
-        <button onClick={() => navigate(`/projects/${projectId}/workflow`)}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px',
-            height: 30, border: '1px solid var(--border)', borderRadius: 3,
-            background: 'var(--surface-2)', color: 'var(--text)', cursor: 'pointer',
-            fontSize: 11, fontWeight: 500, marginRight: 4 }}>
-          <ChevronLeft size={14} /> Back
-        </button>
-        <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 10px' }} />
-        <h1 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', margin: 0,
-          maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {project?.name ?? 'Loading...'} — Gallery
-        </h1>
-        <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 10px' }} />
-        <div style={{ display: 'flex', background: 'var(--surface-3)', borderRadius: 3,
-          padding: 2, border: '1px solid var(--border)' }}>
-          {(['all', 'annotated', 'unannotated'] as Filter[]).map(f => (
-            <button key={f} style={filterBtn(filter === f)} onClick={() => setFilter(f)}>
-              {f.charAt(0).toUpperCase() + f.slice(1)}
-            </button>
-          ))}
+        
+        <div className="gallery-row-1" style={{ display: 'flex', alignItems: 'center', gap: 0, flexShrink: 0 }}>
+          <button onClick={() => navigate(`/projects/${projectId}/workflow`)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px',
+              height: 30, border: '1px solid var(--border)', borderRadius: 3,
+              background: 'var(--surface-2)', color: 'var(--text)', cursor: 'pointer',
+              fontSize: 11, fontWeight: 500, marginRight: 4 }}>
+            <ChevronLeft size={14} /> Back
+          </button>
+          <div className="gallery-sep" style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 10px' }} />
+          <h1 className="gallery-title" style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', margin: 0,
+            maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {project?.name ?? 'Loading...'} — Gallery
+          </h1>
         </div>
-        <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 10px' }} />
-        <div style={{ position: 'relative', width: 220 }}>
-          <input type="text" placeholder="Search images..." value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{ width: '100%', height: 28, padding: '0 8px 0 28px',
-              border: '1px solid var(--border)', borderRadius: 3, fontSize: 11,
-              background: 'var(--surface-2)', color: 'var(--text)', outline: 'none',
-              boxSizing: 'border-box' as const }} />
-          <Search size={11} style={{ position: 'absolute', left: 8, top: 9,
-            color: 'var(--text3)', pointerEvents: 'none' as const }} />
+
+        <div className="gallery-sep" style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 10px' }} />
+
+        <div className="gallery-row-2" style={{ display: 'flex', alignItems: 'center', gap: 0, flex: 1 }}>
+          <div className="gallery-filters" style={{ display: 'flex', background: 'var(--surface2)', borderRadius: 3,
+            padding: 2, border: '1px solid var(--border)', marginRight: 10 }}>
+            {(['all', 'annotated', 'unannotated'] as Filter[]).map(f => (
+              <button key={f} style={filterBtn(filter === f)} onClick={() => setFilter(f)}>
+                {f.charAt(0).toUpperCase() + f.slice(1)}
+              </button>
+            ))}
+          </div>
+          <div className="gallery-sep" style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 10px 0 0' }} />
+          <div className="gallery-search" style={{ position: 'relative', width: 180 }}>
+            <input type="text" placeholder="Search images..." value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ width: '100%', height: 28, padding: '0 8px 0 28px',
+                border: '1px solid var(--border)', borderRadius: 3, fontSize: 11,
+                background: 'var(--surface-2)', color: 'var(--text)', outline: 'none',
+                boxSizing: 'border-box' as const }} />
+            <Search size={11} style={{ position: 'absolute', left: 8, top: 9,
+              color: 'var(--text3)', pointerEvents: 'none' as const }} />
+          </div>
         </div>
-        <div style={{ flex: 1 }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+
+        <div className="gallery-sep" style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 10px' }} />
+        
+        <div className="gallery-actions" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <button onClick={openSummary}
             style={{ display: 'flex', alignItems: 'center', gap: 5, height: 30,
               padding: '0 10px', border: '1px solid var(--border)', borderRadius: 3,
               background: 'var(--surface-2)', color: 'var(--text)', cursor: 'pointer', fontSize: 11 }}>
-            <BarChart3 size={13} /> Summary
+            <BarChart3 size={13} /> <span className="btn-txt">Summary</span>
           </button>
           <button onClick={() => fileInputRef.current?.click()}
             style={{ display: 'flex', alignItems: 'center', gap: 5, height: 30,
               padding: '0 10px', border: '1px solid var(--border)', borderRadius: 3,
               background: 'var(--surface-2)', color: 'var(--text)', cursor: 'pointer', fontSize: 11 }}>
-            <CloudUpload size={13} /> Upload
+            <CloudUpload size={13} /> <span className="btn-txt">Upload</span>
           </button>
           <button onClick={() => { setExportOpen(true); setExportName(project?.name ?? 'Dataset') }}
             style={{ display: 'flex', alignItems: 'center', gap: 5, height: 30,
               padding: '0 10px', border: '1px solid var(--border)', borderRadius: 3,
               background: 'var(--surface-2)', color: 'var(--text)', cursor: 'pointer', fontSize: 11 }}>
-            <Download size={13} /> Export
+            <Download size={13} /> <span className="btn-txt">Export</span>
           </button>
         </div>
       </header>
@@ -409,6 +418,54 @@ export default function ImageGallery() {
           </div>
         </div>
       )}
+      <style>{`
+        @media (max-width: 767px) {
+          .gallery-header {
+            height: auto !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            padding: 10px 12px !important;
+            gap: 8px !important;
+          }
+          .gallery-row-1 {
+            width: 100% !important;
+            justify-content: space-between !important;
+          }
+          .gallery-row-2 {
+            width: 100% !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 8px !important;
+          }
+          .gallery-filters {
+            width: 100% !important;
+            display: flex !important;
+            margin-right: 0 !important;
+          }
+          .gallery-filters button {
+            flex: 1 !important;
+            text-align: center !important;
+          }
+          .gallery-search {
+            width: 100% !important;
+          }
+          .gallery-actions {
+            width: 100% !important;
+            display: flex !important;
+            gap: 6px !important;
+          }
+          .gallery-actions button {
+            flex: 1 !important;
+            justify-content: center !important;
+          }
+          .gallery-sep {
+            display: none !important;
+          }
+          .btn-txt {
+            display: none !important;
+          }
+        }
+      `}</style>
     </div>
   )
 }

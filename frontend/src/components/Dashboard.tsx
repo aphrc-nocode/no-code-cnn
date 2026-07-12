@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Plus, Search, Cpu, Database, MousePointer, BarChart3, Shield, Info, ArrowRight, Trash2, Tags, Image as ImageIcon } from "lucide-react";
+import { Plus, Search, Cpu, Database, MousePointer, BarChart3, Shield, Info, ArrowRight, Trash2, Tags, Image as ImageIcon, MoreVertical } from "lucide-react";
 import api, { type Project } from "../api";
 
 export default function Dashboard() {
@@ -11,6 +11,14 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isLanding, setIsLanding] = useState(true);
+  const [activeMenuProjectId, setActiveMenuProjectId] = useState<string | number | null>(null);
+
+  // Close menus on outside click
+  useEffect(() => {
+    const closeMenus = () => setActiveMenuProjectId(null);
+    window.addEventListener("click", closeMenus);
+    return () => window.removeEventListener("click", closeMenus);
+  }, []);
 
   // Stats loading state
   const [imageCounts, setImageCounts] = useState<Record<string, number>>({});
@@ -245,14 +253,16 @@ export default function Dashboard() {
           <p className="text-xs">Create your first project to get started</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
           {filteredProjects.map((p) => {
             const typeLabel = p.task_type.replace('_', ' ');
-            let badgeClass = "bg-primary/10 text-primary";
+            let badgeStyle: React.CSSProperties = { backgroundColor: 'rgba(139, 92, 246, 0.12)', color: '#8b5cf6' };
             if (p.task_type === "classification") {
-              badgeClass = "bg-primary/10 text-primary";
+              badgeStyle = { backgroundColor: 'rgba(217, 119, 6, 0.12)', color: '#d97706' };
+            } else if (p.task_type === "detection") {
+              badgeStyle = { backgroundColor: 'rgba(234, 88, 12, 0.12)', color: '#ea580c' };
             } else if (p.task_type === "segmentation") {
-              badgeClass = "bg-primary/10 text-primary";
+              badgeStyle = { backgroundColor: 'rgba(22, 163, 74, 0.12)', color: '#16a34a' };
             }
 
             const thumbnailUrl = thumbnails[p.id];
@@ -261,10 +271,10 @@ export default function Dashboard() {
               <div
                 key={p.id}
                 onClick={() => navigate(`/projects/${p.id}/workflow`)}
-                className="group bg-card border border-border rounded-xl cursor-pointer transition-all duration-200 flex flex-row h-[108px] shadow-sm overflow-hidden hover:-translate-y-0.5 hover:shadow-md hover:border-primary"
+                className="project-list-card group bg-card border border-border rounded-xl cursor-pointer transition-all duration-200 flex flex-row min-h-[108px] h-auto shadow-sm overflow-hidden hover:-translate-y-0.5 hover:shadow-md hover:border-primary"
               >
                 {/* Left Thumbnail area */}
-                <div className="w-[110px] bg-muted/20 flex items-center justify-center overflow-hidden shrink-0 border-r border-border relative self-stretch">
+                <div className="project-list-thumb w-[110px] bg-muted/20 flex items-center justify-center overflow-hidden shrink-0 border-r border-border relative self-stretch">
                   {thumbnailUrl ? (
                     <img src={thumbnailUrl} alt={p.name} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
                   ) : (
@@ -279,20 +289,64 @@ export default function Dashboard() {
                       <h3 className="font-bold text-sm sm:text-base text-foreground leading-tight truncate hover:text-primary transition-colors">
                         {p.name}
                       </h3>
-                      <span className={`px-2.5 py-0.5 rounded-full font-bold uppercase text-[9px] tracking-wider mt-1 inline-block ${badgeClass}`}>
+                      <span
+                        style={badgeStyle}
+                        className="px-2 py-0.5 rounded font-bold uppercase text-[9px] tracking-wider mt-1 inline-block"
+                      >
                         {typeLabel}
                       </span>
                     </div>
-                    <button
-                      className="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-secondary transition-colors shrink-0"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteProject(p.id);
-                      }}
-                      title="Delete project"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+
+                    {/* Three-dot dropdown menu */}
+                    <div style={{ position: "relative" }} onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary transition-colors shrink-0"
+                        onClick={() => {
+                          setActiveMenuProjectId(activeMenuProjectId === p.id ? null : p.id);
+                        }}
+                        title="Options"
+                      >
+                        <MoreVertical size={15} />
+                      </button>
+                      {activeMenuProjectId === p.id && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            right: 0,
+                            top: "100%",
+                            background: "hsl(var(--card))",
+                            border: "1px solid hsl(var(--border))",
+                            borderRadius: 6,
+                            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                            zIndex: 40,
+                            minWidth: 100,
+                            padding: 4,
+                          }}
+                        >
+                          <button
+                            onClick={() => {
+                              handleDeleteProject(p.id);
+                              setActiveMenuProjectId(null);
+                            }}
+                            style={{
+                              width: "100%",
+                              padding: "6px 12px",
+                              background: "transparent",
+                              border: "none",
+                              color: "hsl(var(--destructive))",
+                              fontSize: 12,
+                              fontWeight: 600,
+                              textAlign: "left",
+                              cursor: "pointer",
+                              borderRadius: 4,
+                            }}
+                            className="hover:bg-destructive/10"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   
                   <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-2 shrink-0">

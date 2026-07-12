@@ -956,44 +956,46 @@ export default function Annotate() {
       width: '100%', overflow: 'hidden' }}>
 
       {/* ═══ Top toolbar ═══ */}
-      <div style={{
+      <div className="annotator-header" style={{
         display: 'flex', alignItems: 'center', gap: 0, flexShrink: 0,
         height: 42, background: 'var(--surface)', borderBottom: '1px solid var(--annotator-border)',
         padding: '0 8px',
       }}>
         {/* Left: Back + filename + counter */}
-        <button onClick={() => navigate(`/projects/${projectId}/annotate`)}
-          style={{ ...tbIconBtn, border: 'none', marginRight: 4 }} title="Back to images">
-          <ChevronLeft size={16} />
-        </button>
-        <h1 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', margin: 0,
-          maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {currentImage?.filename}
-        </h1>
-        <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 8, fontFamily: 'JetBrains Mono, monospace' }}>
-          {currentIdx + 1}/{images.length}
-        </span>
+        <div className="ann-group-info" style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <button onClick={() => navigate(`/projects/${projectId}/annotate`)}
+            style={{ ...tbIconBtn, border: 'none', marginRight: 4 }} title="Back to images">
+            <ChevronLeft size={16} />
+          </button>
+          <h1 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', margin: 0,
+            maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {currentImage?.filename}
+          </h1>
+          <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 6, fontFamily: 'JetBrains Mono, monospace' }}>
+            {currentIdx + 1}/{images.length}
+          </span>
+        </div>
 
         {/* Separator */}
-        <div style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
+        <div className="ann-sep" style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
 
         {/* Tools — horizontal strip */}
-        <div style={{ display: 'flex', gap: 2 }}>
+        <div className="ann-group-tools" style={{ display: 'flex', gap: 2 }}>
           {filteredTools.map(t => (
             <button key={t.id} onClick={() => { setTool(t.id); setPolyPts([]) }}
               title={`${t.label}${t.hint ? ` (${t.hint})` : ''}`}
               style={tbBtn(tool === t.id)}>
               {t.icon}
-              <span style={{ fontSize: 11 }}>{t.label}</span>
+              <span className="ann-btn-txt" style={{ fontSize: 11 }}>{t.label}</span>
             </button>
           ))}
         </div>
 
         {/* Separator */}
-        <div style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
+        <div className="ann-sep" style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
 
         {/* Zoom controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <div className="ann-group-zoom" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button onClick={() => setZoom(z => clamp(z / 1.3, 0.15, 15))} style={tbIconBtn} title="Zoom out">
             <ZoomOut size={14} />
           </button>
@@ -1010,34 +1012,37 @@ export default function Annotate() {
         </div>
 
         {/* Separator */}
-        <div style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
+        <div className="ann-sep" style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
 
         {/* Undo / Redo */}
-        <div style={{ display: 'flex', gap: 2 }}>
+        <div className="ann-group-actions" style={{ display: 'flex', gap: 2 }}>
           <button onClick={undo} title="Undo (Ctrl+Z)" style={tbIconBtn}><Undo2 size={14} /></button>
           <button onClick={redo} title="Redo (Ctrl+Y)" style={tbIconBtn}><Redo2 size={14} /></button>
           {currentIdx > 0 && (
             <button onClick={copyFromPrev} title="Copy from previous" style={{ ...tbIconBtn, width: 'auto', padding: '0 8px', gap: 4, fontSize: 11, color: 'var(--text2)' }}>
-              <Copy size={12} /> Copy prev
+              <Copy size={12} /> <span className="ann-btn-txt">Copy prev</span>
             </button>
           )}
         </div>
 
-        <div style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
-        <button
-          onClick={triggerFileSelect}
-          style={{ ...tbIconBtn, width: 'auto', padding: '0 8px', gap: 4, color: 'var(--text2)' }}
-          title="Upload more images"
-        >
-          <Download size={14} />
-          <span style={{ fontSize: 11 }}>Upload</span>
-        </button>
+        <div className="ann-sep" style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
+        
+        <div className="ann-group-upload" style={{ display: 'flex', gap: 2 }}>
+          <button
+            onClick={triggerFileSelect}
+            style={{ ...tbIconBtn, width: 'auto', padding: '0 8px', gap: 4, color: 'var(--text2)' }}
+            title="Upload more images"
+          >
+            <Download size={14} />
+            <span className="ann-btn-txt" style={{ fontSize: 11 }}>Upload</span>
+          </button>
+        </div>
 
         {/* Spacer */}
-        <div style={{ flex: 1 }} />
+        <div className="ann-flex-spacer" style={{ flex: 1 }} />
 
         {/* Right: Nav + Save */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <div className="ann-group-nav" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <button onClick={() => goTo(currentIdx - 1)} disabled={currentIdx === 0}
             style={{ ...tbIconBtn, opacity: currentIdx === 0 ? 0.3 : 1 }} title="Previous image">
             <ChevronLeft size={14} />
@@ -1047,7 +1052,7 @@ export default function Annotate() {
             <ChevronRight size={14} />
           </button>
 
-          <div style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 6px' }} />
+          <div className="ann-sep" style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 6px' }} />
 
           <button onClick={save} style={{
             display: 'flex', alignItems: 'center', gap: 5, padding: '5px 14px', height: 30,
@@ -1056,7 +1061,7 @@ export default function Annotate() {
             color: saved ? 'var(--success)' : '#fff', cursor: 'pointer',
             fontSize: 12, fontWeight: 500, transition: 'all 0.12s',
           }}>
-            <Save size={13} /> {saved ? 'Saved' : 'Save'}
+            <Save size={13} /> <span>{saved ? 'Saved' : 'Save'}</span>
           </button>
         </div>
       </div>
@@ -1470,6 +1475,25 @@ export default function Annotate() {
           {rightPanelOpen ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
         </button>
       </div>
+      <style>{`
+        @media (max-width: 767px) {
+          .annotator-header {
+            height: auto !important;
+            flex-wrap: wrap !important;
+            padding: 6px 8px !important;
+            gap: 4px !important;
+          }
+          .ann-sep { display: none !important; }
+          .ann-btn-txt { display: none !important; }
+          .ann-flex-spacer { display: none !important; }
+          .ann-group-info { order: 1; }
+          .ann-group-nav { order: 2; margin-left: auto; }
+          .ann-group-tools { order: 3; }
+          .ann-group-zoom { order: 4; margin-left: auto; }
+          .ann-group-actions { order: 5; }
+          .ann-group-upload { order: 6; }
+        }
+      `}</style>
     </div>
   )
 }

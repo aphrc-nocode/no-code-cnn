@@ -1,4 +1,4 @@
-﻿import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { Sun, Moon, ExternalLink } from "lucide-react";
 import { useTheme } from "./components/ThemeContext";
 import Dashboard from "./components/Dashboard";
@@ -57,7 +57,7 @@ function About() {
 
       {/* Mission */}
       <div style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))",
-        borderLeft: "4px solid hsl(var(--primary))", borderRadius: 10,
+        borderRadius: 10,
         padding: "22px 26px", marginBottom: 40 }}>
         <h2 style={{ fontSize: 10, fontWeight: 700, color: "hsl(var(--primary))",
           margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
