@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   ChevronLeft, ChevronRight, Save, Trash2, RotateCcw,
   MousePointer2, Square, Hexagon, Crosshair, Sparkles, Hand,
-  ZoomIn, ZoomOut, Maximize2, Copy, Undo2, Redo2, Zap, Download, Pencil, Plus
+  ZoomIn, ZoomOut, Maximize2, Copy, Undo2, Redo2, Zap, Download, Pencil, Plus, Loader2
 } from 'lucide-react'
 import api, { type AnnData, type ImageItem, type Project, type ExternalModel } from '../api'
 
@@ -80,6 +80,7 @@ export default function Annotate() {
 
   const [project, setProject]   = useState<Project | null>(null)
   const [images, setImages]     = useState<ImageItem[]>([])
+  const [loading, setLoading]   = useState(true)
   const [currentIdx, setCurrentIdx] = useState(0)
   const [shapes, setShapes]     = useState<Shape[]>([])
   const [selected, setSelected] = useState<number | null>(null)
@@ -259,6 +260,7 @@ export default function Annotate() {
   }
 
   useEffect(() => {
+    setLoading(true)
     Promise.all([
       api.get(`/projects/${projectId}`),
       api.get(`/projects/${projectId}/images`),
@@ -279,8 +281,10 @@ export default function Annotate() {
       setTrainingRuns(doneRuns as any)
       setExternalModels([])
       if (doneRuns.length > 0) setAutoRunId(`run:${doneRuns[doneRuns.length - 1].id}`)
+      setLoading(false)
     }).catch(err => {
       console.error("Error loading project/images", err)
+      setLoading(false)
     })
   }, [projectId, imageId])
 
@@ -1113,7 +1117,12 @@ export default function Annotate() {
           {/* Canvas */}
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', alignItems: 'center',
             justifyContent: 'center', minHeight: 0 }}>
-            {images.length === 0 ? (
+            {loading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, color: 'var(--text3)' }}>
+                <Loader2 size={36} style={{ animation: 'spin 1.5s linear infinite', color: 'hsl(var(--primary))' }} />
+                <span style={{ fontSize: 13, fontWeight: 500 }}>Loading image workspace...</span>
+              </div>
+            ) : images.length === 0 ? (
               <div
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}

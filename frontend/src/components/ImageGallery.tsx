@@ -503,12 +503,13 @@ function GalleryCard({ img, projectId, onClick }: { img: ImageItem; projectId: s
           style={{ width: '100%', height: '100%', objectFit: 'cover',
             transition: 'transform 0.3s', transform: hovered ? 'scale(1.05)' : 'scale(1)' }}
           onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-        <span style={{ position: 'absolute', top: 8, right: 8, padding: '3px 6px', borderRadius: 20,
-          fontSize: 9, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3,
-          boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-          background: img.annotated ? '#22c55e' : 'var(--surface-3)',
-          color: img.annotated ? '#fff' : 'var(--text3)',
-          border: img.annotated ? 'none' : '1px solid hsl(var(--border))' }}>
+        <span style={{ position: 'absolute', top: 8, right: 8, padding: '4px 8px', borderRadius: 20,
+          fontSize: 9, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+          background: img.annotated ? '#22c55e' : 'rgba(15, 23, 42, 0.75)',
+          color: '#fff',
+          backdropFilter: img.annotated ? 'none' : 'blur(4px)',
+          border: img.annotated ? 'none' : '1px solid rgba(255, 255, 255, 0.2)' }}>
           {img.annotated ? <><Check size={8} /> Annotated</> : <><Circle size={8} /> Unannotated</>}
         </span>
       </div>
