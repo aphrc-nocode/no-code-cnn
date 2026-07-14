@@ -219,48 +219,19 @@ export default function AdminDashboard() {
               No matching users found in the system.
             </div>
           ) : (
-            <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-zinc-800/30 text-slate-500 dark:text-zinc-400 font-semibold border-b border-slate-100 dark:border-zinc-800/60">
-                  <th className="p-4 pl-6">Username</th>
-                  <th className="p-4">Email</th>
-                  <th className="p-4">Registered At</th>
-                  <th className="p-4">Role</th>
-                  <th className="p-4">Status</th>
-                  <th className="p-4 pr-6 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/50">
+            <div>
+              {/* Mobile Card List View */}
+              <div className="block md:hidden divide-y divide-slate-100 dark:divide-zinc-800/50">
                 {filteredUsers.map((u) => {
                   const isSelf = u.id === currentAdmin?.id;
                   
                   return (
-                    <tr key={u.id} className="hover:bg-slate-50/55 dark:hover:bg-zinc-800/20 transition-colors">
-                      <td className="p-4 pl-6 font-medium text-slate-900 dark:text-white flex items-center gap-2">
-                        {u.username}
-                        {isSelf && <span className="text-[10px] bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 font-semibold px-2 py-0.5 rounded-full border border-slate-200/50 dark:border-zinc-700/50">You</span>}
-                      </td>
-                      <td className="p-4 text-slate-500 dark:text-zinc-400">{u.email}</td>
-                      <td className="p-4 text-slate-400 dark:text-zinc-500">
-                        {new Date(u.created_at).toLocaleDateString()}
-                      </td>
-                      <td className="p-4">
-                        {isSelf ? (
-                          <span className="inline-flex items-center gap-1 text-orange-600 dark:text-orange-400 font-semibold text-xs uppercase tracking-wider">
-                            <ShieldCheck className="w-4 h-4" /> Admin
-                          </span>
-                        ) : (
-                          <select
-                            value={u.role}
-                            onChange={(e) => handleUpdateRole(u.id, e.target.value as any)}
-                            className="bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs py-1 px-2 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                          >
-                            <option value="user">User</option>
-                            <option value="admin">Admin</option>
-                          </select>
-                        )}
-                      </td>
-                      <td className="p-4">
+                    <div key={u.id} className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                          {u.username}
+                          {isSelf && <span className="text-[10px] bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 font-semibold px-2 py-0.5 rounded-full border border-slate-200/50 dark:border-zinc-700/50">You</span>}
+                        </div>
                         <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${
                           u.status === "approved"
                             ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-900/30 text-green-700 dark:text-green-400"
@@ -268,20 +239,41 @@ export default function AdminDashboard() {
                             ? "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900/30 text-red-700 dark:text-red-400"
                             : "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/30 text-amber-700 dark:text-amber-400"
                         }`}>
-                          {u.status === "approved" ? <CheckCircle2 className="w-3.5 h-3.5" /> : u.status === "rejected" ? <XCircle className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+                          {u.status === "approved" ? <CheckCircle2 className="w-3 h-3" /> : u.status === "rejected" ? <XCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
                           {u.status.charAt(0).toUpperCase() + u.status.slice(1)}
                         </span>
-                      </td>
-                      <td className="p-4 pr-6 text-right">
-                        {isSelf ? (
-                          <span className="text-xs text-slate-400 dark:text-zinc-500 italic">No actions available</span>
-                        ) : (
-                          <div className="inline-flex items-center gap-2 justify-end">
+                      </div>
+                      
+                      <div className="text-xs text-slate-500 dark:text-zinc-400 space-y-1">
+                        <div><span className="font-medium text-slate-400 dark:text-zinc-500">Email:</span> {u.email}</div>
+                        <div><span className="font-medium text-slate-400 dark:text-zinc-500">Registered:</span> {new Date(u.created_at).toLocaleDateString()}</div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between pt-2">
+                        <div>
+                          {isSelf ? (
+                            <span className="inline-flex items-center gap-1 text-orange-600 dark:text-orange-400 font-semibold text-xs uppercase tracking-wider">
+                              <ShieldCheck className="w-4 h-4" /> Admin
+                            </span>
+                          ) : (
+                            <select
+                              value={u.role}
+                              onChange={(e) => handleUpdateRole(u.id, e.target.value as any)}
+                              className="bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs py-1.5 px-2.5 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                            >
+                              <option value="user">User</option>
+                              <option value="admin">Admin</option>
+                            </select>
+                          )}
+                        </div>
+                        
+                        {!isSelf && (
+                          <div className="flex items-center gap-2">
                             {u.status !== "approved" && (
                               <button
                                 onClick={() => handleUpdateStatus(u.id, "approved")}
                                 title="Approve account"
-                                className="p-1.5 bg-green-50 hover:bg-green-100 dark:bg-green-950/30 dark:hover:bg-green-900/40 text-green-600 dark:text-green-400 rounded-lg transition-colors border border-green-200/50 dark:border-green-900/30"
+                                className="p-2 bg-green-50 hover:bg-green-100 dark:bg-green-950/30 dark:hover:bg-green-900/40 text-green-600 dark:text-green-400 rounded-lg transition-colors border border-green-200/50 dark:border-green-900/30"
                               >
                                 <UserCheck className="w-4 h-4" />
                               </button>
@@ -291,7 +283,7 @@ export default function AdminDashboard() {
                               <button
                                 onClick={() => handleUpdateStatus(u.id, "rejected")}
                                 title="Reject / Suspend account"
-                                className="p-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 rounded-lg transition-colors border border-rose-200/50 dark:border-rose-900/30"
+                                className="p-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 rounded-lg transition-colors border border-rose-200/50 dark:border-rose-900/30"
                               >
                                 <ShieldAlert className="w-4 h-4" />
                               </button>
@@ -316,19 +308,131 @@ export default function AdminDashboard() {
                               <button
                                 onClick={() => setConfirmDeleteId(u.id)}
                                 title="Remove User Account"
-                                className="p-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-zinc-800/80 dark:hover:bg-zinc-700/80 text-slate-500 dark:text-zinc-400 rounded-lg transition-colors border border-slate-200/40 dark:border-zinc-700/50"
+                                className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-zinc-800/80 dark:hover:bg-zinc-700/80 text-slate-500 dark:text-zinc-400 rounded-lg transition-colors border border-slate-200/40 dark:border-zinc-700/50"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             )}
                           </div>
                         )}
-                      </td>
-                    </tr>
+                      </div>
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
+              </div>
+
+              {/* Desktop Table View */}
+              <table className="hidden md:table w-full text-left border-collapse text-sm">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-zinc-800/30 text-slate-500 dark:text-zinc-400 font-semibold border-b border-slate-100 dark:border-zinc-800/60">
+                    <th className="p-4 pl-6">Username</th>
+                    <th className="p-4">Email</th>
+                    <th className="p-4">Registered At</th>
+                    <th className="p-4">Role</th>
+                    <th className="p-4">Status</th>
+                    <th className="p-4 pr-6 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/50">
+                  {filteredUsers.map((u) => {
+                    const isSelf = u.id === currentAdmin?.id;
+                    
+                    return (
+                      <tr key={u.id} className="hover:bg-slate-50/55 dark:hover:bg-zinc-800/20 transition-colors">
+                        <td className="p-4 pl-6 font-medium text-slate-900 dark:text-white flex items-center gap-2">
+                          {u.username}
+                          {isSelf && <span className="text-[10px] bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 font-semibold px-2 py-0.5 rounded-full border border-slate-200/50 dark:border-zinc-700/50">You</span>}
+                        </td>
+                        <td className="p-4 text-slate-500 dark:text-zinc-400">{u.email}</td>
+                        <td className="p-4 text-slate-400 dark:text-zinc-500">
+                          {new Date(u.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="p-4">
+                          {isSelf ? (
+                            <span className="inline-flex items-center gap-1 text-orange-600 dark:text-orange-400 font-semibold text-xs uppercase tracking-wider">
+                              <ShieldCheck className="w-4 h-4" /> Admin
+                            </span>
+                          ) : (
+                            <select
+                              value={u.role}
+                              onChange={(e) => handleUpdateRole(u.id, e.target.value as any)}
+                              className="bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs py-1 px-2 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                            >
+                              <option value="user">User</option>
+                              <option value="admin">Admin</option>
+                            </select>
+                          )}
+                        </td>
+                        <td className="p-4">
+                          <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${
+                            u.status === "approved"
+                              ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-900/30 text-green-700 dark:text-green-400"
+                              : u.status === "rejected"
+                              ? "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900/30 text-red-700 dark:text-red-400"
+                              : "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/30 text-amber-700 dark:text-amber-400"
+                          }`}>
+                            {u.status === "approved" ? <CheckCircle2 className="w-3.5 h-3.5" /> : u.status === "rejected" ? <XCircle className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+                            {u.status.charAt(0).toUpperCase() + u.status.slice(1)}
+                          </span>
+                        </td>
+                        <td className="p-4 pr-6 text-right">
+                          {isSelf ? (
+                            <span className="text-xs text-slate-400 dark:text-zinc-500 italic">No actions available</span>
+                          ) : (
+                            <div className="inline-flex items-center gap-2 justify-end">
+                              {u.status !== "approved" && (
+                                <button
+                                  onClick={() => handleUpdateStatus(u.id, "approved")}
+                                  title="Approve account"
+                                  className="p-1.5 bg-green-50 hover:bg-green-100 dark:bg-green-950/30 dark:hover:bg-green-900/40 text-green-600 dark:text-green-400 rounded-lg transition-colors border border-green-200/50 dark:border-green-900/30"
+                                >
+                                  <UserCheck className="w-4 h-4" />
+                                </button>
+                              )}
+
+                              {u.status !== "rejected" && (
+                                <button
+                                  onClick={() => handleUpdateStatus(u.id, "rejected")}
+                                  title="Reject / Suspend account"
+                                  className="p-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 rounded-lg transition-colors border border-rose-200/50 dark:border-rose-900/30"
+                                >
+                                  <ShieldAlert className="w-4 h-4" />
+                                </button>
+                              )}
+
+                              {confirmDeleteId === u.id ? (
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    onClick={() => handleDeleteUser(u.id)}
+                                    className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white text-xs font-semibold rounded-lg transition-all"
+                                  >
+                                    Delete
+                                  </button>
+                                  <button
+                                    onClick={() => setConfirmDeleteId(null)}
+                                    className="px-2.5 py-1 bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 text-slate-700 dark:text-zinc-200 text-xs font-semibold rounded-lg transition-all"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => setConfirmDeleteId(u.id)}
+                                  title="Remove User Account"
+                                  className="p-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-zinc-800/80 dark:hover:bg-zinc-700/80 text-slate-500 dark:text-zinc-400 rounded-lg transition-colors border border-slate-200/40 dark:border-zinc-700/50"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>

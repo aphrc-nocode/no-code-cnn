@@ -1,7 +1,8 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { GitBranch, Edit3, Database, Cpu, Activity, ChevronLeft, Menu, X } from "lucide-react";
+import { GitBranch, Edit3, Database, Cpu, Activity, ChevronLeft, Menu, X, Sun, Moon } from "lucide-react";
 import api, { type Project } from "../api";
+import { useTheme } from "./ThemeContext";
 
 import WorkflowBuilder from "./WorkflowBuilder";
 import Annotator from "./Annotator";
@@ -32,6 +33,7 @@ export default function ProjectWorkspace() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const { theme, toggleTheme } = useTheme();
 
   const [project, setProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>("workflow");
@@ -152,6 +154,61 @@ export default function ProjectWorkspace() {
               );
             })}
           </nav>
+
+          {/* Settings Section */}
+          <div style={{
+            padding: "16px 20px",
+            borderTop: "1px solid hsl(var(--border))",
+            background: "hsl(var(--card))"
+          }}>
+            <p style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: "hsl(var(--muted-foreground))",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              margin: "0 0 10px 0"
+            }}>
+              Settings
+            </p>
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              width: "100%"
+            }}>
+              <span style={{ fontSize: 13, color: "hsl(var(--foreground))", fontWeight: 500 }}>Theme</span>
+              <button
+                onClick={toggleTheme}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  border: "1px solid hsl(var(--border))",
+                  background: "hsl(var(--secondary))",
+                  color: "hsl(var(--foreground))",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  transition: "background 0.15s"
+                }}
+              >
+                {theme === "light" ? (
+                  <>
+                    <Sun size={13} style={{ color: "hsl(var(--primary))" }} />
+                    <span>Light</span>
+                  </>
+                ) : (
+                  <>
+                    <Moon size={13} style={{ color: "hsl(var(--primary))" }} />
+                    <span>Dark</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </aside>
 
         {/* ── Mobile hamburger bar ─────────────────────────────────────────── */}

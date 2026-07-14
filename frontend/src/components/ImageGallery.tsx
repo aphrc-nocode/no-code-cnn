@@ -123,7 +123,7 @@ export default function ImageGallery() {
   const filterBtn = (active: boolean) => ({
     padding: '4px 10px', fontSize: 11, border: 'none', cursor: 'pointer',
     borderRadius: 3, fontWeight: active ? 600 : 500, transition: 'all 0.15s',
-    background: active ? 'var(--primary)' : 'transparent',
+    background: active ? 'hsl(var(--primary))' : 'transparent',
     color: active ? '#fff' : 'var(--text3)',
   } as React.CSSProperties)
 
@@ -132,41 +132,41 @@ export default function ImageGallery() {
       width: '100%', overflow: 'hidden', background: 'var(--bg)' }}>
 
       <header className="gallery-header" style={{ display: 'flex', alignItems: 'center', gap: 0, flexShrink: 0,
-        height: 42, background: 'var(--surface)', borderBottom: '1px solid var(--border)',
+        height: 42, background: 'var(--surface)', borderBottom: '1px solid hsl(var(--border))',
         padding: '0 8px' }}>
         
         <div className="gallery-row-1" style={{ display: 'flex', alignItems: 'center', gap: 0, flexShrink: 0 }}>
           <button onClick={() => navigate(`/projects/${projectId}/workflow`)}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px',
-              height: 30, border: '1px solid var(--border)', borderRadius: 3,
+              height: 30, border: '1px solid hsl(var(--border))', borderRadius: 3,
               background: 'var(--surface-2)', color: 'var(--text)', cursor: 'pointer',
               fontSize: 11, fontWeight: 500, marginRight: 4 }}>
             <ChevronLeft size={14} /> Back
           </button>
-          <div className="gallery-sep" style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 10px' }} />
+          <div className="gallery-sep" style={{ width: 1, height: 20, background: 'hsl(var(--border))', margin: '0 10px' }} />
           <h1 className="gallery-title" style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', margin: 0,
             maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {project?.name ?? 'Loading...'} — Gallery
           </h1>
         </div>
 
-        <div className="gallery-sep" style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 10px' }} />
+        <div className="gallery-sep" style={{ width: 1, height: 20, background: 'hsl(var(--border))', margin: '0 10px' }} />
 
         <div className="gallery-row-2" style={{ display: 'flex', alignItems: 'center', gap: 0, flex: 1 }}>
           <div className="gallery-filters" style={{ display: 'flex', background: 'var(--surface2)', borderRadius: 3,
-            padding: 2, border: '1px solid var(--border)', marginRight: 10 }}>
+            padding: 2, border: '1px solid hsl(var(--border))', marginRight: 10 }}>
             {(['all', 'annotated', 'unannotated'] as Filter[]).map(f => (
               <button key={f} style={filterBtn(filter === f)} onClick={() => setFilter(f)}>
                 {f.charAt(0).toUpperCase() + f.slice(1)}
               </button>
             ))}
           </div>
-          <div className="gallery-sep" style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 10px 0 0' }} />
+          <div className="gallery-sep" style={{ width: 1, height: 20, background: 'hsl(var(--border))', margin: '0 10px 0 0' }} />
           <div className="gallery-search" style={{ position: 'relative', width: 180 }}>
             <input type="text" placeholder="Search images..." value={search}
               onChange={e => setSearch(e.target.value)}
               style={{ width: '100%', height: 28, padding: '0 8px 0 28px',
-                border: '1px solid var(--border)', borderRadius: 3, fontSize: 11,
+                border: '1px solid hsl(var(--border))', borderRadius: 3, fontSize: 11,
                 background: 'var(--surface-2)', color: 'var(--text)', outline: 'none',
                 boxSizing: 'border-box' as const }} />
             <Search size={11} style={{ position: 'absolute', left: 8, top: 9,
@@ -174,24 +174,24 @@ export default function ImageGallery() {
           </div>
         </div>
 
-        <div className="gallery-sep" style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 10px' }} />
+        <div className="gallery-sep" style={{ width: 1, height: 20, background: 'hsl(var(--border))', margin: '0 10px' }} />
         
         <div className="gallery-actions" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <button onClick={openSummary}
             style={{ display: 'flex', alignItems: 'center', gap: 5, height: 30,
-              padding: '0 10px', border: '1px solid var(--border)', borderRadius: 3,
+              padding: '0 10px', border: '1px solid hsl(var(--border))', borderRadius: 3,
               background: 'var(--surface-2)', color: 'var(--text)', cursor: 'pointer', fontSize: 11 }}>
             <BarChart3 size={13} /> <span className="btn-txt">Summary</span>
           </button>
           <button onClick={() => fileInputRef.current?.click()}
             style={{ display: 'flex', alignItems: 'center', gap: 5, height: 30,
-              padding: '0 10px', border: '1px solid var(--border)', borderRadius: 3,
+              padding: '0 10px', border: '1px solid hsl(var(--border))', borderRadius: 3,
               background: 'var(--surface-2)', color: 'var(--text)', cursor: 'pointer', fontSize: 11 }}>
             <CloudUpload size={13} /> <span className="btn-txt">Upload</span>
           </button>
           <button onClick={() => { setExportOpen(true); setExportName(project?.name ?? 'Dataset') }}
             style={{ display: 'flex', alignItems: 'center', gap: 5, height: 30,
-              padding: '0 10px', border: '1px solid var(--border)', borderRadius: 3,
+              padding: '0 10px', border: '1px solid hsl(var(--border))', borderRadius: 3,
               background: 'var(--surface-2)', color: 'var(--text)', cursor: 'pointer', fontSize: 11 }}>
             <Download size={13} /> <span className="btn-txt">Export</span>
           </button>
@@ -209,23 +209,23 @@ export default function ImageGallery() {
 
         {isDragOver && (
           <div style={{ position: 'absolute', inset: 0, zIndex: 50,
-            background: 'rgba(205,103,44,0.12)', border: '2px dashed var(--primary)',
+            background: 'rgba(205,103,44,0.12)', border: '2px dashed hsl(var(--primary))',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 14, fontWeight: 600, color: 'var(--primary)', pointerEvents: 'none' as const,
+            fontSize: 14, fontWeight: 600, color: 'hsl(var(--primary))', pointerEvents: 'none' as const,
             borderRadius: 6, boxSizing: 'border-box' as const }}>
             Drop images here to upload
           </div>
         )}
 
         {uploading && (
-          <div style={{ marginBottom: 16, background: 'var(--surface)', border: '1px solid var(--border)',
+          <div style={{ marginBottom: 16, background: 'var(--surface)', border: '1px solid hsl(var(--border))',
             borderRadius: 6, padding: '12px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-              <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
+              <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: 'hsl(var(--primary))' }} />
               <span style={{ fontSize: 12, color: 'var(--text2)' }}>{uploadText}</span>
             </div>
             <div style={{ background: 'var(--surface2)', borderRadius: 99, height: 5, overflow: 'hidden' }}>
-              <div style={{ height: '100%', background: 'var(--primary)',
+              <div style={{ height: '100%', background: 'hsl(var(--primary))',
                 width: `${uploadPct}%`, transition: 'width 0.15s' }} />
             </div>
           </div>
@@ -235,27 +235,42 @@ export default function ImageGallery() {
         {imagesLoading && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
             justifyContent: 'center', minHeight: 320, gap: 12, color: 'var(--text3)' }}>
-            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
+            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'hsl(var(--primary))' }} />
             <span style={{ fontSize: 13 }}>Loading images…</span>
           </div>
         )}
 
         {!imagesLoading && images.length === 0 && !uploading && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'center', minHeight: 320, gap: 16, color: 'var(--text3)',
-            border: '2px dashed var(--border)', borderRadius: 8, cursor: 'pointer',
-            padding: 40, transition: 'all 0.15s', boxSizing: 'border-box' as const }}
+            justifyContent: 'center', minHeight: 350, gap: 12, color: 'var(--text3)',
+            border: '2px dashed hsl(var(--border))', borderRadius: 16, cursor: 'pointer',
+            padding: '48px 32px', transition: 'all 0.2s', boxSizing: 'border-box' as const,
+            background: 'hsl(var(--card))' }}
             onClick={() => fileInputRef.current?.click()}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--primary)')}
-            onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}>
-            <CloudUpload size={48} style={{ color: 'var(--primary)' }} />
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>
-              No images in project
+            onMouseEnter={e => {
+              e.currentTarget.style.borderColor = 'hsl(var(--primary))';
+              e.currentTarget.style.background = 'hsla(var(--primary), 0.02)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.borderColor = 'hsl(var(--border))';
+              e.currentTarget.style.background = 'hsl(var(--card))';
+            }}>
+            <div style={{
+              width: 80, height: 80, borderRadius: '50%',
+              background: 'hsla(var(--primary), 0.08)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              marginBottom: 8, transition: 'all 0.2s',
+              border: '1px solid hsla(var(--primary), 0.15)'
+            }}>
+              <CloudUpload size={36} style={{ color: 'hsl(var(--primary))' }} />
+            </div>
+            <h3 style={{ margin: '8px 0 2px 0', fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
+              Upload images to annotate
             </h3>
-            <p style={{ margin: 0, fontSize: 12, color: 'var(--text3)' }}>
-              Drag and drop images here or click to browse
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text2)' }}>
+              Drag and drop your image files here, or <span style={{ color: 'hsl(var(--primary))', fontWeight: 600 }}>browse files</span>
             </p>
-            <span style={{ fontSize: 11, opacity: 0.5 }}>Supports JPEG, PNG, BMP, WEBP</span>
+            <span style={{ fontSize: 11, color: 'var(--text3)', opacity: 0.65, marginTop: 4 }}>Supports JPEG, PNG, BMP, WEBP</span>
           </div>
         )}
 
@@ -282,7 +297,7 @@ export default function ImageGallery() {
         <div style={{ position: 'fixed', inset: 0, zIndex: 2100,
           background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
           display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)',
+          <div style={{ background: 'var(--surface)', border: '1px solid hsl(var(--border))',
             borderRadius: 8, padding: 28, width: 420, maxWidth: '90vw',
             boxSizing: 'border-box' as const, color: 'var(--text)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -294,13 +309,13 @@ export default function ImageGallery() {
               marginBottom: 6, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Dataset Name</label>
             <input type="text" value={exportName} onChange={e => setExportName(e.target.value)}
               style={{ width: '100%', height: 34, padding: '0 10px', background: 'var(--surface-2)',
-                border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text)',
+                border: '1px solid hsl(var(--border))', borderRadius: 4, color: 'var(--text)',
                 outline: 'none', fontSize: 13, boxSizing: 'border-box' as const, marginBottom: 14 }} />
             <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text2)',
               marginBottom: 6, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Version</label>
             <input type="text" value={exportVer} onChange={e => setExportVer(e.target.value)}
               style={{ width: '100%', height: 34, padding: '0 10px', background: 'var(--surface-2)',
-                border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text)',
+                border: '1px solid hsl(var(--border))', borderRadius: 4, color: 'var(--text)',
                 outline: 'none', fontSize: 13, boxSizing: 'border-box' as const, marginBottom: 4 }} />
             <span style={{ fontSize: 10, color: 'var(--text3)', display: 'block', marginBottom: 20 }}>
               Increment (e.g. 1.0.1, 2.0.0) when exporting new splits.
@@ -308,14 +323,14 @@ export default function ImageGallery() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <button onClick={doSaveDataset} disabled={exporting}
                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  height: 36, width: '100%', background: 'var(--primary)', color: '#fff',
+                  height: 36, width: '100%', background: 'hsl(var(--primary))', color: '#fff',
                   border: 'none', borderRadius: 4, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
                 <Database size={14} /> {exporting ? 'Saving...' : 'Save to Datasets Table'}
               </button>
               <button onClick={downloadZip}
                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                   height: 36, width: '100%', background: 'var(--surface-3)', color: 'var(--text)',
-                  border: '1px solid var(--border)', borderRadius: 4, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                  border: '1px solid hsl(var(--border))', borderRadius: 4, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
                 <FileArchive size={14} /> Download ZIP Archive
               </button>
             </div>
@@ -327,15 +342,15 @@ export default function ImageGallery() {
         <div style={{ position: 'fixed', inset: 0, zIndex: 2150,
           background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
           display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)',
+          <div style={{ background: 'var(--surface)', border: '1px solid hsl(var(--border))',
             borderRadius: 8, padding: 24, width: 680, maxWidth: '92vw', maxHeight: '85vh',
             overflow: 'hidden', display: 'flex', flexDirection: 'column',
             boxSizing: 'border-box' as const, color: 'var(--text)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+              marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid hsl(var(--border))', flexShrink: 0 }}>
               <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600,
                 display: 'flex', alignItems: 'center', gap: 8 }}>
-                <BarChart3 size={16} style={{ color: 'var(--primary)' }} /> Project Data Summary
+                <BarChart3 size={16} style={{ color: 'hsl(var(--primary))' }} /> Project Data Summary
               </h3>
               <button onClick={() => setSummaryOpen(false)} style={{ background: 'transparent',
                 border: 'none', color: 'var(--text3)', cursor: 'pointer', display: 'flex' }}>
@@ -346,7 +361,7 @@ export default function ImageGallery() {
               {analyticsLoading && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
                   height: 200, gap: 10, color: 'var(--text2)', flexDirection: 'column' }}>
-                  <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
+                  <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: 'hsl(var(--primary))' }} />
                   <span style={{ fontSize: 12 }}>Loading statistics...</span>
                 </div>
               )}
@@ -356,7 +371,7 @@ export default function ImageGallery() {
               )}
               {analytics && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px,1fr))', gap: 20 }}>
-                  <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)',
+                  <div style={{ background: 'var(--surface-2)', border: '1px solid hsl(var(--border))',
                     padding: 16, borderRadius: 6, display: 'flex', flexDirection: 'column' }}>
                     <h4 style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', margin: '0 0 16px',
                       textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Labelling Status</h4>
@@ -373,7 +388,7 @@ export default function ImageGallery() {
                             <span style={{ fontSize: 11, color: 'var(--text)', fontWeight: 600, marginLeft: 'auto', fontFamily: 'monospace' }}>{row.val}</span>
                           </div>
                         ))}
-                        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ borderTop: '1px solid hsl(var(--border))', paddingTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ width: 10, height: 10, display: 'inline-block' }} />
                           <span style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 500 }}>Total:</span>
                           <span style={{ fontSize: 11, color: 'var(--text)', fontWeight: 600, marginLeft: 'auto', fontFamily: 'monospace' }}>{analytics.total_images}</span>
@@ -381,7 +396,7 @@ export default function ImageGallery() {
                       </div>
                     </div>
                   </div>
-                  <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)',
+                  <div style={{ background: 'var(--surface-2)', border: '1px solid hsl(var(--border))',
                     padding: 16, borderRadius: 6, display: 'flex', flexDirection: 'column' }}>
                     <h4 style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', margin: '0 0 12px',
                       textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Object Distribution</h4>
@@ -476,13 +491,13 @@ function GalleryCard({ img, projectId, onClick }: { img: ImageItem; projectId: s
     <div onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{ border: `1px solid ${hovered ? 'var(--primary)' : 'var(--border)'}`,
+      style={{ border: `1px solid ${hovered ? 'hsl(var(--primary))' : 'hsl(var(--border))'}`,
         borderRadius: 4, background: 'var(--surface-2)', padding: 8, cursor: 'pointer',
         display: 'flex', flexDirection: 'column', gap: 8, position: 'relative',
         transition: 'all 0.2s', transform: hovered ? 'translateY(-2px)' : 'none',
         boxShadow: hovered ? '0 4px 12px rgba(0,0,0,0.15)' : 'none', boxSizing: 'border-box' as const }}>
       <div style={{ width: '100%', height: 120, borderRadius: 3, overflow: 'hidden',
-        background: 'var(--surface-3)', position: 'relative', border: '1px solid var(--border)' }}>
+        background: 'var(--surface-3)', position: 'relative', border: '1px solid hsl(var(--border))' }}>
         <img src={`/api/projects/${projectId}/images/${img.id}/file`} alt={img.filename}
           loading="lazy"
           style={{ width: '100%', height: '100%', objectFit: 'cover',
@@ -493,7 +508,7 @@ function GalleryCard({ img, projectId, onClick }: { img: ImageItem; projectId: s
           boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
           background: img.annotated ? '#22c55e' : 'var(--surface-3)',
           color: img.annotated ? '#fff' : 'var(--text3)',
-          border: img.annotated ? 'none' : '1px solid var(--border)' }}>
+          border: img.annotated ? 'none' : '1px solid hsl(var(--border))' }}>
           {img.annotated ? <><Check size={8} /> Annotated</> : <><Circle size={8} /> Unannotated</>}
         </span>
       </div>
