@@ -1,7 +1,9 @@
 import { Routes, Route, useNavigate, useLocation, Navigate } from "react-router-dom";
-import { Sun, Moon, ExternalLink, LogOut } from "lucide-react";
+import { Sun, Moon, ExternalLink, LogOut, User, X } from "lucide-react";
 import { useTheme } from "./components/ThemeContext";
 import { useAuth } from "./components/AuthContext";
+import { useState, useEffect } from "react";
+import api from "./api";
 import Dashboard from "./components/Dashboard";
 import ProjectWorkspace from "./components/ProjectWorkspace";
 import Login from "./components/Login";
@@ -135,7 +137,57 @@ export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
-  const { user, loading, logout } = useAuth();
+  const { user, loading, logout, refreshUser } = useAuth();
+
+  // Profile Editor Modal states
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileUsername, setProfileUsername] = useState("");
+  const [profileEmail, setProfileEmail] = useState("");
+  const [profilePassword, setProfilePassword] = useState("");
+  const [profileConfirmPassword, setProfileConfirmPassword] = useState("");
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileSuccess, setProfileSuccess] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+
+  // Initialize fields when modal opens
+  useEffect(() => {
+    if (profileOpen && user) {
+      setProfileUsername(user.username);
+      setProfileEmail(user.email);
+      setProfilePassword("");
+      setProfileConfirmPassword("");
+      setProfileError(null);
+      setProfileSuccess(false);
+    }
+  }, [profileOpen, user]);
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfileError(null);
+    setProfileSuccess(false);
+
+    if (profilePassword && profilePassword !== profileConfirmPassword) {
+      setProfileError("Passwords do not match");
+      return;
+    }
+
+    setProfileSaving(true);
+    try {
+      await api.put("auth/profile", {
+        username: profileUsername,
+        email: profileEmail,
+        password: profilePassword || undefined
+      });
+      await refreshUser();
+      setProfileSuccess(true);
+      setProfilePassword("");
+      setProfileConfirmPassword("");
+    } catch (err: any) {
+      setProfileError(err.response?.data?.detail || "Failed to update profile");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -237,64 +289,62 @@ export default function App() {
             })}
           </nav>
 
-          {/* Right column: theme toggle + logout — push to far right */}
-          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, borderRight: "1px solid hsl(var(--border))", paddingRight: 12 }}>
+          {/* Right column: profile badge button */}
+          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
+            <div
+              onClick={() => setProfileOpen(true)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 13,
+                padding: "6px 12px",
+                borderRadius: 8,
+                border: "1px solid hsl(var(--border))",
+                background: "hsl(var(--secondary) / 0.4)",
+                cursor: "pointer",
+                userSelect: "none",
+                transition: "all 0.15s"
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = "hsl(var(--secondary) / 0.8)";
+                e.currentTarget.style.borderColor = "hsl(var(--primary) / 0.3)";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = "hsl(var(--secondary) / 0.4)";
+                e.currentTarget.style.borderColor = "hsl(var(--border))";
+              }}
+            >
+              <div style={{
+                width: 22,
+                height: 22,
+                borderRadius: "50%",
+                background: "hsl(var(--primary))",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 700,
+                fontSize: 11
+              }}>
+                {user.username.charAt(0).toUpperCase()}
+              </div>
               <span style={{ fontWeight: 600, color: "hsl(var(--foreground))" }}>{user.username}</span>
               {user.role === "admin" && (
                 <span style={{
-                  fontSize: 10,
+                  fontSize: 9,
                   fontWeight: 700,
                   background: "hsl(var(--primary) / 0.15)",
                   color: "hsl(var(--primary))",
-                  padding: "1px 6px",
+                  padding: "1px 5px",
                   borderRadius: 4,
-                  textTransform: "uppercase"
+                  textTransform: "uppercase",
+                  letterSpacing: "0.03em"
                 }}>
                   Admin
                 </span>
               )}
             </div>
-            
-            <button onClick={logout}
-              title="Logout"
-              style={{
-                padding: "6px 10px",
-                borderRadius: 7,
-                border: "1px solid hsl(var(--border))",
-                background: "transparent",
-                color: "hsl(var(--muted-foreground))",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: 5,
-                fontSize: 12,
-                fontWeight: 600,
-                transition: "all 0.15s"
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.background = "hsl(var(--destructive) / 0.08)";
-                e.currentTarget.style.color = "hsl(var(--destructive))";
-                e.currentTarget.style.borderColor = "hsl(var(--destructive) / 0.3)";
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = "hsl(var(--muted-foreground))";
-                e.currentTarget.style.borderColor = "hsl(var(--border))";
-              }}>
-              <LogOut size={12} /> Log Out
-            </button>
-
-            <button onClick={toggleTheme}
-              style={{ padding: "7px 8px", borderRadius: 7,
-                border: "1px solid hsl(var(--border))",
-                background: "hsl(var(--secondary))",
-                color: "hsl(var(--foreground))", cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                transition: "background 0.15s" }}
-              title="Toggle theme">
-              {theme === "light" ? <Moon size={14} /> : <Sun size={14} />}
-            </button>
           </div>
         </header>
       )}
@@ -312,6 +362,191 @@ export default function App() {
           <Route path="*"               element={<Navigate to="/projects" replace />} />
         </Routes>
       </div>
+
+      {/* ── Profile Modal ─────────────────────────────────────────────────── */}
+      {profileOpen && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 2200,
+          background: "rgba(0,0,0,0.5)",
+          backdropFilter: "blur(4px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center"
+        }}>
+          <div style={{
+            background: "hsl(var(--card))",
+            border: "1px solid hsl(var(--border))",
+            borderRadius: 12,
+            padding: 24,
+            width: 400,
+            maxWidth: "90vw",
+            boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
+            color: "hsl(var(--foreground))",
+            position: "relative"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+                <User size={18} style={{ color: "hsl(var(--primary))" }} /> User Profile
+              </h3>
+              <button
+                onClick={() => {
+                  setProfileOpen(false);
+                  setProfileError(null);
+                  setProfileSuccess(false);
+                }}
+                style={{ background: "transparent", border: "none", color: "hsl(var(--muted-foreground))", cursor: "pointer", display: "flex" }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveProfile} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {profileError && (
+                <div style={{
+                  background: "hsl(var(--destructive) / 0.1)",
+                  border: "1px solid hsl(var(--destructive) / 0.2)",
+                  color: "hsl(var(--destructive))",
+                  padding: "8px 12px",
+                  borderRadius: 6,
+                  fontSize: 12
+                }}>
+                  {profileError}
+                </div>
+              )}
+              
+              {profileSuccess && (
+                <div style={{
+                  background: "rgba(34, 197, 94, 0.1)",
+                  border: "1px solid rgba(34, 197, 94, 0.2)",
+                  color: "#22c55e",
+                  padding: "8px 12px",
+                  borderRadius: 6,
+                  fontSize: 12
+                }}>
+                  Profile updated successfully!
+                </div>
+              )}
+
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Username</label>
+                <input
+                  type="text"
+                  required
+                  value={profileUsername}
+                  onChange={e => setProfileUsername(e.target.value)}
+                  style={{
+                    width: "100%", height: 36, padding: "0 10px",
+                    background: "hsl(var(--secondary) / 0.3)",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: 6,
+                    color: "hsl(var(--foreground))",
+                    outline: "none", fontSize: 13, boxSizing: "border-box"
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Email Address</label>
+                <input
+                  type="email"
+                  required
+                  value={profileEmail}
+                  onChange={e => setProfileEmail(e.target.value)}
+                  style={{
+                    width: "100%", height: 36, padding: "0 10px",
+                    background: "hsl(var(--secondary) / 0.3)",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: 6,
+                    color: "hsl(var(--foreground))",
+                    outline: "none", fontSize: 13, boxSizing: "border-box"
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>New Password (optional)</label>
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  value={profilePassword}
+                  onChange={e => setProfilePassword(e.target.value)}
+                  style={{
+                    width: "100%", height: 36, padding: "0 10px",
+                    background: "hsl(var(--secondary) / 0.3)",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: 6,
+                    color: "hsl(var(--foreground))",
+                    outline: "none", fontSize: 13, boxSizing: "border-box"
+                  }}
+                />
+              </div>
+
+              {profilePassword && (
+                <div>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Confirm New Password</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    value={profileConfirmPassword}
+                    onChange={e => setProfileConfirmPassword(e.target.value)}
+                    style={{
+                      width: "100%", height: 36, padding: "0 10px",
+                      background: "hsl(var(--secondary) / 0.3)",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: 6,
+                      color: "hsl(var(--foreground))",
+                      outline: "none", fontSize: 13, boxSizing: "border-box"
+                    }}
+                  />
+                </div>
+              )}
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                <button
+                  type="submit"
+                  disabled={profileSaving}
+                  style={{
+                    height: 36, width: "100%", background: "hsl(var(--primary))", color: "#fff",
+                    border: "none", borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    transition: "background 0.15s"
+                  }}
+                >
+                  {profileSaving ? "Saving..." : "Save Changes"}
+                </button>
+                
+                <div style={{ height: "1px", background: "hsl(var(--border))", margin: "6px 0" }} />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProfileOpen(false);
+                    logout();
+                  }}
+                  style={{
+                    height: 36, width: "100%", background: "hsl(var(--destructive) / 0.1)",
+                    color: "hsl(var(--destructive))", border: "1px solid hsl(var(--destructive) / 0.2)",
+                    borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    transition: "all 0.15s"
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = "hsl(var(--destructive) / 0.15)";
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = "hsl(var(--destructive) / 0.1)";
+                  }}
+                >
+                  <LogOut size={14} /> Log Out
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

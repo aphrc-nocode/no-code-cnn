@@ -1116,6 +1116,28 @@ async def login_user(req: LoginRequest, response: Response):
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
 
+class UpdateProfileRequest(BaseModel):
+    username: str
+    email: str
+    password: Optional[str] = None
+
+@app.put("/api/v1/auth/profile", response_model=UserResponse, tags=["Authentication"])
+async def update_profile(req: UpdateProfileRequest, current_user: User = Depends(get_current_user)):
+    if req.username.lower() != current_user.username.lower():
+        if user_manager.get_user_by_username(req.username):
+            raise HTTPException(status_code=400, detail="Username already exists")
+    if req.email.lower() != current_user.email.lower():
+        if user_manager.get_user_by_email(req.email):
+            raise HTTPException(status_code=400, detail="Email already exists")
+            
+    current_user.username = req.username
+    current_user.email = req.email
+    if req.password and req.password.strip():
+        current_user.password_hash = hash_password(req.password)
+        
+    user_manager.save_users()
+    return current_user
+
 # ==================== Admin Operations API ====================
 @app.get("/api/v1/admin/users", response_model=List[UserResponse], tags=["Admin Operations"])
 async def list_users(current_user: User = Depends(get_admin_user)):
