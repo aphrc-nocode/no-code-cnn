@@ -39,6 +39,17 @@ export default function ProjectWorkspace() {
   const [activeTab, setActiveTab] = useState<TabType>("workflow");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const collapsed = isCollapsed && !isMobile;
 
   useEffect(() => {
     const path = location.pathname;
@@ -101,7 +112,7 @@ export default function ProjectWorkspace() {
         */}
         <aside className={`ws-sidebar ${sidebarOpen ? "ws-sidebar--open" : ""}`}
           style={{
-            width: isCollapsed ? 64 : 240,
+            width: collapsed ? 64 : 240,
             flexShrink: 0,
             background: "hsl(var(--card))",
             display: "flex",
@@ -112,15 +123,15 @@ export default function ProjectWorkspace() {
           }}>
 
           <div style={{
-            padding: isCollapsed ? "16px 8px" : "20px 20px 16px",
+            padding: collapsed ? "16px 8px" : "20px 20px 16px",
             borderBottom: "1px solid hsl(var(--border))",
             display: "flex",
             flexDirection: "column",
-            alignItems: isCollapsed ? "center" : "stretch",
+            alignItems: collapsed ? "center" : "stretch",
             gap: 12,
             transition: "all 0.2s"
           }}>
-            {!isCollapsed ? (
+            {!collapsed ? (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                 <button onClick={() => navigate("/projects")}
                   style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12,
@@ -130,22 +141,24 @@ export default function ProjectWorkspace() {
                   onMouseLeave={e => (e.currentTarget.style.color = "hsl(var(--muted-foreground))")}>
                   <ChevronLeft size={14} /> Projects
                 </button>
-                <button onClick={() => setIsCollapsed(true)}
-                  title="Collapse Sidebar"
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "hsl(var(--muted-foreground))",
-                    cursor: "pointer",
-                    display: "flex",
-                    padding: 4,
-                    borderRadius: 4,
-                    transition: "background 0.15s"
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "hsl(var(--secondary))")}
-                  onMouseLeave={e => (e.currentTarget.style.background = "none")}>
-                  <ChevronLeft size={16} />
-                </button>
+                {!isMobile && (
+                  <button onClick={() => setIsCollapsed(true)}
+                    title="Collapse Sidebar"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "hsl(var(--muted-foreground))",
+                      cursor: "pointer",
+                      display: "flex",
+                      padding: 4,
+                      borderRadius: 4,
+                      transition: "background 0.15s"
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = "hsl(var(--secondary))")}
+                    onMouseLeave={e => (e.currentTarget.style.background = "none")}>
+                    <ChevronLeft size={16} />
+                  </button>
+                )}
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center", width: "100%" }}>
@@ -164,25 +177,27 @@ export default function ProjectWorkspace() {
                   }}>
                   <ChevronLeft size={16} />
                 </button>
-                <button onClick={() => setIsCollapsed(false)}
-                  title="Expand Sidebar"
-                  style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36,
-                    borderRadius: 8, border: "1px solid hsl(var(--border))", background: "hsl(var(--secondary) / 0.3)",
-                    color: "hsl(var(--muted-foreground))", cursor: "pointer", padding: 0 }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.color = "hsl(var(--foreground))";
-                    e.currentTarget.style.background = "hsl(var(--secondary))";
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.color = "hsl(var(--muted-foreground))";
-                    e.currentTarget.style.background = "hsl(var(--secondary) / 0.3)";
-                  }}>
-                  <Menu size={16} />
-                </button>
+                {!isMobile && (
+                  <button onClick={() => setIsCollapsed(false)}
+                    title="Expand Sidebar"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36,
+                      borderRadius: 8, border: "1px solid hsl(var(--border))", background: "hsl(var(--secondary) / 0.3)",
+                      color: "hsl(var(--muted-foreground))", cursor: "pointer", padding: 0 }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.color = "hsl(var(--foreground))";
+                      e.currentTarget.style.background = "hsl(var(--secondary))";
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.color = "hsl(var(--muted-foreground))";
+                      e.currentTarget.style.background = "hsl(var(--secondary) / 0.3)";
+                    }}>
+                    <Menu size={16} />
+                  </button>
+                )}
               </div>
             )}
 
-            {!isCollapsed ? (
+            {!collapsed ? (
               <div>
                 <h2 style={{ fontSize: 15, fontWeight: 700,
                   color: "hsl(var(--foreground))", margin: "0 0 5px",
@@ -210,20 +225,20 @@ export default function ProjectWorkspace() {
             )}
           </div>
 
-          <nav style={{ flex: 1, padding: isCollapsed ? "12px 6px" : "12px 10px",
+          <nav style={{ flex: 1, padding: collapsed ? "12px 6px" : "12px 10px",
             display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", transition: "padding 0.2s" }}>
             {TABS.map(({ id: tab, label, Icon }) => {
               const active = activeTab === tab;
               return (
                 <button key={tab} onClick={() => handleTabChange(tab)}
-                  title={isCollapsed ? label : undefined}
+                  title={collapsed ? label : undefined}
                   style={{ width: "100%", display: "flex", alignItems: "center",
-                    justifyContent: isCollapsed ? "center" : "flex-start",
-                    gap: isCollapsed ? 0 : 10, padding: isCollapsed ? "10px 0" : "10px 14px", border: "none", borderRadius: 6,
+                    justifyContent: collapsed ? "center" : "flex-start",
+                    gap: collapsed ? 0 : 10, padding: collapsed ? "10px 0" : "10px 14px", border: "none", borderRadius: 6,
                     background: active ? "hsl(var(--primary))" : "transparent",
                     color: active ? "#fff" : "hsl(var(--muted-foreground))",
                     fontSize: 13, fontWeight: active ? 600 : 500,
-                    textAlign: isCollapsed ? "center" : "left", cursor: "pointer", transition: "all 0.12s" }}
+                    textAlign: collapsed ? "center" : "left", cursor: "pointer", transition: "all 0.12s" }}
                   onMouseEnter={e => { if (!active) {
                     e.currentTarget.style.background = "hsl(var(--secondary))";
                     e.currentTarget.style.color = "hsl(var(--foreground))";
@@ -233,7 +248,7 @@ export default function ProjectWorkspace() {
                     e.currentTarget.style.color = "hsl(var(--muted-foreground))";
                   }}}>
                   <Icon size={15} style={{ flexShrink: 0 }} />
-                  {!isCollapsed && <span>{label}</span>}
+                  {!collapsed && <span>{label}</span>}
                 </button>
               );
             })}
@@ -241,16 +256,16 @@ export default function ProjectWorkspace() {
 
           {/* Settings Section */}
           <div style={{
-            padding: isCollapsed ? "12px 8px" : "16px 20px",
+            padding: collapsed ? "12px 8px" : "16px 20px",
             borderTop: "1px solid hsl(var(--border))",
             background: "hsl(var(--card))",
             display: "flex",
             flexDirection: "column",
-            alignItems: isCollapsed ? "center" : "stretch",
-            gap: isCollapsed ? 0 : 10,
+            alignItems: collapsed ? "center" : "stretch",
+            gap: collapsed ? 0 : 10,
             transition: "all 0.2s"
           }}>
-            {!isCollapsed && (
+            {!collapsed && (
               <p style={{
                 fontSize: 10,
                 fontWeight: 700,
@@ -266,17 +281,17 @@ export default function ProjectWorkspace() {
             <div style={{
               display: "flex",
               alignItems: "center",
-              justifyContent: isCollapsed ? "center" : "space-between",
+              justifyContent: collapsed ? "center" : "space-between",
               width: "100%"
             }}>
-              {!isCollapsed && <span style={{ fontSize: 13, color: "hsl(var(--foreground))", fontWeight: 500 }}>Theme</span>}
+              {!collapsed && <span style={{ fontSize: 13, color: "hsl(var(--foreground))", fontWeight: 500 }}>Theme</span>}
               <button
                 onClick={toggleTheme}
                 title={`Switch to ${theme === "light" ? "Dark" : "Light"} mode`}
                 style={{
-                  padding: isCollapsed ? "0" : "6px 10px",
-                  width: isCollapsed ? 36 : "auto",
-                  height: isCollapsed ? 36 : "auto",
+                  padding: collapsed ? "0" : "6px 10px",
+                  width: collapsed ? 36 : "auto",
+                  height: collapsed ? 36 : "auto",
                   borderRadius: 8,
                   border: "1px solid hsl(var(--border))",
                   background: "hsl(var(--secondary))",
@@ -294,12 +309,12 @@ export default function ProjectWorkspace() {
                 {theme === "light" ? (
                   <>
                     <Sun size={13} style={{ color: "hsl(var(--primary))", flexShrink: 0 }} />
-                    {!isCollapsed && <span>Light</span>}
+                    {!collapsed && <span>Light</span>}
                   </>
                 ) : (
                   <>
                     <Moon size={13} style={{ color: "hsl(var(--primary))", flexShrink: 0 }} />
-                    {!isCollapsed && <span>Dark</span>}
+                    {!collapsed && <span>Dark</span>}
                   </>
                 )}
               </button>
