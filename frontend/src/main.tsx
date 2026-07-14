@@ -2,15 +2,18 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
 import { ThemeProvider } from './components/ThemeContext'
+import { AuthProvider } from './components/AuthContext'
 import './index.css'
 import App from './App.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
-      <HashRouter>
-        <App />
-      </HashRouter>
+      <AuthProvider>
+        <HashRouter>
+          <App />
+        </HashRouter>
+      </AuthProvider>
     </ThemeProvider>
   </StrictMode>,
 )

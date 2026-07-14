@@ -14,6 +14,7 @@ class Project(BaseModel):
     classes: List[str] = []
     class_colors: Optional[Dict[str, str]] = {}
     created_at: datetime = Field(default_factory=datetime.now)
+    owner_id: Optional[str] = "legacy"
 
 class ProjectManager:
     def __init__(self):

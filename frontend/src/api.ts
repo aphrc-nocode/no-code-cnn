@@ -31,11 +31,22 @@ export interface ExternalModel {
 
 const resolveUrl = (url: string) => {
   if (url.startsWith("http")) return url;
-  let formattedUrl = url;
-  if (url.startsWith("/projects") || url.startsWith("/workflow")) {
-    formattedUrl = `/api${url}`;
+  
+  // Strip leading slash
+  const cleanUrl = url.startsWith("/") ? url.slice(1) : url;
+  
+  // If it's already versioned, return directly
+  if (cleanUrl.startsWith("api/v1/")) {
+    return `${BASE_URL}/${cleanUrl}`;
   }
-  return `${BASE_URL}${formattedUrl}`;
+  
+  // If it starts with api/projects, strip 'api/'
+  let targetUrl = cleanUrl;
+  if (targetUrl.startsWith("api/projects")) {
+    targetUrl = targetUrl.replace("api/projects", "projects");
+  }
+  
+  return `${BASE_URL}/api/v1/${targetUrl}`;
 };
 
 const handleResponse = async (res: Response) => {
@@ -62,10 +73,12 @@ const api = {
       const q = new URLSearchParams(config.params as any).toString();
       fullUrl += `?${q}`;
     }
+    const token = localStorage.getItem("maklens_token");
     const res = await fetch(fullUrl, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
+        ...(token ? { "Authorization": `Bearer ${token}` } : {}),
         ...(config?.headers || {}),
       },
     });
@@ -78,7 +91,9 @@ const api = {
       fullUrl += `?${q}`;
     }
     const isFormData = body instanceof FormData;
+    const token = localStorage.getItem("maklens_token");
     const headers: Record<string, string> = {
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
       ...(config?.headers || {}),
     };
     if (!isFormData) {
@@ -98,7 +113,9 @@ const api = {
       fullUrl += `?${q}`;
     }
     const isFormData = body instanceof FormData;
+    const token = localStorage.getItem("maklens_token");
     const headers: Record<string, string> = {
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
       ...(config?.headers || {}),
     };
     if (!isFormData) {
@@ -117,10 +134,12 @@ const api = {
       const q = new URLSearchParams(config.params as any).toString();
       fullUrl += `?${q}`;
     }
+    const token = localStorage.getItem("maklens_token");
     const res = await fetch(fullUrl, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
+        ...(token ? { "Authorization": `Bearer ${token}` } : {}),
         ...(config?.headers || {}),
       },
     });

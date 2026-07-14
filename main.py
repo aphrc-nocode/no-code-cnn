@@ -1,9 +1,14 @@
 # No-Code AI Platform Backend with FastAPI
 # Core architecture for reusable ML pipelines with image support
-
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form, Depends, APIRouter, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from auth import (
+    get_current_user, get_current_approved_user, get_admin_user,
+    User, UserResponse, create_access_token, verify_password,
+    hash_password, user_manager
+)
+
 from typing import List, Dict, Any, Optional, Union
 from enum import Enum
 import asyncio
@@ -970,23 +975,230 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ==================== Path Rewriting Middleware ====================
+@app.middleware("http")
+async def rewrite_legacy_paths(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/projects") and not path.startswith("/api/v1/"):
+        new_path = path.replace("/api/projects", "/api/v1/projects", 1)
+        request.scope["path"] = new_path
+    elif path.startswith("/pipelines") and not path.startswith("/api/v1/"):
+        new_path = path.replace("/pipelines", "/api/v1/pipelines", 1)
+        request.scope["path"] = new_path
+    elif path.startswith("/upload-dataset") and not path.startswith("/api/v1/"):
+        new_path = path.replace("/upload-dataset", "/api/v1/upload-dataset", 1)
+        request.scope["path"] = new_path
+    elif path.startswith("/upload-detection-dataset") and not path.startswith("/api/v1/"):
+        new_path = path.replace("/upload-detection-dataset", "/api/v1/upload-detection-dataset", 1)
+        request.scope["path"] = new_path
+    elif path.startswith("/predict") and not path.startswith("/api/v1/"):
+        new_path = path.replace("/predict", "/api/v1/predict", 1)
+        request.scope["path"] = new_path
+    elif path.startswith("/responsible-ai") and not path.startswith("/api/v1/"):
+        new_path = path.replace("/responsible-ai", "/api/v1/responsible-ai", 1)
+        request.scope["path"] = new_path
+    elif path.startswith("/mlflow") and not path.startswith("/api/v1/"):
+        new_path = path.replace("/mlflow", "/api/v1/mlflow", 1)
+        request.scope["path"] = new_path
+    elif path.startswith("/datasets") and not path.startswith("/api/v1/"):
+        new_path = path.replace("/datasets", "/api/v1/datasets", 1)
+        request.scope["path"] = new_path
+    elif path.startswith("/jobs") and "mlflow" in path and not path.startswith("/api/v1/"):
+        new_path = "/api/v1" + path
+        request.scope["path"] = new_path
+    
+    response = await call_next(request)
+    return response
 
-# ==================== Project API ====================
-
-@app.post("/api/projects")
-async def create_project(project: Project):
-    return project_manager.create_project(project)
-
-@app.get("/api/projects")
-async def list_projects():
-    return project_manager.list_projects()
-
-@app.get("/api/projects/{project_id}")
-async def get_project(project_id: str):
+# ==================== Access Control Helpers ====================
+def check_project_access(project_id: str, current_user: User) -> Project:
     project = project_manager.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    if project.owner_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied to this project")
     return project
+
+def check_job_access(job_id: str, current_user: User) -> TrainingJob:
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    project_id = getattr(job.pipeline_config, 'project_id', None)
+    if project_id:
+        check_project_access(project_id, current_user)
+    elif current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied to this job")
+    return job
+
+def check_dataset_access(dataset_id: str, current_user: User):
+    dataset_path = Path("datasets") / dataset_id
+    config_file = dataset_path / "dataset_config.json"
+    if config_file.exists():
+        try:
+            with open(config_file, "r") as f:
+                config = json.load(f)
+            project_id = config.get("project_id")
+            if project_id:
+                check_project_access(project_id, current_user)
+                return
+        except Exception:
+            pass
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied to this dataset")
+
+# ==================== Auth & Admin API Schemas ====================
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class RegisterRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+
+class StatusUpdateRequest(BaseModel):
+    status: str
+
+class RoleUpdateRequest(BaseModel):
+    role: str
+
+# ==================== Authentication API ====================
+@app.post("/api/v1/auth/register", response_model=UserResponse, tags=["Authentication"])
+async def register_user(req: RegisterRequest):
+    if user_manager.get_user_by_username(req.username):
+        raise HTTPException(status_code=400, detail="Username already exists")
+    if user_manager.get_user_by_email(req.email):
+        raise HTTPException(status_code=400, detail="Email already exists")
+    
+    # Check if this is the first user
+    is_first = len(user_manager.users) == 0
+    role = "admin" if is_first else "user"
+    status = "approved" if is_first else "pending"
+    
+    user = User(
+        username=req.username,
+        email=req.email,
+        password_hash=hash_password(req.password),
+        role=role,
+        status=status
+    )
+    user_manager.create_user(user)
+    return user
+
+@app.post("/api/v1/auth/login", tags=["Authentication"])
+async def login_user(req: LoginRequest, response: Response):
+    user = user_manager.get_user_by_username(req.username)
+    if not user or not verify_password(req.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    
+    access_token = create_access_token(data={"sub": user.id})
+    response.set_cookie(
+        key="maklens_token",
+        value=access_token,
+        max_age=86400,
+        samesite="lax",
+        httponly=False
+    )
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "role": user.role,
+            "status": user.status,
+            "created_at": user.created_at
+        }
+    }
+
+@app.get("/api/v1/auth/me", response_model=UserResponse, tags=["Authentication"])
+async def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+# ==================== Admin Operations API ====================
+@app.get("/api/v1/admin/users", response_model=List[UserResponse], tags=["Admin Operations"])
+async def list_users(current_user: User = Depends(get_admin_user)):
+    return user_manager.list_users()
+
+@app.put("/api/v1/admin/users/{user_id}/status", response_model=UserResponse, tags=["Admin Operations"])
+async def update_user_status(user_id: str, req: StatusUpdateRequest, current_user: User = Depends(get_admin_user)):
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot change your own status")
+    if user_id not in user_manager.users:
+        raise HTTPException(status_code=404, detail="User not found")
+    user = user_manager.users[user_id]
+    user.status = req.status
+    user_manager.save_users()
+    return user
+
+@app.put("/api/v1/admin/users/{user_id}/role", response_model=UserResponse, tags=["Admin Operations"])
+async def update_user_role(user_id: str, req: RoleUpdateRequest, current_user: User = Depends(get_admin_user)):
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot change your own role")
+    if user_id not in user_manager.users:
+        raise HTTPException(status_code=404, detail="User not found")
+    user = user_manager.users[user_id]
+    user.role = req.role
+    user_manager.save_users()
+    return user
+
+@app.delete("/api/v1/admin/users/{user_id}", tags=["Admin Operations"])
+async def delete_user(user_id: str, current_user: User = Depends(get_admin_user)):
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own admin account")
+    if user_id not in user_manager.users:
+        raise HTTPException(status_code=404, detail="User not found")
+    del user_manager.users[user_id]
+    user_manager.save_users()
+    return {"detail": "User deleted successfully"}
+
+@app.get("/api/v1/admin/stats", tags=["Admin Operations"])
+async def get_admin_stats(current_user: User = Depends(get_admin_user)):
+    users = user_manager.list_users()
+    projects = project_manager.list_projects()
+    jobs = job_manager.list_jobs()
+    
+    pending_users = sum(1 for u in users if u.status == "pending")
+    approved_users = sum(1 for u in users if u.status == "approved")
+    rejected_users = sum(1 for u in users if u.status == "rejected")
+    
+    running_jobs = sum(1 for j in jobs if j.status == TrainingStatus.RUNNING)
+    completed_jobs = sum(1 for j in jobs if j.status == TrainingStatus.COMPLETED)
+    
+    return {
+        "users": {
+            "total": len(users),
+            "pending": pending_users,
+            "approved": approved_users,
+            "rejected": rejected_users
+        },
+        "projects": {
+            "total": len(projects)
+        },
+        "jobs": {
+            "total": len(jobs),
+            "running": running_jobs,
+            "completed": completed_jobs
+        }
+    }
+
+# ==================== Project API ====================
+
+@app.post("/api/v1/projects", tags=["Projects"])
+async def create_project(project: Project, current_user: User = Depends(get_current_approved_user)):
+    project.owner_id = current_user.id
+    return project_manager.create_project(project)
+
+@app.get("/api/v1/projects", tags=["Projects"])
+async def list_projects(current_user: User = Depends(get_current_approved_user)):
+    if current_user.role == "admin":
+        return project_manager.list_projects()
+    return [p for p in project_manager.list_projects() if p.owner_id == current_user.id]
+
+@app.get("/api/v1/projects/{project_id}", tags=["Projects"])
+async def get_project(project_id: str, current_user: User = Depends(get_current_approved_user)):
+    return check_project_access(project_id, current_user)
 
 # ==================== Job API ====================
 # Import MLflow server utilities
@@ -1007,34 +1219,32 @@ async def root():
     return RedirectResponse(url="/index.html")
 
 # MLflow integration endpoints
-@app.post("/mlflow/start-server")
-async def start_mlflow():
+@app.post("/api/v1/mlflow/start-server", tags=["MLflow Tracking"])
+async def start_mlflow(current_user: User = Depends(get_current_approved_user)):
     """Start the MLflow UI server"""
     result = start_mlflow_server()
     return {"message": result}
 
-@app.post("/mlflow/stop-server")
-async def stop_mlflow():
+@app.post("/api/v1/mlflow/stop-server", tags=["MLflow Tracking"])
+async def stop_mlflow(current_user: User = Depends(get_current_approved_user)):
     """Stop the MLflow UI server"""
     result = stop_mlflow_server()
     return {"message": result}
 
-@app.get("/mlflow/ui-url")
-async def get_ui_url():
+@app.get("/api/v1/mlflow/ui-url", tags=["MLflow Tracking"])
+async def get_ui_url(current_user: User = Depends(get_current_approved_user)):
     """Get the URL for the MLflow UI"""
     return {"url": get_mlflow_ui_url()}
 
-@app.get("/mlflow/experiments")
-async def get_experiments():
+@app.get("/api/v1/mlflow/experiments", tags=["MLflow Tracking"])
+async def get_experiments(current_user: User = Depends(get_current_approved_user)):
     """Get details about MLflow experiments"""
     return get_experiment_details()
 
-@app.get("/jobs/{job_id}/mlflow")
-async def get_job_mlflow_info(job_id: str):
+@app.get("/api/v1/jobs/{job_id}/mlflow", tags=["MLflow Tracking"])
+async def get_job_mlflow_info(job_id: str, current_user: User = Depends(get_current_approved_user)):
     """Get MLflow information for a specific job"""
-    job = job_manager.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    check_job_access(job_id, current_user)
     from mlflow_utils import EXPERIMENT_NAME
     
     try:
@@ -1065,22 +1275,21 @@ async def get_job_mlflow_info(job_id: str):
     except Exception as e:
         return {"message": f"Error retrieving MLflow information: {str(e)}"}
 
-@app.post("/pipelines", response_model=TrainingJob)
-async def create_pipeline(config: PipelineConfig):
+@app.post("/api/v1/pipelines", response_model=TrainingJob, tags=["Pipelines & Training"])
+async def create_pipeline(config: PipelineConfig, current_user: User = Depends(get_current_approved_user)):
     """Create a new training pipeline"""
+    check_project_access(config.project_id, current_user)
     try:
         job = job_manager.create_job(config)
         return job
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/pipelines/{job_id}/train")
-async def start_training(job_id: str, background_tasks: BackgroundTasks):
+@app.post("/api/v1/pipelines/{job_id}/train", tags=["Pipelines & Training"])
+async def start_training(job_id: str, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_approved_user)):
     """Start training for a specific job"""
+    job = check_job_access(job_id, current_user)
     try:
-        job = job_manager.get_job(job_id)
-        if not job:
-            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
         if not job.linked_dataset_id:
             raise HTTPException(status_code=400, detail="No dataset linked to this job. Please link a dataset first.")
         dataset_path = f"datasets/{job.linked_dataset_id}"
@@ -1089,16 +1298,16 @@ async def start_training(job_id: str, background_tasks: BackgroundTasks):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/pipelines/{job_id}", response_model=TrainingJob)
-async def get_pipeline_status(job_id: str):
+@app.get("/api/v1/pipelines/{job_id}", response_model=TrainingJob, tags=["Pipelines & Training"])
+async def get_pipeline_status(job_id: str, current_user: User = Depends(get_current_approved_user)):
     """Get the status of a training job"""
-    job = job_manager.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return job
+    return check_job_access(job_id, current_user)
 
-@app.get("/pipelines/{job_id}/evaluate")
-async def evaluate_pipeline(job_id: str):
+
+
+@app.get("/api/v1/pipelines/{job_id}/evaluate", tags=["Pipelines & Training"])
+async def evaluate_pipeline(job_id: str, current_user: User = Depends(get_current_approved_user)):
+    check_job_access(job_id, current_user)
     """Evaluate a trained model on its test split and return detailed metrics and samples."""
     import base64
     import io
@@ -1741,19 +1950,25 @@ async def evaluate_pipeline(job_id: str):
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported task type: {job.pipeline_config.task_type}")
 
-@app.get("/pipelines", response_model=List[TrainingJob])
-async def list_pipelines(project_id: Optional[str] = None):
+@app.get("/api/v1/pipelines", response_model=List[TrainingJob], tags=["Pipelines & Training"])
+async def list_pipelines(project_id: Optional[str] = None, current_user: User = Depends(get_current_approved_user)):
     """List all training jobs, optionally filtered by project"""
     jobs = job_manager.list_jobs()
     if project_id:
+        check_project_access(project_id, current_user)
         jobs = [job for job in jobs if getattr(job.pipeline_config, 'project_id', None) == project_id]
+    else:
+        if current_user.role != "admin":
+            user_project_ids = {p.id for p in project_manager.list_projects() if p.owner_id == current_user.id}
+            jobs = [job for job in jobs if getattr(job.pipeline_config, 'project_id', None) in user_project_ids]
     return jobs
 
 
-@app.get("/datasets/versions")
+@app.get("/api/v1/datasets/versions", tags=["Datasets"])
 async def list_dataset_versions(
     dataset_name: Optional[str] = None,
-    source: Optional[str] = None
+    source: Optional[str] = None,
+    current_user: User = Depends(get_current_approved_user)
 ):
     """List all dataset versions with optional filtering"""
     try:
@@ -1761,18 +1976,28 @@ async def list_dataset_versions(
         version_manager = DatasetVersionManager("datasets")
         
         versions = version_manager.list_dataset_versions(dataset_name, source)
+        # Filter versions that the user has access to
+        accessible_versions = []
+        for v in versions:
+            try:
+                check_dataset_access(v.dataset_id, current_user)
+                accessible_versions.append(v)
+            except HTTPException:
+                pass
+                
         return {
-            "count": len(versions),
-            "versions": [v.to_dict() for v in versions]
+            "count": len(accessible_versions),
+            "versions": [v.to_dict() for v in accessible_versions]
         }
     except ImportError:
         raise HTTPException(status_code=500, detail="Dataset versioning system not available")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list dataset versions: {str(e)}")
 
-@app.get("/datasets/versions/{job_id}")
-async def get_dataset_version(job_id: str):
+@app.get("/api/v1/datasets/versions/{job_id}", tags=["Datasets"])
+async def get_dataset_version(job_id: str, current_user: User = Depends(get_current_approved_user)):
     """Get detailed information about a specific dataset version"""
+    check_job_access(job_id, current_user)
     try:
         from dataset_versioning import DatasetVersionManager
         version_manager = DatasetVersionManager("datasets")
@@ -1787,9 +2012,10 @@ async def get_dataset_version(job_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get dataset version: {str(e)}")
 
-@app.delete("/datasets/{job_id}")
-async def delete_dataset(job_id: str):
+@app.delete("/api/v1/datasets/{job_id}", tags=["Datasets"])
+async def delete_dataset(job_id: str, current_user: User = Depends(get_current_approved_user)):
     """Delete a dataset and its version information"""
+    check_job_access(job_id, current_user)
     try:
         from dataset_versioning import DatasetVersionManager
         version_manager = DatasetVersionManager("datasets")
@@ -1816,9 +2042,10 @@ async def delete_dataset(job_id: str):
 
 # ==================== Dataset Upload Endpoints ====================
 
-@app.post("/upload-dataset/{job_id}/{class_name}")
-async def create_dataset_class(job_id: str, class_name: str):
+@app.post("/api/v1/upload-dataset/{job_id}/{class_name}", tags=["Datasets"])
+async def create_dataset_class(job_id: str, class_name: str, current_user: User = Depends(get_current_approved_user)):
     """Create a class directory in the dataset folder"""
+    check_job_access(job_id, current_user)
     try:
         # Create dataset class directory
         class_dir = Path(f"datasets/{job_id}/{class_name}")
@@ -1827,7 +2054,7 @@ async def create_dataset_class(job_id: str, class_name: str):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/upload-dataset/{job_id}")
+@app.post("/api/v1/upload-dataset/{job_id}", tags=["Datasets"])
 async def upload_dataset_file(
     job_id: str,
     task_type: str = "image_classification",
@@ -1835,7 +2062,8 @@ async def upload_dataset_file(
     project_id: str = Form(None),
     file: UploadFile = File(...),
     class_name: str = Form(None),
-    file_type: str = Form("image")  # 'image', 'annotation', or 'zip'
+    file_type: str = Form("image"),  # 'image', 'annotation', or 'zip'
+    current_user: User = Depends(get_current_approved_user)
 ):
     """Upload a file to the dataset folder. Supports images, annotation files, and zipped COCO datasets."""
     try:
@@ -1901,15 +2129,17 @@ async def upload_dataset_file(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/predict/{job_id}")
+@app.post("/api/v1/predict/{job_id}", tags=["Pipelines & Training"])
 async def predict(
     job_id: str,
     file: Optional[UploadFile] = File(None),
     image_url: Optional[str] = Form(None),
     confidence_threshold: float = Form(0.5),
     explain_method: Optional[str] = Form("none"),
-    explain_box_index: Optional[int] = Form(-1)
+    explain_box_index: Optional[int] = Form(-1),
+    current_user: User = Depends(get_current_approved_user)
 ):
+    check_job_access(job_id, current_user)
     """Make predictions using a trained model"""
     import time
     start_time = time.time()
@@ -2274,9 +2504,10 @@ async def predict(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
     
 # ==================== Pipeline Management Endpoints ====================
-@app.delete("/pipelines/{job_id}")
-async def delete_pipeline(job_id: str):
+@app.delete("/api/v1/pipelines/{job_id}", tags=["Pipelines & Training"])
+async def delete_pipeline(job_id: str, current_user: User = Depends(get_current_approved_user)):
     """Delete a training job and its associated resources"""
+    check_job_access(job_id, current_user)
     success = job_manager.delete_job(job_id)
     if not success:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -2291,9 +2522,11 @@ async def health_check():
         "active_jobs": len(job_manager.running_jobs)
     }
 
-@app.get("/datasets/available")
-async def list_available_datasets(project_id: str = None):
+@app.get("/api/v1/datasets/available", tags=["Datasets"])
+async def list_available_datasets(project_id: str = None, current_user: User = Depends(get_current_approved_user)):
     """List all available datasets, optionally filtered by project"""
+    if project_id:
+        check_project_access(project_id, current_user)
     try:
         dataset_dir = Path("datasets")
         if not dataset_dir.exists():
@@ -2304,6 +2537,12 @@ async def list_available_datasets(project_id: str = None):
             if d.is_dir():
                 # Skip special directories
                 if d.name.startswith('.') or d.name == '__pycache__':
+                    continue
+                
+                # Check dataset access
+                try:
+                    check_dataset_access(d.name, current_user)
+                except HTTPException:
                     continue
                 
                 # Try to determine the task type based on directory structure or content
@@ -2429,8 +2668,10 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent.resolve()
 DATASETS_DIR = BASE_DIR / "datasets"
 
-@app.post("/pipelines/{job_id}/dataset/{dataset_id}")
-async def link_dataset_to_job(job_id: str, dataset_id: str):
+@app.post("/api/v1/pipelines/{job_id}/dataset/{dataset_id}", tags=["Pipelines & Training"])
+async def link_dataset_to_job(job_id: str, dataset_id: str, current_user: User = Depends(get_current_approved_user)):
+    check_job_access(job_id, current_user)
+    check_dataset_access(dataset_id, current_user)
     try:
         job = job_manager.get_job(job_id)
         if not job:
@@ -2473,8 +2714,8 @@ async def link_dataset_to_job(job_id: str, dataset_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to link dataset: {str(e)}")
 
-@app.post("/upload-detection-dataset/{job_id}")
-async def upload_detection_dataset(job_id: str, task_type: str = "object_detection", dataset_name: str = None, project_id: str = Form(None), file: UploadFile = File(...)):
+@app.post("/api/v1/upload-detection-dataset/{job_id}", tags=["Datasets"])
+async def upload_detection_dataset(job_id: str, task_type: str = "object_detection", dataset_name: str = None, project_id: str = Form(None), file: UploadFile = File(...), current_user: User = Depends(get_current_approved_user)):
     """
     Upload a COCO format object detection dataset as a zip file.
     The zip file should contain the images and annotations in the COCO format structure.
@@ -2547,8 +2788,8 @@ class ClassBalanceRequest(BaseModel):
     labels: Optional[List[int]] = None
     class_names: Optional[List[str]] = None
 
-@app.post("/responsible-ai/class-balance")
-async def analyze_class_balance(request: ClassBalanceRequest):
+@app.post("/api/v1/responsible-ai/class-balance", tags=["Responsible AI"])
+async def analyze_class_balance(request: ClassBalanceRequest, current_user: User = Depends(get_current_approved_user)):
     """Analyze class balance in dataset. Accepts either a dataset_id (auto-extracts labels) or raw labels."""
     try:
         labels = None
@@ -2556,6 +2797,8 @@ async def analyze_class_balance(request: ClassBalanceRequest):
 
         # Clean dataset_id input
         dataset_id = request.dataset_id.strip() if request.dataset_id else None
+        if dataset_id:
+            check_dataset_access(dataset_id, current_user)
 
         if dataset_id:
             # Auto-extract labels from dataset directory structure
@@ -2685,8 +2928,8 @@ class FairnessAnalysisRequest(BaseModel):
     subgroup_labels: List[int]
     privileged_group: int = 0
 
-@app.post("/responsible-ai/fairness-analysis")
-async def analyze_fairness(request: FairnessAnalysisRequest):
+@app.post("/api/v1/responsible-ai/fairness-analysis", tags=["Responsible AI"])
+async def analyze_fairness(request: FairnessAnalysisRequest, current_user: User = Depends(get_current_approved_user)):
     """Analyze fairness across subgroups"""
     try:
         analyzer = FairnessAnalyzer()
@@ -2810,9 +3053,10 @@ class ModelCardRequest(BaseModel):
     training_metrics: Dict[str, float]
     fairness_results: Optional[Dict[str, Any]] = None
 
-@app.post("/responsible-ai/generate-model-card")
-async def generate_model_card(request: ModelCardRequest):
+@app.post("/api/v1/responsible-ai/generate-model-card", tags=["Responsible AI"])
+async def generate_model_card(request: ModelCardRequest, current_user: User = Depends(get_current_approved_user)):
     """Generate a model card with responsible AI information"""
+    check_dataset_access(request.dataset_name, current_user)
     try:
         generator = ModelCardGenerator()
         generator.auto_populate_from_training(
@@ -2843,9 +3087,10 @@ async def generate_model_card(request: ModelCardRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Model card generation failed: {str(e)}")
 
-@app.get("/pipelines/{job_id}/model-card")
-async def get_pipeline_model_card(job_id: str):
+@app.get("/api/v1/pipelines/{job_id}/model-card", tags=["Responsible AI"])
+async def get_pipeline_model_card(job_id: str, current_user: User = Depends(get_current_approved_user)):
     """Generate and retrieve a model card for a completed training job"""
+    check_job_access(job_id, current_user)
     job = job_manager.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
@@ -2892,8 +3137,8 @@ async def get_pipeline_model_card(job_id: str):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Model card generation failed: {str(e)}")
 
-@app.get("/responsible-ai/bias-types")
-async def get_bias_types():
+@app.get("/api/v1/responsible-ai/bias-types", tags=["Responsible AI"])
+async def get_bias_types(current_user: User = Depends(get_current_approved_user)):
     """Get information about different types of bias"""
     try:
         library = BiasResourceLibrary()
@@ -2901,8 +3146,8 @@ async def get_bias_types():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve bias types: {str(e)}")
 
-@app.get("/responsible-ai/bias-examples")
-async def get_bias_examples(domain: Optional[str] = None):
+@app.get("/api/v1/responsible-ai/bias-examples", tags=["Responsible AI"])
+async def get_bias_examples(domain: Optional[str] = None, current_user: User = Depends(get_current_approved_user)):
     """Get real-world bias examples"""
     try:
         library = BiasResourceLibrary()
@@ -2911,8 +3156,8 @@ async def get_bias_examples(domain: Optional[str] = None):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve bias examples: {str(e)}")
 
-@app.get("/responsible-ai/mitigation-strategies")
-async def get_mitigation_strategies(stage: Optional[str] = None):
+@app.get("/api/v1/responsible-ai/mitigation-strategies", tags=["Responsible AI"])
+async def get_mitigation_strategies(stage: Optional[str] = None, current_user: User = Depends(get_current_approved_user)):
     """Get bias mitigation strategies"""
     try:
         library = BiasResourceLibrary()
@@ -2921,8 +3166,8 @@ async def get_mitigation_strategies(stage: Optional[str] = None):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve mitigation strategies: {str(e)}")
 
-@app.get("/responsible-ai/checklist")
-async def get_bias_checklist(category: Optional[str] = None):
+@app.get("/api/v1/responsible-ai/checklist", tags=["Responsible AI"])
+async def get_bias_checklist(category: Optional[str] = None, current_user: User = Depends(get_current_approved_user)):
     """Get bias detection and mitigation checklist"""
     try:
         library = BiasResourceLibrary()
@@ -2931,8 +3176,8 @@ async def get_bias_checklist(category: Optional[str] = None):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve checklist: {str(e)}")
 
-@app.post("/responsible-ai/bias-report")
-async def generate_bias_report(detected_biases: List[str]):
+@app.post("/api/v1/responsible-ai/bias-report", tags=["Responsible AI"])
+async def generate_bias_report(detected_biases: List[str], current_user: User = Depends(get_current_approved_user)):
     """Generate a comprehensive bias report"""
     try:
         library = BiasResourceLibrary()
@@ -2941,8 +3186,8 @@ async def generate_bias_report(detected_biases: List[str]):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate bias report: {str(e)}")
 
-@app.get("/responsible-ai/search")
-async def search_bias_info(query: str):
+@app.get("/api/v1/responsible-ai/search", tags=["Responsible AI"])
+async def search_bias_info(query: str, current_user: User = Depends(get_current_approved_user)):
     """Search bias information by keyword"""
     try:
         library = BiasResourceLibrary()
@@ -2951,9 +3196,10 @@ async def search_bias_info(query: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
-@app.post("/responsible-ai/dataset-validation/{dataset_id}")
-async def validate_dataset(dataset_id: str):
+@app.post("/api/v1/responsible-ai/dataset-validation/{dataset_id}", tags=["Responsible AI"])
+async def validate_dataset(dataset_id: str, current_user: User = Depends(get_current_approved_user)):
     """Validate dataset and generate a Data Card with visual statistics."""
+    check_dataset_access(dataset_id, current_user)
     try:
         from visualization_utils import (
             create_class_distribution_plot, pil_to_base64, 
@@ -3213,9 +3459,10 @@ async def validate_dataset(dataset_id: str):
 
 # ==================== Visual Pipeline Builder Endpoints ====================
 
-@app.get("/api/projects/{project_id}/workflow/canvas")
-async def get_workflow_canvas(project_id: str):
+@app.get("/api/v1/projects/{project_id}/workflow/canvas", tags=["Projects"])
+async def get_workflow_canvas(project_id: str, current_user: User = Depends(get_current_approved_user)):
     """Get the currently saved visual workflow state for a project"""
+    check_project_access(project_id, current_user)
     state_file = Path(__file__).resolve().parent / "logs" / "projects" / project_id / "workflow_state.json"
     if state_file.exists():
         try:
@@ -3226,9 +3473,10 @@ async def get_workflow_canvas(project_id: str):
     # Return 404 so frontend can load default workflow
     raise HTTPException(status_code=404, detail="Workflow not found")
 
-@app.post("/api/projects/{project_id}/workflow/canvas")
-async def save_workflow_canvas(project_id: str, state: dict):
+@app.post("/api/v1/projects/{project_id}/workflow/canvas", tags=["Projects"])
+async def save_workflow_canvas(project_id: str, state: dict, current_user: User = Depends(get_current_approved_user)):
     """Save the visual workflow state for a project"""
+    check_project_access(project_id, current_user)
     try:
         state_file = Path(__file__).resolve().parent / "logs" / "projects" / project_id / "workflow_state.json"
         state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -3238,8 +3486,8 @@ async def save_workflow_canvas(project_id: str, state: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save workflow: {str(e)}")
 
-@app.get("/api/workflow/trained_models")
-async def get_trained_models():
+@app.get("/api/v1/workflow/trained_models", tags=["Pipelines & Training"])
+async def get_trained_models(current_user: User = Depends(get_current_approved_user)):
     """Get all completed trained models grouped by task type"""
     jobs = job_manager.list_jobs()
     trained_models = {
@@ -3248,10 +3496,19 @@ async def get_trained_models():
         "image_segmentation": []
     }
     
+    # Get projects owned by user to filter jobs
+    user_project_ids = None
+    if current_user.role != "admin":
+        user_project_ids = {p.id for p in project_manager.list_projects() if p.owner_id == current_user.id}
+    
     for job in jobs:
         # Check if job status is completed/success
         status_lower = str(job.status).lower()
         if "completed" in status_lower or "success" in status_lower:
+            proj_id = getattr(job.pipeline_config, 'project_id', None)
+            if current_user.role != "admin" and proj_id not in user_project_ids:
+                continue
+                
             task_type = str(job.pipeline_config.task_type)
             if task_type in trained_models:
                 trained_models[task_type].append({
@@ -3264,8 +3521,8 @@ async def get_trained_models():
                 
     return trained_models
 
-@app.get("/pipelines/{job_id}/training-metrics")
-async def get_training_metrics(job_id: str):
+@app.get("/api/v1/pipelines/{job_id}/training-metrics", tags=["Pipelines & Training"])
+async def get_training_metrics(job_id: str, current_user: User = Depends(get_current_approved_user)):
     """Fetch training metrics from MLflow and generate a plot."""
     import base64
     import io
@@ -3355,11 +3612,9 @@ class AnnItemInput(BaseModel):
     height: float = 0.0
     points: List[List[float]] = []    # [[x1,y1],[x2,y2],...]
 
-@app.put("/api/projects/{project_id}")
-async def update_project_metadata(project_id: str, project_data: Project):
-    project = project_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+@app.put("/api/v1/projects/{project_id}", tags=["Projects"])
+async def update_project_metadata(project_id: str, project_data: Project, current_user: User = Depends(get_current_approved_user)):
+    project = check_project_access(project_id, current_user)
     project.name = project_data.name
     project.description = project_data.description
     project.classes = project_data.classes
@@ -3367,12 +3622,10 @@ async def update_project_metadata(project_id: str, project_data: Project):
     project_manager.save_projects()
     return project
 
-@app.delete("/api/projects/{project_id}")
-async def delete_project(project_id: str):
+@app.delete("/api/v1/projects/{project_id}", tags=["Projects"])
+async def delete_project(project_id: str, current_user: User = Depends(get_current_approved_user)):
     import shutil
-    project = project_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = check_project_access(project_id, current_user)
     
     if project_id in project_manager.projects:
         del project_manager.projects[project_id]
@@ -3387,14 +3640,12 @@ async def delete_project(project_id: str):
             
     return {"message": "Project deleted successfully"}
 
-@app.get("/api/projects/{project_id}/images")
-async def list_project_images(project_id: str):
+@app.get("/api/v1/projects/{project_id}/images", tags=["Projects"])
+async def list_project_images(project_id: str, current_user: User = Depends(get_current_approved_user)):
     import os, json
     from pathlib import Path
     
-    project = project_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = check_project_access(project_id, current_user)
         
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
     metadata_file = project_dir / "images_metadata.json"
@@ -3424,15 +3675,13 @@ async def list_project_images(project_id: str):
         images_list.append(img)
     return images_list
 
-@app.post("/api/projects/{project_id}/images")
-async def upload_project_images(project_id: str, files: List[UploadFile] = File(...)):
+@app.post("/api/v1/projects/{project_id}/images", tags=["Projects"])
+async def upload_project_images(project_id: str, files: List[UploadFile] = File(...), current_user: User = Depends(get_current_approved_user)):
     import os, uuid, json
     from pathlib import Path
     from PIL import Image as PILImage
     
-    project = project_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = check_project_access(project_id, current_user)
         
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
     images_dir = project_dir / "images"
@@ -3501,12 +3750,13 @@ async def upload_project_images(project_id: str, files: List[UploadFile] = File(
         
     return saved_images
 
-@app.get("/api/projects/{project_id}/images/{image_id}/file")
-async def get_project_image_file(project_id: str, image_id: str):
+@app.get("/api/v1/projects/{project_id}/images/{image_id}/file", tags=["Projects"])
+async def get_project_image_file(project_id: str, image_id: str, current_user: User = Depends(get_current_approved_user)):
     from pathlib import Path
     from fastapi.responses import FileResponse
     import json
     
+    check_project_access(project_id, current_user)
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
     metadata_file = project_dir / "images_metadata.json"
     
@@ -3529,10 +3779,12 @@ async def get_project_image_file(project_id: str, image_id: str):
         
     return FileResponse(img_path)
 
-@app.delete("/api/projects/{project_id}/images/{image_id}")
-async def delete_project_image(project_id: str, image_id: str):
+@app.delete("/api/v1/projects/{project_id}/images/{image_id}", tags=["Projects"])
+async def delete_project_image(project_id: str, image_id: str, current_user: User = Depends(get_current_approved_user)):
     import os, json
     from pathlib import Path
+    
+    check_project_access(project_id, current_user)
     
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
     metadata_file = project_dir / "images_metadata.json"
@@ -3574,11 +3826,12 @@ async def delete_project_image(project_id: str, image_id: str):
             
     return {"ok": True}
 
-@app.get("/api/projects/{project_id}/images/{image_id}/annotations")
-async def get_project_image_annotations(project_id: str, image_id: str):
+@app.get("/api/v1/projects/{project_id}/images/{image_id}/annotations", tags=["Projects"])
+async def get_project_image_annotations(project_id: str, image_id: str, current_user: User = Depends(get_current_approved_user)):
     import json
     from pathlib import Path
     
+    check_project_access(project_id, current_user)
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
     annotations_file = project_dir / "annotations.json"
     
@@ -3592,10 +3845,12 @@ async def get_project_image_annotations(project_id: str, image_id: str):
     except Exception:
         return []
 
-@app.post("/api/projects/{project_id}/images/{image_id}/annotations")
-async def save_project_image_annotations(project_id: str, image_id: str, shapes: List[AnnItemInput]):
+@app.post("/api/v1/projects/{project_id}/images/{image_id}/annotations", tags=["Projects"])
+async def save_project_image_annotations(project_id: str, image_id: str, shapes: List[AnnItemInput], current_user: User = Depends(get_current_approved_user)):
     import json
     from pathlib import Path
+    
+    check_project_access(project_id, current_user)
     
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
@@ -3655,12 +3910,14 @@ class SamSegmentRequest(BaseModel):
     labels: List[int] = []
     box: Optional[List[float]] = None
 
-@app.post("/api/projects/{project_id}/images/{image_id}/sam-segment")
-async def sam_segment(project_id: str, image_id: str, payload: SamSegmentRequest):
+@app.post("/api/v1/projects/{project_id}/images/{image_id}/sam-segment", tags=["Projects"])
+async def sam_segment(project_id: str, image_id: str, payload: SamSegmentRequest, current_user: User = Depends(get_current_approved_user)):
     import json
     from pathlib import Path
     from PIL import Image as PILImage
     import traceback
+    
+    check_project_access(project_id, current_user)
     
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
     metadata_file = project_dir / "images_metadata.json"
@@ -3722,17 +3979,15 @@ async def sam_segment(project_id: str, image_id: str, payload: SamSegmentRequest
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/projects/{project_id}/analytics")
-async def get_project_analytics(project_id: str):
+@app.get("/api/v1/projects/{project_id}/analytics", tags=["Projects"])
+async def get_project_analytics(project_id: str, current_user: User = Depends(get_current_approved_user)):
     import json
     from pathlib import Path
     from collections import defaultdict
     import numpy as np
     from PIL import Image as PILImage
     
-    project = project_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = check_project_access(project_id, current_user)
         
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
     metadata_file = project_dir / "images_metadata.json"
@@ -3867,20 +4122,19 @@ async def get_project_analytics(project_id: str):
         "channel_stats": channel_stats
     }
 
-@app.post("/api/projects/{project_id}/save-dataset")
+@app.post("/api/v1/projects/{project_id}/save-dataset", tags=["Projects"])
 async def save_project_as_dataset(
     project_id: str, 
     dataset_name: str, 
-    version: str
+    version: str,
+    current_user: User = Depends(get_current_approved_user)
 ):
     import json
     import shutil
     from pathlib import Path
     
     # 1. Get project
-    project = project_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = check_project_access(project_id, current_user)
         
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
     images_metadata_file = project_dir / "images_metadata.json"
@@ -3916,7 +4170,8 @@ async def save_project_as_dataset(
         "version": version,
         "task_type": task_type,
         "item_count": len(images_metadata),
-        "classes": project.classes or ["class0"]
+        "classes": project.classes or ["class0"],
+        "project_id": project_id  # Link dataset back to project for authentication
     }
     
     # Export based on task type
@@ -4032,17 +4287,15 @@ async def save_project_as_dataset(
         
     return {"message": "Dataset exported successfully", "dataset_id": folder_name}
 
-@app.get("/api/projects/{project_id}/export-zip")
-async def export_project_dataset_zip(project_id: str):
+@app.get("/api/v1/projects/{project_id}/export-zip", tags=["Projects"])
+async def export_project_dataset_zip(project_id: str, current_user: User = Depends(get_current_approved_user)):
     import tempfile
     import zipfile
     from fastapi.responses import FileResponse
     from pathlib import Path
     import json
     
-    project = project_manager.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = check_project_access(project_id, current_user)
         
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
     images_metadata_file = project_dir / "images_metadata.json"

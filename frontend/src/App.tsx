@@ -1,8 +1,13 @@
-import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
-import { Sun, Moon, ExternalLink } from "lucide-react";
+import { Routes, Route, useNavigate, useLocation, Navigate } from "react-router-dom";
+import { Sun, Moon, ExternalLink, LogOut } from "lucide-react";
 import { useTheme } from "./components/ThemeContext";
+import { useAuth } from "./components/AuthContext";
 import Dashboard from "./components/Dashboard";
 import ProjectWorkspace from "./components/ProjectWorkspace";
+import Login from "./components/Login";
+import Register from "./components/Register";
+import PendingApproval from "./components/PendingApproval";
+import AdminDashboard from "./components/AdminDashboard";
 import dswbLogo  from "./assets/dswb-logo.PNG";
 import aphrcLogo from "./assets/aphrc-logo.png";
 
@@ -130,6 +135,40 @@ export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
+  const { user, loading, logout } = useAuth();
+
+  if (loading) {
+    return (
+      <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "hsl(var(--background))" }}>
+        <p style={{ color: "hsl(var(--muted-foreground))" }}>Loading...</p>
+      </div>
+    );
+  }
+
+  // Auth Guards
+  const isAuthRoute = location.pathname === "/login" || location.pathname === "/register";
+  if (!user) {
+    if (isAuthRoute) {
+      return (
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      );
+    }
+    return <Navigate to="/login" replace />;
+  }
+
+  // If user is pending or rejected, show PendingApproval page
+  if (user.status !== "approved") {
+    return (
+      <Routes>
+        <Route path="/pending" element={<PendingApproval />} />
+        <Route path="*" element={<Navigate to="/pending" replace />} />
+      </Routes>
+    );
+  }
 
   // Nav links — no "Overview", just Dashboard + About
   // Clicking the logo returns to home (/)
@@ -137,6 +176,10 @@ export default function App() {
     { path: "/projects", label: "Dashboard", match: (p: string) => p.startsWith("/projects") || p === "/" },
     { path: "/about",    label: "About",     match: (p: string) => p === "/about" },
   ];
+
+  if (user.role === "admin") {
+    NAV.push({ path: "/admin", label: "Admin", match: (p: string) => p.startsWith("/admin") });
+  }
 
   // Only show header when NOT inside the workspace annotator (full-screen annotator has its own bar)
   const isAnnotating = /\/projects\/\d+\/annotate\/\d+/.test(location.pathname);
@@ -153,7 +196,7 @@ export default function App() {
           height: 54, background: "hsl(var(--card))",
           borderBottom: "1px solid hsl(var(--border))",
           display: "grid",
-          /* Three equal columns so nav is truly centred */
+          /* Three columns so nav is truly centred */
           gridTemplateColumns: "1fr auto 1fr",
           alignItems: "center",
           padding: "0 20px",
@@ -194,8 +237,54 @@ export default function App() {
             })}
           </nav>
 
-          {/* Right column: theme toggle — push to far right */}
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          {/* Right column: theme toggle + logout — push to far right */}
+          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, borderRight: "1px solid hsl(var(--border))", paddingRight: 12 }}>
+              <span style={{ fontWeight: 600, color: "hsl(var(--foreground))" }}>{user.username}</span>
+              {user.role === "admin" && (
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  background: "hsl(var(--primary) / 0.15)",
+                  color: "hsl(var(--primary))",
+                  padding: "1px 6px",
+                  borderRadius: 4,
+                  textTransform: "uppercase"
+                }}>
+                  Admin
+                </span>
+              )}
+            </div>
+            
+            <button onClick={logout}
+              title="Logout"
+              style={{
+                padding: "6px 10px",
+                borderRadius: 7,
+                border: "1px solid hsl(var(--border))",
+                background: "transparent",
+                color: "hsl(var(--muted-foreground))",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                fontSize: 12,
+                fontWeight: 600,
+                transition: "all 0.15s"
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = "hsl(var(--destructive) / 0.08)";
+                e.currentTarget.style.color = "hsl(var(--destructive))";
+                e.currentTarget.style.borderColor = "hsl(var(--destructive) / 0.3)";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.color = "hsl(var(--muted-foreground))";
+                e.currentTarget.style.borderColor = "hsl(var(--border))";
+              }}>
+              <LogOut size={12} /> Log Out
+            </button>
+
             <button onClick={toggleTheme}
               style={{ padding: "7px 8px", borderRadius: 7,
                 border: "1px solid hsl(var(--border))",
@@ -215,10 +304,12 @@ export default function App() {
         /* Push down if header is visible */
         display: "flex", flexDirection: "column" }}>
         <Routes>
-          <Route path="/"               element={<Dashboard />} />
+          <Route path="/"               element={<Navigate to="/projects" replace />} />
           <Route path="/projects"       element={<Dashboard />} />
           <Route path="/about"          element={<About />} />
           <Route path="/projects/:id/*" element={<ProjectWorkspace />} />
+          <Route path="/admin"          element={user.role === "admin" ? <AdminDashboard /> : <Navigate to="/projects" replace />} />
+          <Route path="*"               element={<Navigate to="/projects" replace />} />
         </Routes>
       </div>
     </div>
