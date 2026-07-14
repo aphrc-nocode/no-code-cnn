@@ -7,6 +7,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -31,6 +32,7 @@ export default function Dashboard() {
 
   const fetchProjects = async () => {
     try {
+      setLoading(true);
       setError(null);
       const res = await api.get("/projects");
       if (res.data) {
@@ -43,6 +45,8 @@ export default function Dashboard() {
         { id: 1, name: "Defect Detection", task_type: "detection", classes: ["scratch", "crack", "dent"] },
         { id: 2, name: "Plant Classification", task_type: "classification", classes: ["healthy", "blight", "rust"] }
       ]);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -247,7 +251,27 @@ export default function Dashboard() {
       {error && <div className="text-xs text-destructive mb-4">{error}</div>}
 
       {/* Projects Grid */}
-      {filteredProjects.length === 0 ? (
+      {loading ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
+          {[1, 2, 3].map((n) => (
+            <div
+              key={n}
+              className="bg-card border border-border rounded-xl flex flex-row min-h-[108px] h-auto shadow-sm overflow-hidden animate-pulse"
+            >
+              {/* Left Thumbnail area placeholder */}
+              <div className="w-[110px] bg-muted/20 border-r border-border shrink-0" />
+              {/* Right Details content area placeholder */}
+              <div className="p-4 flex flex-col justify-between flex-1 bg-card">
+                <div>
+                  <div className="h-4 bg-muted/40 rounded w-3/4 mb-2" />
+                  <div className="h-3 bg-muted/30 rounded w-1/3 mt-1" />
+                </div>
+                <div className="h-3 bg-muted/20 rounded w-1/2 mt-3" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : filteredProjects.length === 0 ? (
         <div className="border border-dashed border-border rounded-xl p-16 text-center text-muted-foreground">
           <p className="font-bold text-foreground text-base mb-1">No projects yet</p>
           <p className="text-xs">Create your first project to get started</p>

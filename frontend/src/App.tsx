@@ -1,5 +1,5 @@
 import { Routes, Route, useNavigate, useLocation, Navigate } from "react-router-dom";
-import { Sun, Moon, ExternalLink, LogOut, User, X } from "lucide-react";
+import { Sun, Moon, ExternalLink, LogOut, User, X, Pencil } from "lucide-react";
 import { useTheme } from "./components/ThemeContext";
 import { useAuth } from "./components/AuthContext";
 import { useState, useEffect } from "react";
@@ -148,6 +148,7 @@ export default function App() {
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileSuccess, setProfileSuccess] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
 
   // Initialize fields when modal opens
   useEffect(() => {
@@ -158,6 +159,7 @@ export default function App() {
       setProfileConfirmPassword("");
       setProfileError(null);
       setProfileSuccess(false);
+      setIsEditingProfile(false);
     }
   }, [profileOpen, user]);
 
@@ -234,7 +236,8 @@ export default function App() {
   }
 
   // Only show header when NOT inside the workspace annotator (full-screen annotator has its own bar)
-  const isAnnotating = /\/projects\/\d+\/annotate\/\d+/.test(location.pathname);
+  const isAnnotating = /\/projects\/[a-zA-Z0-9-]+\/annotate\/\d+/.test(location.pathname);
+  const isWorkspace = /^\/projects\/[a-zA-Z0-9-]+/.test(location.pathname) && !isAnnotating;
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column",
@@ -291,60 +294,62 @@ export default function App() {
 
           {/* Right column: profile badge button */}
           <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
-            <div
-              onClick={() => setProfileOpen(true)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                fontSize: 13,
-                padding: "6px 12px",
-                borderRadius: 8,
-                border: "1px solid hsl(var(--border))",
-                background: "hsl(var(--secondary) / 0.4)",
-                cursor: "pointer",
-                userSelect: "none",
-                transition: "all 0.15s"
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.background = "hsl(var(--secondary) / 0.8)";
-                e.currentTarget.style.borderColor = "hsl(var(--primary) / 0.3)";
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.background = "hsl(var(--secondary) / 0.4)";
-                e.currentTarget.style.borderColor = "hsl(var(--border))";
-              }}
-            >
-              <div style={{
-                width: 22,
-                height: 22,
-                borderRadius: "50%",
-                background: "hsl(var(--primary))",
-                color: "#fff",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontWeight: 700,
-                fontSize: 11
-              }}>
-                {user.username.charAt(0).toUpperCase()}
-              </div>
-              <span style={{ fontWeight: 600, color: "hsl(var(--foreground))" }}>{user.username}</span>
-              {user.role === "admin" && (
-                <span style={{
-                  fontSize: 9,
+            {!isWorkspace && (
+              <div
+                onClick={() => setProfileOpen(true)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: 13,
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  border: "1px solid hsl(var(--border))",
+                  background: "hsl(var(--secondary) / 0.4)",
+                  cursor: "pointer",
+                  userSelect: "none",
+                  transition: "all 0.15s"
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = "hsl(var(--secondary) / 0.8)";
+                  e.currentTarget.style.borderColor = "hsl(var(--primary) / 0.3)";
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = "hsl(var(--secondary) / 0.4)";
+                  e.currentTarget.style.borderColor = "hsl(var(--border))";
+                }}
+              >
+                <div style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: "50%",
+                  background: "hsl(var(--primary))",
+                  color: "#fff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                   fontWeight: 700,
-                  background: "hsl(var(--primary) / 0.15)",
-                  color: "hsl(var(--primary))",
-                  padding: "1px 5px",
-                  borderRadius: 4,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.03em"
+                  fontSize: 11
                 }}>
-                  Admin
-                </span>
-              )}
-            </div>
+                  {user.username.charAt(0).toUpperCase()}
+                </div>
+                <span style={{ fontWeight: 600, color: "hsl(var(--foreground))" }}>{user.username}</span>
+                {user.role === "admin" && (
+                  <span style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    background: "hsl(var(--primary) / 0.15)",
+                    color: "hsl(var(--primary))",
+                    padding: "1px 5px",
+                    borderRadius: 4,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.03em"
+                  }}>
+                    Admin
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </header>
       )}
@@ -402,96 +407,123 @@ export default function App() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveProfile} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {profileError && (
-                <div style={{
-                  background: "hsl(var(--destructive) / 0.1)",
-                  border: "1px solid hsl(var(--destructive) / 0.2)",
-                  color: "hsl(var(--destructive))",
-                  padding: "8px 12px",
-                  borderRadius: 6,
-                  fontSize: 12
-                }}>
-                  {profileError}
+            {profileError && (
+              <div style={{
+                background: "hsl(var(--destructive) / 0.1)",
+                border: "1px solid hsl(var(--destructive) / 0.2)",
+                color: "hsl(var(--destructive))",
+                padding: "8px 12px",
+                borderRadius: 6,
+                fontSize: 12,
+                marginBottom: 14
+              }}>
+                {profileError}
+              </div>
+            )}
+            
+            {profileSuccess && (
+              <div style={{
+                background: "rgba(34, 197, 94, 0.1)",
+                border: "1px solid rgba(34, 197, 94, 0.2)",
+                color: "#22c55e",
+                padding: "8px 12px",
+                borderRadius: 6,
+                fontSize: 12,
+                marginBottom: 14
+              }}>
+                Profile updated successfully!
+              </div>
+            )}
+
+            {!isEditingProfile ? (
+              /* Read-only User Detail View */
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 14px", borderRadius: 8, background: "hsl(var(--secondary) / 0.3)", border: "1px solid hsl(var(--border))" }}>
+                  <div style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: "50%",
+                    background: "hsl(var(--primary))",
+                    color: "#fff",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: 700,
+                    fontSize: 20
+                  }}>
+                    {user.username.charAt(0).toUpperCase()}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontWeight: 700, fontSize: 15, color: "hsl(var(--foreground))" }}>{user.username}</span>
+                      <span style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        background: "hsl(var(--primary) / 0.15)",
+                        color: "hsl(var(--primary))",
+                        padding: "1px 5px",
+                        borderRadius: 4,
+                        textTransform: "uppercase"
+                      }}>
+                        {user.role}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 12, color: "hsl(var(--muted-foreground))" }}>{user.email}</span>
+                  </div>
                 </div>
-              )}
-              
-              {profileSuccess && (
-                <div style={{
-                  background: "rgba(34, 197, 94, 0.1)",
-                  border: "1px solid rgba(34, 197, 94, 0.2)",
-                  color: "#22c55e",
-                  padding: "8px 12px",
-                  borderRadius: 6,
-                  fontSize: 12
-                }}>
-                  Profile updated successfully!
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingProfile(true)}
+                    style={{
+                      height: 36, width: "100%", background: "hsl(var(--secondary))", color: "hsl(var(--foreground))",
+                      border: "1px solid hsl(var(--border))", borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                      transition: "background 0.15s"
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "hsl(var(--border))"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "hsl(var(--secondary))"; }}
+                  >
+                    <Pencil size={14} /> Edit Profile
+                  </button>
+                  
+                  <div style={{ height: "1px", background: "hsl(var(--border))", margin: "6px 0" }} />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileOpen(false);
+                      logout();
+                    }}
+                    style={{
+                      height: 36, width: "100%", background: "hsl(var(--destructive) / 0.1)",
+                      color: "hsl(var(--destructive))", border: "1px solid hsl(var(--destructive) / 0.2)",
+                      borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                      transition: "all 0.15s"
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.background = "hsl(var(--destructive) / 0.15)";
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.background = "hsl(var(--destructive) / 0.1)";
+                    }}
+                  >
+                    <LogOut size={14} /> Log Out
+                  </button>
                 </div>
-              )}
-
-              <div>
-                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Username</label>
-                <input
-                  type="text"
-                  required
-                  value={profileUsername}
-                  onChange={e => setProfileUsername(e.target.value)}
-                  style={{
-                    width: "100%", height: 36, padding: "0 10px",
-                    background: "hsl(var(--secondary) / 0.3)",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: 6,
-                    color: "hsl(var(--foreground))",
-                    outline: "none", fontSize: 13, boxSizing: "border-box"
-                  }}
-                />
               </div>
-
-              <div>
-                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Email Address</label>
-                <input
-                  type="email"
-                  required
-                  value={profileEmail}
-                  onChange={e => setProfileEmail(e.target.value)}
-                  style={{
-                    width: "100%", height: 36, padding: "0 10px",
-                    background: "hsl(var(--secondary) / 0.3)",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: 6,
-                    color: "hsl(var(--foreground))",
-                    outline: "none", fontSize: 13, boxSizing: "border-box"
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>New Password (optional)</label>
-                <input
-                  type="password"
-                  placeholder="••••••••"
-                  value={profilePassword}
-                  onChange={e => setProfilePassword(e.target.value)}
-                  style={{
-                    width: "100%", height: 36, padding: "0 10px",
-                    background: "hsl(var(--secondary) / 0.3)",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: 6,
-                    color: "hsl(var(--foreground))",
-                    outline: "none", fontSize: 13, boxSizing: "border-box"
-                  }}
-                />
-              </div>
-
-              {profilePassword && (
+            ) : (
+              /* Editable Profile Input Form */
+              <form onSubmit={handleSaveProfile} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <div>
-                  <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Confirm New Password</label>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Username</label>
                   <input
-                    type="password"
+                    type="text"
                     required
-                    placeholder="••••••••"
-                    value={profileConfirmPassword}
-                    onChange={e => setProfileConfirmPassword(e.target.value)}
+                    value={profileUsername}
+                    onChange={e => setProfileUsername(e.target.value)}
                     style={{
                       width: "100%", height: 36, padding: "0 10px",
                       background: "hsl(var(--secondary) / 0.3)",
@@ -502,48 +534,100 @@ export default function App() {
                     }}
                   />
                 </div>
-              )}
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
-                <button
-                  type="submit"
-                  disabled={profileSaving}
-                  style={{
-                    height: 36, width: "100%", background: "hsl(var(--primary))", color: "#fff",
-                    border: "none", borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: "pointer",
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                    transition: "background 0.15s"
-                  }}
-                >
-                  {profileSaving ? "Saving..." : "Save Changes"}
-                </button>
-                
-                <div style={{ height: "1px", background: "hsl(var(--border))", margin: "6px 0" }} />
+                <div>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    value={profileEmail}
+                    onChange={e => setProfileEmail(e.target.value)}
+                    style={{
+                      width: "100%", height: 36, padding: "0 10px",
+                      background: "hsl(var(--secondary) / 0.3)",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: 6,
+                      color: "hsl(var(--foreground))",
+                      outline: "none", fontSize: 13, boxSizing: "border-box"
+                    }}
+                  />
+                </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setProfileOpen(false);
-                    logout();
-                  }}
-                  style={{
-                    height: 36, width: "100%", background: "hsl(var(--destructive) / 0.1)",
-                    color: "hsl(var(--destructive))", border: "1px solid hsl(var(--destructive) / 0.2)",
-                    borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: "pointer",
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                    transition: "all 0.15s"
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.background = "hsl(var(--destructive) / 0.15)";
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.background = "hsl(var(--destructive) / 0.1)";
-                  }}
-                >
-                  <LogOut size={14} /> Log Out
-                </button>
-              </div>
-            </form>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>New Password (optional)</label>
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={profilePassword}
+                    onChange={e => setProfilePassword(e.target.value)}
+                    style={{
+                      width: "100%", height: 36, padding: "0 10px",
+                      background: "hsl(var(--secondary) / 0.3)",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: 6,
+                      color: "hsl(var(--foreground))",
+                      outline: "none", fontSize: 13, boxSizing: "border-box"
+                    }}
+                  />
+                </div>
+
+                {profilePassword && (
+                  <div>
+                    <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Confirm New Password</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="••••••••"
+                      value={profileConfirmPassword}
+                      onChange={e => setProfileConfirmPassword(e.target.value)}
+                      style={{
+                        width: "100%", height: 36, padding: "0 10px",
+                        background: "hsl(var(--secondary) / 0.3)",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: 6,
+                        color: "hsl(var(--foreground))",
+                        outline: "none", fontSize: 13, boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingProfile(false);
+                      setProfileUsername(user.username);
+                      setProfileEmail(user.email);
+                      setProfilePassword("");
+                      setProfileConfirmPassword("");
+                      setProfileError(null);
+                    }}
+                    style={{
+                      height: 36, flex: 1, background: "hsl(var(--secondary))", color: "hsl(var(--foreground))",
+                      border: "1px solid hsl(var(--border))", borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s"
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "hsl(var(--border))"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "hsl(var(--secondary))"; }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={profileSaving}
+                    style={{
+                      height: 36, flex: 2, background: "hsl(var(--primary))", color: "#fff",
+                      border: "none", borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                      transition: "background 0.15s"
+                    }}
+                  >
+                    {profileSaving ? "Saving..." : "Save Changes"}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
