@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
-      allowedHosts: ['maklens.atekervoices.com'],
+      allowedHosts: ['aphrc-deeplens.atekervoices.com'],
       proxy: {
         '/api': {
           target: backendTarget,
