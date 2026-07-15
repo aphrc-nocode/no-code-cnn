@@ -55,14 +55,14 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-zinc-950 px-4 transition-colors duration-200">
       {/* Decorative background blobs */}
-      <div className="absolute top-1/4 left-1/4 w-72 h-72 bg-orange-400/20 dark:bg-orange-600/10 rounded-full blur-3xl pointer-events-none"></div>
-      <div className="absolute bottom-1/4 right-1/4 w-72 h-72 bg-amber-400/20 dark:bg-amber-600/10 rounded-full blur-3xl pointer-events-none"></div>
+      <div className="absolute top-1/4 left-1/4 w-72 h-72 bg-emerald-400/20 dark:bg-emerald-600/10 rounded-full blur-3xl pointer-events-none"></div>
+      <div className="absolute bottom-1/4 right-1/4 w-72 h-72 bg-green-400/20 dark:bg-green-600/10 rounded-full blur-3xl pointer-events-none"></div>
 
       <div className="w-full max-w-md bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-xl overflow-hidden relative z-10 transition-all">
         <div className="p-8">
           <div className="text-center mb-8">
             <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mb-2">
-              Mak<span className="text-orange-500">Lens</span>
+              APHRC <span className="text-primary">DeepLens</span>
             </h1>
             <p className="text-sm text-slate-500 dark:text-zinc-400">
               Log in to access your no-code AI workspace
@@ -89,7 +89,7 @@ export default function Login() {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-2.5 bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700/60 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:focus:ring-orange-500/80 focus:border-transparent text-sm transition-all"
+                  className="block w-full pl-10 pr-3 py-2.5 bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700/60 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary dark:focus:ring-primary/80 focus:border-transparent text-sm transition-all"
                   placeholder="Enter your username"
                   required
                 />
@@ -108,7 +108,7 @@ export default function Login() {
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700/60 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:focus:ring-orange-500/80 focus:border-transparent text-sm transition-all"
+                  className="block w-full pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700/60 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary dark:focus:ring-primary/80 focus:border-transparent text-sm transition-all"
                   placeholder="Enter your password"
                   required
                 />
@@ -125,7 +125,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 px-4 bg-orange-600 hover:bg-orange-500 active:bg-orange-700 text-white font-medium rounded-xl text-sm shadow-lg shadow-orange-600/10 hover:shadow-orange-600/20 transition-all disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center"
+              className="w-full py-3 px-4 bg-primary hover:bg-primary/90 active:bg-primary/80 text-white font-medium rounded-xl text-sm shadow-lg shadow-primary/10 hover:shadow-primary/20 transition-all disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center"
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -140,7 +140,7 @@ export default function Login() {
               Don't have an account?{" "}
               <button
                 onClick={() => navigate("/register")}
-                className="font-semibold text-orange-600 hover:text-orange-500 transition-colors"
+                className="font-semibold text-primary hover:text-primary/90 transition-colors"
               >
                 Sign up
               </button>

@@ -47,7 +47,7 @@ export default function PendingApproval() {
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="px-5 py-2.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-all shadow-md shadow-orange-600/10 flex items-center justify-center gap-2"
+              className="px-5 py-2.5 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-all shadow-md shadow-primary/10 flex items-center justify-center gap-2"
             >
               <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
               {refreshing ? "Checking..." : "Check Status"}

@@ -31,11 +31,7 @@ export default function DatasetManager() {
       const res = await api.get(projectId ? `/datasets/available?project_id=${projectId}` : "/datasets/available");
       setDatasets(res.data || []);
     } catch {
-      // Fallback mocks
-      setDatasets([
-        { id: "ds_1", name: "Plant Disease Classification", task_type: "classification", classes: ["healthy", "rust"], item_count: 45 },
-        { id: "ds_2", name: "Defects Object Detection", task_type: "detection", classes: ["scratch", "crack"], item_count: 32 }
-      ]);
+      setDatasets([]);
     } finally {
       setLoading(false);
     }

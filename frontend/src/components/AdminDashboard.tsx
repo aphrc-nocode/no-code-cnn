@@ -202,7 +202,7 @@ export default function AdminDashboard() {
               placeholder="Search by username or email..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="block w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700/60 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm transition-all"
+              className="block w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700/60 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm transition-all"
             />
           </div>
         </div>
@@ -252,14 +252,14 @@ export default function AdminDashboard() {
                       <div className="flex items-center justify-between pt-2">
                         <div>
                           {isSelf ? (
-                            <span className="inline-flex items-center gap-1 text-orange-600 dark:text-orange-400 font-semibold text-xs uppercase tracking-wider">
+                            <span className="inline-flex items-center gap-1 text-primary font-semibold text-xs uppercase tracking-wider">
                               <ShieldCheck className="w-4 h-4" /> Admin
                             </span>
                           ) : (
                             <select
                               value={u.role}
                               onChange={(e) => handleUpdateRole(u.id, e.target.value as any)}
-                              className="bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs py-1.5 px-2.5 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                              className="bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs py-1.5 px-2.5 focus:outline-none focus:ring-1 focus:ring-primary"
                             >
                               <option value="user">User</option>
                               <option value="admin">Admin</option>
@@ -349,14 +349,14 @@ export default function AdminDashboard() {
                         </td>
                         <td className="p-4">
                           {isSelf ? (
-                            <span className="inline-flex items-center gap-1 text-orange-600 dark:text-orange-400 font-semibold text-xs uppercase tracking-wider">
+                            <span className="inline-flex items-center gap-1 text-primary font-semibold text-xs uppercase tracking-wider">
                               <ShieldCheck className="w-4 h-4" /> Admin
                             </span>
                           ) : (
                             <select
                               value={u.role}
                               onChange={(e) => handleUpdateRole(u.id, e.target.value as any)}
-                              className="bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs py-1 px-2 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                              className="bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs py-1 px-2 focus:outline-none focus:ring-1 focus:ring-primary"
                             >
                               <option value="user">User</option>
                               <option value="admin">Admin</option>

@@ -256,15 +256,12 @@ export default function WorkflowBuilder() {
     // Fetch Project Details
     api.get(`/projects/${projectId}`)
       .then(res => setProject(res.data))
-      .catch(() => setProject({ id: Number(projectId) || 1, name: "Project", task_type: "classification", classes: ["Class A", "Class B"] }));
+      .catch(() => setProject({ id: Number(projectId) || 1, name: "Project", task_type: "classification", classes: [] }));
 
     // Fetch Datasets
     api.get(projectId ? `/datasets/available?project_id=${projectId}` : "/datasets/available")
       .then(res => setAvailableDatasets(res.data))
-      .catch(() => setAvailableDatasets([
-        { id: "ds_1", name: "Mock Image Dataset (Cats vs Dogs)" },
-        { id: "ds_2", name: "Mock Traffic Signs Detection" }
-      ]));
+      .catch(() => setAvailableDatasets([]));
 
     // Fetch Workflows
     api.get(`/projects/${projectId}/workflow/canvas`)

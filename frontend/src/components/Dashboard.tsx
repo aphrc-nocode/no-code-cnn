@@ -40,11 +40,7 @@ export default function Dashboard() {
       }
     } catch (e: any) {
       setError("Failed to load projects from server.");
-      // Set mock data for fallback
-      setProjects([
-        { id: 1, name: "Defect Detection", task_type: "detection", classes: ["scratch", "crack", "dent"] },
-        { id: 2, name: "Plant Classification", task_type: "classification", classes: ["healthy", "blight", "rust"] }
-      ]);
+      setProjects([]);
     } finally {
       setLoading(false);
     }
@@ -142,7 +138,7 @@ export default function Dashboard() {
               <span className="text-primary bg-clip-text">Models in Days</span>
             </h1>
             <p className="text-base sm:text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
-              MakLens simplifies laborious data upload, manual image annotation, pipeline construction, and model evaluation. Develop custom models for your operations with less data, powered by active learning.
+              APHRC DeepLens simplifies laborious data upload, manual image annotation, pipeline construction, and model evaluation. Develop custom models for your operations with less data, powered by active learning.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <button

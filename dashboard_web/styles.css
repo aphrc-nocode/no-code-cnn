@@ -11,9 +11,9 @@
   --text-secondary: #475569;
   --text-muted: #64748B;
   
-  --accent: #0067FF;
-  --accent-soft: rgba(0, 103, 255, 0.08);
-  --accent-dark: #005ce6;
+  --accent: #7bc148;
+  --accent-soft: rgba(123, 193, 72, 0.08);
+  --accent-dark: #64a635;
   
   --success: #34c759;
   --success-soft: rgba(52, 199, 89, 0.08);
@@ -54,7 +54,7 @@ body {
 .app-header {
   height: 60px;
   background: #ffffff;
-  border-bottom: 2px solid #cd672c; /* Warm Orange bottom border */
+  border-bottom: 2px solid #7bc148; /* Brand Green bottom border */
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -98,12 +98,12 @@ body {
   transition: all 0.2s ease;
 }
 .header-nav .nav-link:hover {
-  color: #cd672c;
-  background: rgba(205, 103, 44, 0.05);
+  color: #7bc148;
+  background: rgba(123, 193, 72, 0.05);
 }
 .header-nav .nav-link.active {
   color: #ffffff;
-  background: #cd672c;
+  background: #7bc148;
 }
 
 /* Mobile Sidebar Toggle Icon */
@@ -712,7 +712,7 @@ body {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(205, 103, 44, 0.25);
+  box-shadow: 0 4px 12px rgba(123, 193, 72, 0.25);
   transition: all 0.15s;
 }
 .play-btn-circle:hover {

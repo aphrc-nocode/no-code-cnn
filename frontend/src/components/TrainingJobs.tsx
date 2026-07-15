@@ -30,16 +30,7 @@ export default function TrainingJobs() {
       const res = await api.get(projectId ? `/pipelines?project_id=${projectId}` : "/pipelines");
       setJobs(res.data || []);
     } catch {
-      // Fallbacks
-      setJobs([
-        {
-          id: "job-resnet-01",
-          pipeline_config: { name: "ResNet Classifier", task_type: "classification", architecture: "resnet18", epochs: 5, batch_size: 8 },
-          status: "completed",
-          created_at: new Date().toISOString(),
-          metrics: { accuracy: 0.942 }
-        }
-      ]);
+      setJobs([]);
     } finally {
       setLoading(false);
     }

@@ -11,15 +11,15 @@
   --muted-2: #94A3B8;
   --line: #E2E8F0;       /* AdminLTE border color */
   --line-strong: #CBD5E1;
-  --primary: #cd672c;    /* AdminLTE primary brand orange */
-  --primary-soft: rgba(205, 103, 44, 0.12);
-  --primary-glow: rgba(205, 103, 44, 0.25);
-  --primary-dark: #b3531e;
+  --primary: #7bc148;    /* AdminLTE primary brand green */
+  --primary-soft: rgba(123, 193, 72, 0.12);
+  --primary-glow: rgba(123, 193, 72, 0.25);
+  --primary-dark: #64a635;
   --ok: #00a65a;         /* AdminLTE success green */
-  --warning: #cd672c;    /* AdminLTE warning orange */
+  --warning: #7bc148;    /* AdminLTE warning green */
   --danger: #dd4b39;     /* AdminLTE danger red */
   --info: #00c0ef;       /* AdminLTE info teal */
-  --violet: #d97706;     /* AdminLTE amber/orange */
+  --violet: #7bc148;     /* AdminLTE green brand alternative */
   --shadow-sm: 0 1px 1px rgba(0, 0, 0, 0.05);
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 6px 12px rgba(0, 0, 0, 0.1);
@@ -34,7 +34,7 @@
   --text3: var(--muted);
   --accent: var(--primary);
   --accent-s: var(--primary-soft);
-  --accent-t: rgba(205, 103, 44, 0.08);
+  --accent-t: rgba(123, 193, 72, 0.08);
   --success: var(--ok);
 }
 

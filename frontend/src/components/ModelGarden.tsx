@@ -38,15 +38,7 @@ export default function ModelGarden() {
       );
       setJobs(completed);
     } catch {
-      // Fallbacks
-      setJobs([
-        {
-          id: "job-resnet-01",
-          pipeline_config: { name: "ResNet Classifier", task_type: "classification", architecture: "resnet18", epochs: 5 },
-          status: "completed",
-          metrics: { accuracy: 0.942, loss: 0.104 }
-        }
-      ]);
+      setJobs([]);
     } finally {
       setLoading(false);
     }
