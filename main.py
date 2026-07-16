@@ -1328,6 +1328,7 @@ async def get_pipeline_status(job_id: str, current_user: User = Depends(get_curr
 
 
 @app.get("/api/v1/pipelines/{job_id}/evaluate", tags=["Pipelines & Training"])
+@app.post("/api/v1/pipelines/{job_id}/evaluate", tags=["Pipelines & Training"])
 async def evaluate_pipeline(job_id: str, current_user: User = Depends(get_current_approved_user)):
     check_job_access(job_id, current_user)
     """Evaluate a trained model on its test split and return detailed metrics and samples."""
@@ -3110,6 +3111,7 @@ async def generate_model_card(request: ModelCardRequest, current_user: User = De
         raise HTTPException(status_code=500, detail=f"Model card generation failed: {str(e)}")
 
 @app.get("/api/v1/pipelines/{job_id}/model-card", tags=["Responsible AI"])
+@app.post("/api/v1/pipelines/{job_id}/model-card", tags=["Responsible AI"])
 async def get_pipeline_model_card(job_id: str, current_user: User = Depends(get_current_approved_user)):
     """Generate and retrieve a model card for a completed training job"""
     check_job_access(job_id, current_user)
@@ -3219,6 +3221,7 @@ async def search_bias_info(query: str, current_user: User = Depends(get_current_
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 @app.post("/api/v1/responsible-ai/dataset-validation/{dataset_id}", tags=["Responsible AI"])
+@app.post("/api/v1/datasets/{dataset_id}/data-card", tags=["Responsible AI"])
 async def validate_dataset(dataset_id: str, current_user: User = Depends(get_current_approved_user)):
     """Validate dataset and generate a Data Card with visual statistics."""
     check_dataset_access(dataset_id, current_user)

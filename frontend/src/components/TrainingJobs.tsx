@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Search, RefreshCw, ExternalLink, Activity, Play, AlertTriangle } from "lucide-react";
+import { Search, RefreshCw, ExternalLink, Activity, Play, AlertTriangle, TrendingUp } from "lucide-react";
 import api from "../api";
 
 interface PipelineJob {
@@ -23,6 +23,9 @@ export default function TrainingJobs() {
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [mlflowUrl, setMlflowUrl] = useState<string>("");
+  const [curvesJobId, setCurvesJobId] = useState<string | null>(null);
+  const [curvesPlot, setCurvesPlot] = useState<string>("");
+  const [loadingCurves, setLoadingCurves] = useState(false);
 
   const fetchJobs = async () => {
     setLoading(true);
@@ -54,6 +57,26 @@ export default function TrainingJobs() {
 
   const handleOpenMlflow = () => {
     window.open(mlflowUrl || "http://localhost:5000", "_blank");
+  };
+
+  const handleViewCurves = async (jobId: string) => {
+    setCurvesJobId(jobId);
+    setCurvesPlot("");
+    setLoadingCurves(true);
+    try {
+      const res = await api.get(`/pipelines/${jobId}/training-metrics`);
+      if (res.data && res.data.training_curves_base64) {
+        setCurvesPlot(`data:image/png;base64,${res.data.training_curves_base64}`);
+      } else if (res.data && res.data.error) {
+        alert(res.data.error);
+      } else {
+        alert("No training curves found.");
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to load curves");
+    } finally {
+      setLoadingCurves(false);
+    }
   };
 
   const filteredJobs = jobs.filter((j) =>
@@ -106,13 +129,14 @@ export default function TrainingJobs() {
               <th className="p-4">Hyperparameters</th>
               <th className="p-4">Status</th>
               <th className="p-4">Started At</th>
-              <th className="p-4 text-right">Metrics Summary</th>
+              <th className="p-4">Metrics Summary</th>
+              <th className="p-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {filteredJobs.length === 0 ? (
               <tr>
-                <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                <td colSpan={6} className="p-8 text-center text-muted-foreground">
                   {loading ? "Loading jobs..." : "No training jobs found."}
                 </td>
               </tr>
@@ -150,7 +174,7 @@ export default function TrainingJobs() {
                   <td className="p-4 text-muted-foreground font-mono">
                     {j.created_at ? new Date(j.created_at).toLocaleString() : "-"}
                   </td>
-                  <td className="p-4 text-right">
+                  <td className="p-4">
                     {j.metrics && Object.keys(j.metrics).length > 0 ? (
                       <div className="inline-flex gap-2 text-[10px] font-mono font-bold bg-secondary px-2.5 py-1 rounded-md text-foreground">
                         {Object.entries(j.metrics).slice(0, 2).map(([k, v]) => (
@@ -161,12 +185,58 @@ export default function TrainingJobs() {
                       <span className="text-muted-foreground">-</span>
                     )}
                   </td>
+                  <td className="p-4 text-right">
+                    {["completed", "success"].includes(j.status?.toLowerCase()) && (
+                      <button
+                        onClick={() => handleViewCurves(j.id)}
+                        className="bg-secondary hover:bg-secondary/80 border border-border text-foreground px-2.5 py-1.5 rounded-md font-semibold text-[10px] inline-flex items-center gap-1"
+                      >
+                        <TrendingUp size={10} /> Curves
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Curves Modal */}
+      {curvesJobId && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-xl max-w-2xl w-full p-6 shadow-2xl scale-in overflow-y-auto max-h-[90vh]">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-black text-base text-foreground">Training Curves</h3>
+              <button 
+                onClick={() => setCurvesJobId(null)}
+                className="text-muted-foreground hover:text-foreground text-sm font-semibold"
+              >
+                ✕ Close
+              </button>
+            </div>
+            
+            {loadingCurves ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+                <RefreshCw className="animate-spin" size={24} />
+                <span className="text-xs">Loading training history curves...</span>
+              </div>
+            ) : curvesPlot ? (
+              <div className="flex justify-center">
+                <img
+                  src={curvesPlot}
+                  alt="Training Curves"
+                  className="w-full rounded-lg border border-border max-h-[450px] object-contain bg-white"
+                />
+              </div>
+            ) : (
+              <div className="text-center text-xs text-muted-foreground py-8">
+                No curves data available.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

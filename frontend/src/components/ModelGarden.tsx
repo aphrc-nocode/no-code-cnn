@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Search, RefreshCw, Cpu, Play, Trash2 } from "lucide-react";
+import { Search, RefreshCw, Cpu, Play, Trash2, TrendingUp } from "lucide-react";
 import api from "../api";
 
 interface ModelJob {
@@ -27,6 +27,9 @@ export default function ModelGarden() {
   const [predictionResults, setPredictionResults] = useState<any>(null);
   const [explanationImg, setExplanationImg] = useState<string>("");
   const [predicting, setPredicting] = useState(false);
+  const [curvesJobId, setCurvesJobId] = useState<string | null>(null);
+  const [curvesPlot, setCurvesPlot] = useState<string>("");
+  const [loadingCurves, setLoadingCurves] = useState(false);
 
   const fetchJobs = async () => {
     setLoading(true);
@@ -76,6 +79,26 @@ export default function ModelGarden() {
       alert("Prediction request failed");
     } finally {
       setPredicting(false);
+    }
+  };
+
+  const handleViewCurves = async (jobId: string) => {
+    setCurvesJobId(jobId);
+    setCurvesPlot("");
+    setLoadingCurves(true);
+    try {
+      const res = await api.get(`/pipelines/${jobId}/training-metrics`);
+      if (res.data && res.data.training_curves_base64) {
+        setCurvesPlot(`data:image/png;base64,${res.data.training_curves_base64}`);
+      } else if (res.data && res.data.error) {
+        alert(res.data.error);
+      } else {
+        alert("No training curves found.");
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to load curves");
+    } finally {
+      setLoadingCurves(false);
     }
   };
 
@@ -165,6 +188,12 @@ export default function ModelGarden() {
                   </td>
                   <td className="p-4 text-right space-x-2">
                     <button
+                      onClick={() => handleViewCurves(j.id)}
+                      className="bg-secondary hover:bg-secondary/80 border border-border text-foreground px-2.5 py-1.5 rounded-md font-semibold text-[10px] inline-flex items-center gap-1"
+                    >
+                      <TrendingUp size={10} /> Curves
+                    </button>
+                    <button
                       onClick={() => {
                         setTestJobId(j.id);
                         setPredictionResults(null);
@@ -247,6 +276,42 @@ export default function ModelGarden() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Curves Modal */}
+      {curvesJobId && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-xl max-w-2xl w-full p-6 shadow-2xl scale-in overflow-y-auto max-h-[90vh]">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-black text-base text-foreground">Training Curves</h3>
+              <button 
+                onClick={() => setCurvesJobId(null)}
+                className="text-muted-foreground hover:text-foreground text-sm font-semibold"
+              >
+                ✕ Close
+              </button>
+            </div>
+            
+            {loadingCurves ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+                <RefreshCw className="animate-spin" size={24} />
+                <span className="text-xs">Loading training history curves...</span>
+              </div>
+            ) : curvesPlot ? (
+              <div className="flex justify-center">
+                <img
+                  src={curvesPlot}
+                  alt="Training Curves"
+                  className="w-full rounded-lg border border-border max-h-[450px] object-contain bg-white"
+                />
+              </div>
+            ) : (
+              <div className="text-center text-xs text-muted-foreground py-8">
+                No curves data available.
+              </div>
+            )}
           </div>
         </div>
       )}

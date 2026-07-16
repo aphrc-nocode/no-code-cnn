@@ -145,6 +145,7 @@ export default function WorkflowBuilder() {
   const [projectRuns, setProjectRuns] = useState<any[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string>("");
   const [workflowStatus, setWorkflowStatus] = useState<string>("Idle");
+  const [evalSampleIndices, setEvalSampleIndices] = useState<Record<string, number>>({});
 
   // Popover + mobile panel state
   const [addNodeOpen, setAddNodeOpen] = useState(false);
@@ -545,10 +546,15 @@ export default function WorkflowBuilder() {
       alert("Connect a TRAINED model or wait for the Trainer node to complete training first.");
       return;
     }
+    const predictorNode = nodes.find(n => n.id === predictorId);
 
     try {
       const formData = new FormData();
       formData.append("file", imageFile);
+      if (predictorNode) {
+        formData.append("confidence_threshold", (predictorNode.config.confidence_threshold ?? 0.5).toString());
+        formData.append("explain_method", predictorNode.config.explain_method || "none");
+      }
 
       const url = `/predict/${trainerNode.config.jobId}`;
       const res = await api.post(url, formData);
@@ -561,7 +567,8 @@ export default function WorkflowBuilder() {
             config: {
               ...node.config,
               predictions: res.data.predictions || res.data,
-              explanationImage: res.data.explanation_image || ""
+              annotatedImage: res.data.annotated_image ? `data:image/jpeg;base64,${res.data.annotated_image}` : "",
+              explanationImage: res.data.explanation_image ? `data:image/png;base64,${res.data.explanation_image}` : ""
             }
           };
         }
@@ -615,12 +622,20 @@ export default function WorkflowBuilder() {
       setNodes(prev => prev.map(n => n.id === raiId ? { ...n, config: { ...n.config, status: "running", cardType } } : n));
       
       let res;
+      let reportMarkdown = "";
+      let classDistributionPlot = "";
+      
       if (cardType === "dataset") {
         const dsNode = nodes.find(n => n.id === datasetEdge![0]);
-        res = await api.post(`/datasets/${dsNode?.config.datasetId}/data-card`);
+        res = await api.post(`/responsible-ai/dataset-validation/${dsNode?.config.datasetId}`);
+        reportMarkdown = res.data.data_card_markdown || "";
+        if (res.data.distribution_plot_base64) {
+          classDistributionPlot = `data:image/png;base64,${res.data.distribution_plot_base64}`;
+        }
       } else {
         const trNode = nodes.find(n => n.id === trainerEdge![0]);
-        res = await api.post(`/pipelines/${trNode?.config.jobId}/model-card`);
+        res = await api.get(`/pipelines/${trNode?.config.jobId}/model-card`);
+        reportMarkdown = res.data.model_card_markdown || "";
       }
 
       setNodes(prev => prev.map(n => n.id === raiId ? {
@@ -628,8 +643,8 @@ export default function WorkflowBuilder() {
         config: {
           ...n.config,
           status: "completed",
-          reportMarkdown: res.data.report || res.data,
-          classDistributionPlot: res.data.class_distribution_plot || ""
+          reportMarkdown,
+          classDistributionPlot
         }
       } : n));
       handleSaveWorkflow();
@@ -869,23 +884,55 @@ export default function WorkflowBuilder() {
               />
             </div>
 
-            {node.config.predictions && (
-              <div className="bg-muted/40 p-2.5 rounded-md border border-border">
-                <span className="font-semibold block mb-1">Prediction Outputs</span>
-                <pre className="text-[10px] overflow-x-auto bg-slate-950 text-emerald-400 p-2 rounded">
-                  {JSON.stringify(node.config.predictions, null, 2)}
-                </pre>
+            {node.config.annotatedImage && (
+              <div className="space-y-1">
+                <span className="font-semibold block text-[10px] text-muted-foreground uppercase">Prediction Overlay</span>
+                <img
+                  src={node.config.annotatedImage}
+                  alt="Prediction Overlay"
+                  className="w-full rounded-md border border-border mt-1 cursor-pointer hover:opacity-90 max-h-[180px] object-contain bg-slate-900"
+                  onClick={() => {
+                    const w = window.open();
+                    w?.document.write(`<img src="${node.config.annotatedImage}" style="max-width:100%; max-height:100vh;" />`);
+                  }}
+                />
               </div>
             )}
             
             {node.config.explanationImage && (
-              <div>
-                <span className="font-semibold block mb-1">xAI Heatmap Output</span>
+              <div className="space-y-1 mt-2">
+                <span className="font-semibold block text-[10px] text-muted-foreground uppercase">xAI Heatmap Output</span>
                 <img
                   src={node.config.explanationImage}
                   alt="Explanation Output"
-                  className="w-full rounded-md border border-border mt-1"
+                  className="w-full rounded-md border border-border mt-1 cursor-pointer hover:opacity-90 max-h-[180px] object-contain bg-slate-900"
+                  onClick={() => {
+                    const w = window.open();
+                    w?.document.write(`<img src="${node.config.explanationImage}" style="max-width:100%; max-height:100vh;" />`);
+                  }}
                 />
+              </div>
+            )}
+
+            {node.config.predictions && (
+              <div className="bg-muted/40 p-2.5 rounded-md border border-border mt-2">
+                <span className="font-semibold block mb-1 text-[10px] text-muted-foreground uppercase">Prediction Results</span>
+                {Array.isArray(node.config.predictions) ? (
+                  <ul className="space-y-1 mt-1 text-[11px]">
+                    {node.config.predictions.map((p: any, idx: number) => (
+                      <li key={idx} className="flex justify-between border-b border-border/40 pb-1">
+                        <span className="font-medium text-foreground">{p.class_name || p.label || `Class ${p.class_id}`}</span>
+                        <span className="text-muted-foreground font-semibold">
+                          {typeof p.confidence === "number" ? `${(p.confidence).toFixed(1)}%` : p.confidence}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <pre className="text-[10px] overflow-x-auto bg-slate-950 text-emerald-400 p-2 rounded mt-1 max-h-[120px]">
+                    {JSON.stringify(node.config.predictions, null, 2)}
+                  </pre>
+                )}
               </div>
             )}
           </div>
@@ -908,19 +955,181 @@ export default function WorkflowBuilder() {
               </div>
             )}
 
-            {node.config.results && (
-              <div className="bg-muted/40 p-2.5 rounded-md border border-border">
-                <span className="font-semibold block mb-1.5">Evaluation Results</span>
-                <div className="grid grid-cols-2 gap-2 text-[10px]">
-                  {Object.entries(node.config.results).map(([k, v]) => (
-                    <div key={k} className="border-b border-border/50 pb-1">
-                      <span className="text-muted-foreground block">{k}</span>
-                      <span className="font-bold text-foreground">{typeof v === "number" ? v.toFixed(4) : String(v)}</span>
+            {node.config.results && (() => {
+              const res = node.config.results;
+              const classMetrics = res.class_metrics || [];
+              const numClasses = classMetrics.length;
+              let macroF1 = 0;
+              let macroPrecision = 0;
+              let macroRecall = 0;
+              
+              if (numClasses > 0) {
+                let sumPrec = 0, sumRec = 0, sumF1 = 0;
+                classMetrics.forEach((m: any) => {
+                  sumPrec += m.precision || 0;
+                  sumRec += m.recall || 0;
+                  sumF1 += m.f1_score || 0;
+                });
+                macroPrecision = sumPrec / numClasses;
+                macroRecall = sumRec / numClasses;
+                macroF1 = sumF1 / numClasses;
+              }
+
+              let boxes = [];
+              if (res.task_type === "image_classification" || !res.task_type) {
+                boxes = [
+                  { label: "Accuracy", value: `${((res.accuracy ?? 0) * 100).toFixed(1)}%`, border: "border-t-primary" },
+                  { label: "Macro F1", value: `${(macroF1 * 100).toFixed(1)}%`, border: "border-t-emerald-500" },
+                  { label: "Macro Prec.", value: `${(macroPrecision * 100).toFixed(1)}%`, border: "border-t-warning" },
+                  { label: "Macro Rec.", value: `${(macroRecall * 100).toFixed(1)}%`, border: "border-t-violet-500" }
+                ];
+              } else {
+                boxes = [
+                  { label: "mAP", value: `${((res.accuracy ?? 0) * 100).toFixed(1)}%`, border: "border-t-primary" },
+                  { label: "AP50", value: `${res.correct_count ?? 0}%`, border: "border-t-emerald-500" },
+                  { label: "AP75", value: `${res.incorrect_count ?? 0}%`, border: "border-t-warning" },
+                  { label: "Targets", value: res.lowest_precision_class ?? "-", border: "border-t-violet-500" }
+                ];
+              }
+
+              return (
+                <div className="space-y-4">
+                  {/* Grid of Metric Boxes */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {boxes.map((box, idx) => (
+                      <div key={idx} className={`bg-muted/30 border border-border border-t-4 ${box.border} rounded-md p-2 flex flex-col`}>
+                        <span className="text-sm font-bold text-foreground leading-tight">{box.value}</span>
+                        <span className="text-[8px] font-semibold text-muted-foreground uppercase mt-0.5">{box.label}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Confusion Matrix Heatmap */}
+                  {res.confusion_matrix_base64 && (
+                    <div className="space-y-1">
+                      <span className="font-semibold block text-[10px] text-muted-foreground uppercase">Confusion Matrix Heatmap</span>
+                      <img
+                        src={`data:image/png;base64,${res.confusion_matrix_base64}`}
+                        alt="Confusion Matrix"
+                        className="w-full rounded-md border border-border cursor-pointer hover:opacity-90 bg-white"
+                        onClick={() => {
+                          const w = window.open();
+                          w?.document.write(`<img src="data:image/png;base64,${res.confusion_matrix_base64}" style="max-width:100%; max-height:100vh;" />`);
+                        }}
+                      />
                     </div>
-                  ))}
+                  )}
+
+                  {/* Class-wise Metrics Progress Bars */}
+                  {classMetrics.length > 0 && (
+                    <div className="space-y-2 border-t border-border/40 pt-3">
+                      <span className="font-semibold block text-[10px] text-muted-foreground uppercase">
+                        {res.task_type === "object_detection" ? "Average Precision (AP) per Class" : "F1-Score per Class"}
+                      </span>
+                      <div className="space-y-2">
+                        {classMetrics.map((cm: any, idx: number) => {
+                          const score = cm.f1_score ?? cm.ap ?? 0;
+                          const scorePercent = (score * 100).toFixed(1);
+                          let progressBg = "bg-primary";
+                          if (score < 0.5) progressBg = "bg-destructive";
+                          else if (score < 0.75) progressBg = "bg-warning";
+                          else progressBg = "bg-emerald-500";
+                          return (
+                            <div key={idx} className="text-[10px]">
+                              <div className="flex justify-between mb-0.5 font-semibold">
+                                <span className="text-foreground">{cm.class_name}</span>
+                                <span className="text-muted-foreground">{scorePercent}%</span>
+                              </div>
+                              <div className="w-full bg-muted border border-border/40 rounded-full h-1.5 overflow-hidden">
+                                <div className={`${progressBg} h-full`} style={{ width: `${scorePercent}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Test Split Sample Browser */}
+                  {res.samples && res.samples.length > 0 && (() => {
+                    const samples = res.samples;
+                    const currentIdx = evalSampleIndices[node.id] || 0;
+                    const sample = samples[currentIdx] || samples[0];
+                    
+                    return (
+                      <div className="space-y-2 border-t border-border/40 pt-3">
+                        <span className="font-semibold block text-[10px] text-muted-foreground uppercase">Test Split Samples ({samples.length})</span>
+                        <div className="border border-border/60 rounded-md p-2 bg-muted/10">
+                          <div className="relative aspect-video w-full overflow-hidden rounded bg-slate-950 flex items-center justify-center border border-border/40">
+                            {sample.base64_image ? (
+                              <img
+                                src={sample.base64_image}
+                                alt={sample.filename}
+                                className="max-h-full max-w-full object-contain cursor-pointer"
+                                onClick={() => {
+                                  const w = window.open();
+                                  w?.document.write(`<img src="${sample.base64_image}" style="max-width:100%; max-height:100vh;" />`);
+                                }}
+                              />
+                            ) : (
+                              <span className="text-muted-foreground text-[10px]">No Image</span>
+                            )}
+                            <div className={`absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded text-[8px] font-bold text-white uppercase tracking-wider ${sample.correct ? 'bg-emerald-500' : 'bg-destructive'}`}>
+                              {sample.correct ? 'Correct' : 'Incorrect'}
+                            </div>
+                          </div>
+                          <div className="mt-2 space-y-1 text-[10px]">
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground font-semibold">File:</span>
+                              <span className="font-semibold text-foreground truncate max-w-[120px]" title={sample.filename}>{sample.filename}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground font-semibold">True:</span>
+                              <span className="font-semibold text-foreground">{sample.true_label_summary || sample.true_label}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground font-semibold">Pred:</span>
+                              <span className="font-semibold text-foreground">{sample.predicted_label_summary || sample.predicted_label}</span>
+                            </div>
+                            {typeof sample.confidence === "number" && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground font-semibold">Conf:</span>
+                                <span className="font-semibold text-foreground">{(sample.confidence * 100).toFixed(1)}%</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex justify-between items-center mt-3 pt-2 border-t border-border/40">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const prevIdx = (currentIdx - 1 + samples.length) % samples.length;
+                                setEvalSampleIndices(prev => ({ ...prev, [node.id]: prevIdx }));
+                              }}
+                              className="px-2 py-1 bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border rounded text-[10px] font-semibold"
+                            >
+                              Prev
+                            </button>
+                            <span className="text-[10px] text-muted-foreground font-semibold">
+                              {currentIdx + 1} / {samples.length}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextIdx = (currentIdx + 1) % samples.length;
+                                setEvalSampleIndices(prev => ({ ...prev, [node.id]: nextIdx }));
+                              }}
+                              className="px-2 py-1 bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border rounded text-[10px] font-semibold"
+                            >
+                              Next
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         );
 
