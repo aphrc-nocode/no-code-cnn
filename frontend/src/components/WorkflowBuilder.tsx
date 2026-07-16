@@ -983,6 +983,9 @@ export default function WorkflowBuilder() {
                   { label: "Macro Prec.", value: `${(macroPrecision * 100).toFixed(1)}%`, border: "border-t-warning" },
                   { label: "Macro Rec.", value: `${(macroRecall * 100).toFixed(1)}%`, border: "border-t-violet-500" }
                 ];
+                if (typeof res.roc_auc === "number") {
+                  boxes.push({ label: "ROC-AUC", value: res.roc_auc.toFixed(3), border: "border-t-blue-500" });
+                }
               } else {
                 boxes = [
                   { label: "mAP", value: `${((res.accuracy ?? 0) * 100).toFixed(1)}%`, border: "border-t-primary" },
@@ -997,12 +1000,24 @@ export default function WorkflowBuilder() {
                   {/* Grid of Metric Boxes */}
                   <div className="grid grid-cols-2 gap-2">
                     {boxes.map((box, idx) => (
-                      <div key={idx} className={`bg-muted/30 border border-border border-t-4 ${box.border} rounded-md p-2 flex flex-col`}>
+                      <div key={idx} className={`bg-muted/30 border border-border border-t-4 ${box.border} rounded-md p-2 flex flex-col ${idx === 4 ? 'col-span-2' : ''}`}>
                         <span className="text-sm font-bold text-foreground leading-tight">{box.value}</span>
                         <span className="text-[8px] font-semibold text-muted-foreground uppercase mt-0.5">{box.label}</span>
                       </div>
                     ))}
                   </div>
+
+                  {/* Key Metrics Guide */}
+                  {res.task_type === "image_classification" && (
+                    <div className="bg-primary/5 border border-primary/20 rounded-md p-2.5 text-[9px] space-y-1.5 text-foreground leading-normal">
+                      <span className="font-bold text-primary block text-[10px]">Essential Classification Metrics</span>
+                      <p className="text-muted-foreground"><strong className="text-foreground">Accuracy:</strong> Best for balanced datasets. Measures total correct predictions divided by total images.</p>
+                      <p className="text-muted-foreground"><strong className="text-foreground">Precision:</strong> Crucial when false positives are costly (e.g., screening out explicit content).</p>
+                      <p className="text-muted-foreground"><strong className="text-foreground">Recall (Sensitivity):</strong> Crucial when false negatives are dangerous (e.g., medical defect detection).</p>
+                      <p className="text-muted-foreground"><strong className="text-foreground">F1-Score:</strong> The harmonic mean of precision and recall. Best for imbalanced datasets.</p>
+                      <p className="text-muted-foreground"><strong className="text-foreground">ROC-AUC:</strong> Area Under the ROC Curve. Evaluates the model's ability to distinguish classes across different probability thresholds. Higher AUC means better separation capability.</p>
+                    </div>
+                  )}
 
                   {/* Confusion Matrix Heatmap */}
                   {res.confusion_matrix_base64 && (
@@ -1015,6 +1030,22 @@ export default function WorkflowBuilder() {
                         onClick={() => {
                           const w = window.open();
                           w?.document.write(`<img src="data:image/png;base64,${res.confusion_matrix_base64}" style="max-width:100%; max-height:100vh;" />`);
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* ROC Curve Plot */}
+                  {res.roc_curve_base64 && (
+                    <div className="space-y-1">
+                      <span className="font-semibold block text-[10px] text-muted-foreground uppercase">ROC Curve Plot</span>
+                      <img
+                        src={`data:image/png;base64,${res.roc_curve_base64}`}
+                        alt="ROC Curve"
+                        className="w-full rounded-md border border-border cursor-pointer hover:opacity-90 bg-white"
+                        onClick={() => {
+                          const w = window.open();
+                          w?.document.write(`<img src="data:image/png;base64,${res.roc_curve_base64}" style="max-width:100%; max-height:100vh;" />`);
                         }}
                       />
                     </div>

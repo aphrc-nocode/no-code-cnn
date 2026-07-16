@@ -176,11 +176,14 @@ export default function ModelGarden() {
                   <td className="p-4 text-muted-foreground">
                     {j.metrics ? (
                       <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px]">
-                        {Object.entries(j.metrics).map(([k, v]) => (
-                          <span key={k} className="text-foreground font-semibold">
-                            {k}: <strong className="text-primary">{v.toFixed(3)}</strong>
-                          </span>
-                        ))}
+                        {Object.entries(j.metrics)
+                          .filter(([k]) => !k.startsWith("train_") && !k.startsWith("val_"))
+                          .map(([k, v]) => (
+                            <span key={k} className="text-foreground font-semibold whitespace-nowrap">
+                              {k}: <strong className="text-primary">{typeof v === "number" ? v.toFixed(3) : String(v)}</strong>
+                            </span>
+                          ))
+                        }
                       </div>
                     ) : (
                       "-"

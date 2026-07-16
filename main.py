@@ -1599,6 +1599,108 @@ async def evaluate_pipeline(job_id: str, current_user: User = Depends(get_curren
         except Exception as e:
             print(f"Error generating confusion matrix: {e}")
 
+        # Generate ROC/AUC curve
+        roc_auc_val = None
+        roc_curve_base64 = ""
+        try:
+            from sklearn.metrics import roc_curve, auc
+            from sklearn.preprocessing import label_binarize
+            import numpy as np
+
+            # Map class names to indices
+            class_to_idx = {cls: idx for idx, cls in enumerate(classes)}
+            
+            y_true_indices = [class_to_idx[s["true_label"]] for s in samples_results if s["true_label"] in class_to_idx]
+            
+            # Extract scores matrix: shape (n_samples, n_classes)
+            y_scores = []
+            for s in samples_results:
+                scores_dict = {p["class_name"]: p["confidence"] for p in s["all_predictions"]}
+                # Ensure all classes have a score (default 0.0)
+                scores_row = [scores_dict.get(cls, 0.0) for cls in classes]
+                # Normalize scores to sum to 1 if they don't
+                sum_scores = sum(scores_row)
+                if sum_scores > 0:
+                    scores_row = [score / sum_scores for score in scores_row]
+                y_scores.append(scores_row)
+            
+            y_scores = np.array(y_scores)
+            y_true_indices = np.array(y_true_indices)
+
+            n_classes = len(classes)
+            if len(y_true_indices) > 0 and len(y_scores) > 0:
+                plt.figure(figsize=(8, 6))
+
+                if n_classes == 2:
+                    # Binary classification
+                    # Use scores for class 1
+                    y_true_binary = y_true_indices
+                    y_scores_pos = y_scores[:, 1]
+                    fpr, tpr, _ = roc_curve(y_true_binary, y_scores_pos)
+                    roc_auc_val = auc(fpr, tpr)
+                    
+                    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUC = {roc_auc_val:.3f})')
+                    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+                    plt.xlim([0.0, 1.0])
+                    plt.ylim([0.0, 1.05])
+                    plt.xlabel('False Positive Rate')
+                    plt.ylabel('True Positive Rate')
+                    plt.title('Receiver Operating Characteristic (ROC) Curve')
+                    plt.legend(loc="lower right")
+                elif n_classes > 2:
+                    # Multiclass classification: One-vs-Rest ROC
+                    y_true_bin = label_binarize(y_true_indices, classes=list(range(n_classes)))
+                    
+                    fpr = dict()
+                    tpr = dict()
+                    roc_auc = dict()
+                    for i in range(n_classes):
+                        if i < y_true_bin.shape[1] and np.sum(y_true_bin[:, i]) > 0:  # avoid classes with no true samples in test split
+                            fpr[i], tpr[i], _ = roc_curve(y_true_bin[:, i], y_scores[:, i])
+                            roc_auc[i] = auc(fpr[i], tpr[i])
+                            plt.plot(fpr[i], tpr[i], lw=1.5, label=f'Class {classes[i]} (AUC = {roc_auc[i]:.2f})')
+                    
+                    # Compute macro-average ROC
+                    try:
+                        valid_keys = [i for i in fpr if i in fpr]
+                        if valid_keys:
+                            # First aggregate all false positive rates
+                            all_fpr = np.unique(np.concatenate([fpr[i] for i in valid_keys]))
+                            # Then interpolate all ROC curves at these points
+                            mean_tpr = np.zeros_like(all_fpr)
+                            valid_classes = 0
+                            for i in valid_keys:
+                                mean_tpr += np.interp(all_fpr, fpr[i], tpr[i])
+                                valid_classes += 1
+                            if valid_classes > 0:
+                                mean_tpr /= valid_classes
+                                fpr["macro"] = all_fpr
+                                tpr["macro"] = mean_tpr
+                                roc_auc["macro"] = auc(fpr["macro"], tpr["macro"])
+                                roc_auc_val = roc_auc["macro"]
+                                plt.plot(fpr["macro"], tpr["macro"],
+                                         label=f'macro-average ROC curve (AUC = {roc_auc["macro"]:.2f})',
+                                         color='deeppink', linestyle=':', linewidth=3)
+                    except Exception as agg_err:
+                        print(f"Error aggregating multiclass ROC: {agg_err}")
+                    
+                    plt.plot([0, 1], [0, 1], 'k--', lw=2)
+                    plt.xlim([0.0, 1.0])
+                    plt.ylim([0.0, 1.05])
+                    plt.xlabel('False Positive Rate')
+                    plt.ylabel('True Positive Rate')
+                    plt.title('Multi-class Receiver Operating Characteristic (ROC) Curve')
+                    plt.legend(loc="lower right")
+                
+                plt.tight_layout()
+                buf = io.BytesIO()
+                plt.savefig(buf, format='png', dpi=100)
+                plt.close()
+                roc_curve_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+            
+        except Exception as e:
+            print(f"Error generating ROC curve: {e}")
+
         return {
             "task_type": "image_classification",
             "accuracy": round(accuracy, 4),
@@ -1609,7 +1711,9 @@ async def evaluate_pipeline(job_id: str, current_user: User = Depends(get_curren
             "top_confusion": top_confusion,
             "class_metrics": class_metrics_list,
             "samples": samples_results,
-            "confusion_matrix_base64": cm_base64
+            "confusion_matrix_base64": cm_base64,
+            "roc_auc": round(roc_auc_val, 4) if roc_auc_val is not None else None,
+            "roc_curve_base64": roc_curve_base64
         }
         
     elif job.pipeline_config.task_type == TaskType.OBJECT_DETECTION:
@@ -3555,16 +3659,31 @@ async def get_training_metrics(job_id: str, current_user: User = Depends(get_cur
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     from mlflow.tracking import MlflowClient
+    from mlflow_utils import EXPERIMENT_NAME
+    import mlflow
 
     client = MlflowClient()
     try:
-        run = client.get_run(job_id)
+        run_id = job_id
+        try:
+            experiment = mlflow.get_experiment_by_name(EXPERIMENT_NAME)
+            if experiment:
+                runs = client.search_runs(
+                    experiment_ids=[experiment.experiment_id],
+                    filter_string=f"attributes.run_name = 'job_{job_id}'"
+                )
+                if runs:
+                    run_id = runs[0].info.run_id
+        except Exception as search_err:
+            print(f"Error searching MLflow runs: {search_err}")
+
+        run = client.get_run(run_id)
         
-        # Get metric history
-        train_loss = client.get_metric_history(job_id, "train_loss")
-        val_loss = client.get_metric_history(job_id, "val_loss")
-        train_acc = client.get_metric_history(job_id, "train_accuracy")
-        val_acc = client.get_metric_history(job_id, "val_accuracy")
+        # Get metric history using the resolved run_id
+        train_loss = client.get_metric_history(run_id, "train_loss")
+        val_loss = client.get_metric_history(run_id, "val_loss")
+        train_acc = client.get_metric_history(run_id, "train_accuracy")
+        val_acc = client.get_metric_history(run_id, "val_accuracy")
         
         if not train_loss:
             # Fallback for old logging style (e.g. train_loss_epoch_X)

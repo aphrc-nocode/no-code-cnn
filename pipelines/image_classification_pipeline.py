@@ -30,6 +30,7 @@ class ImageClassificationPipeline(BasePipeline):
             # Start MLflow run
             from mlflow_utils import start_run, log_metrics, log_model, end_run
             self.run_id = start_run(job_id, self.config.dict())
+            final_metrics = None
             
             # First, load dataset to determine actual number of classes
             train_transform = self.get_transforms(train=True)
@@ -467,7 +468,12 @@ class ImageClassificationPipeline(BasePipeline):
                     "train_accuracy": train_acc / 100.0,
                     "train_loss": train_loss,
                     "val_accuracy": (val_acc / 100.0) if val_loader else None,
-                    "val_loss": val_loss if val_loader else None
+                    "val_loss": val_loss if val_loader else None,
+                    **({
+                        "precision": final_metrics.get("precision_macro") if "precision_macro" in final_metrics else final_metrics.get("precision", 0.0),
+                        "recall": final_metrics.get("recall_macro") if "recall_macro" in final_metrics else final_metrics.get("recall", 0.0),
+                        "f1_score": final_metrics.get("f1_macro") if "f1_macro" in final_metrics else final_metrics.get("f1", 0.0)
+                    } if final_metrics else {})
                 },
                 "class_mapping": class_to_idx,
                 "history": history

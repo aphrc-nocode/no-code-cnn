@@ -176,10 +176,13 @@ export default function TrainingJobs() {
                   </td>
                   <td className="p-4">
                     {j.metrics && Object.keys(j.metrics).length > 0 ? (
-                      <div className="inline-flex gap-2 text-[10px] font-mono font-bold bg-secondary px-2.5 py-1 rounded-md text-foreground">
-                        {Object.entries(j.metrics).slice(0, 2).map(([k, v]) => (
-                          <span key={k}>{k}: {v.toFixed(3)}</span>
-                        ))}
+                      <div className="flex flex-wrap gap-2 text-[10px] font-mono font-bold bg-secondary px-2.5 py-1 rounded-md text-foreground">
+                        {Object.entries(j.metrics)
+                          .filter(([k]) => !k.startsWith("train_") && !k.startsWith("val_"))
+                          .map(([k, v]) => (
+                            <span key={k} className="whitespace-nowrap">{k}: {typeof v === "number" ? v.toFixed(3) : String(v)}</span>
+                          ))
+                        }
                       </div>
                     ) : (
                       <span className="text-muted-foreground">-</span>
