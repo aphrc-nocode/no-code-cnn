@@ -3699,23 +3699,43 @@ async def get_training_metrics(job_id: str, current_user: User = Depends(get_cur
                 return {"error": "No training metrics found."}
                 
             epochs = sorted(list(epochs_list))
+            train_loss_steps = epochs
             t_loss = [metrics.get(f"train_loss_epoch_{e}", 0) for e in epochs]
-            v_loss = [metrics.get(f"val_loss_epoch_{e}", 0) for e in epochs]
+            
+            val_loss_steps = [e for e in epochs if f"val_loss_epoch_{e}" in metrics]
+            v_loss = [metrics[f"val_loss_epoch_{e}"] for e in val_loss_steps]
+            
+            train_acc_steps = epochs
             t_acc = [metrics.get(f"train_acc_epoch_{e}", 0) for e in epochs]
-            v_acc = [metrics.get(f"val_acc_epoch_{e}", 0) for e in epochs]
+            
+            val_acc_steps = [e for e in epochs if f"val_acc_epoch_{e}" in metrics]
+            v_acc = [metrics[f"val_acc_epoch_{e}"] for e in val_acc_steps]
         else:
-            epochs = [m.step for m in train_loss]
-            t_loss = [m.value for m in train_loss]
-            v_loss = [m.value for m in val_loss] if val_loss else []
-            t_acc = [m.value for m in train_acc] if train_acc else []
-            v_acc = [m.value for m in val_acc] if val_acc else []
+            def get_sorted_history(history_list):
+                if not history_list:
+                    return [], []
+                step_to_val = {}
+                for m in history_list:
+                    try:
+                        step_to_val[int(m.step)] = float(m.value)
+                    except:
+                        pass
+                sorted_steps = sorted(step_to_val.keys())
+                sorted_vals = [step_to_val[s] for s in sorted_steps]
+                return sorted_steps, sorted_vals
+
+            train_loss_steps, t_loss = get_sorted_history(train_loss)
+            val_loss_steps, v_loss = get_sorted_history(val_loss)
+            train_acc_steps, t_acc = get_sorted_history(train_acc)
+            val_acc_steps, v_acc = get_sorted_history(val_acc)
         
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
         
         # Loss plot
-        ax1.plot(epochs, t_loss, label='Train Loss', color='blue', linewidth=2)
-        if v_loss:
-            ax1.plot(epochs[:len(v_loss)], v_loss, label='Val Loss', color='orange', linewidth=2)
+        if train_loss_steps:
+            ax1.plot(train_loss_steps, t_loss, label='Train Loss', color='blue', linewidth=2)
+        if val_loss_steps:
+            ax1.plot(val_loss_steps, v_loss, label='Val Loss', color='orange', linewidth=2)
         ax1.set_title('Loss over Epochs', fontsize=14)
         ax1.set_xlabel('Epoch')
         ax1.set_ylabel('Loss')
@@ -3723,10 +3743,10 @@ async def get_training_metrics(job_id: str, current_user: User = Depends(get_cur
         ax1.grid(True, linestyle='--', alpha=0.7)
         
         # Accuracy plot
-        if t_acc:
-            ax2.plot(epochs[:len(t_acc)], t_acc, label='Train Accuracy', color='green', linewidth=2)
-        if v_acc:
-            ax2.plot(epochs[:len(v_acc)], v_acc, label='Val Accuracy', color='red', linewidth=2)
+        if train_acc_steps:
+            ax2.plot(train_acc_steps, t_acc, label='Train Accuracy', color='green', linewidth=2)
+        if val_acc_steps:
+            ax2.plot(val_acc_steps, v_acc, label='Val Accuracy', color='red', linewidth=2)
         ax2.set_title('Accuracy over Epochs', fontsize=14)
         ax2.set_xlabel('Epoch')
         ax2.set_ylabel('Accuracy')
