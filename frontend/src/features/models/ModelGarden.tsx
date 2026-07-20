@@ -205,9 +205,15 @@ export default function ModelGarden() {
       }
 
       // 2. Create pipeline
-      const task_type_val = project.task_type === "classification"
-        ? "image_classification"
-        : (project.task_type === "segmentation" ? "image_segmentation" : "object_detection");
+      // project.task_type is already the full-form value from the API
+      // (image_classification, image_segmentation, object_detection).
+      // Support legacy shorthand values as fallback.
+      const taskTypeMap: Record<string, string> = {
+        classification: "image_classification",
+        segmentation: "image_segmentation",
+        detection: "object_detection",
+      };
+      const task_type_val = taskTypeMap[project.task_type] ?? project.task_type;
 
       const payload = {
         name: modelName,
