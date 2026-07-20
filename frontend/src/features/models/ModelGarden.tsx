@@ -112,9 +112,9 @@ export default function ModelGarden() {
       const res = await api.get(`/projects/${projectId}`);
       setProject(res.data);
       // Select appropriate default architecture based on project type
-      if (res.data.task_type === "classification") {
+      if (res.data.task_type === "image_classification" || res.data.task_type === "classification") {
         setSelectedArch("resnet18");
-      } else if (res.data.task_type === "segmentation") {
+      } else if (res.data.task_type === "image_segmentation" || res.data.task_type === "segmentation") {
         setSelectedArch("deeplabv3_resnet50");
       } else {
         setSelectedArch("faster_rcnn");
@@ -269,7 +269,8 @@ export default function ModelGarden() {
   // Architectures supported by project type
   const getSupportedArchitectures = () => {
     if (!project) return [];
-    if (project.task_type === "classification") {
+    const taskType = project.task_type;
+    if (taskType === "image_classification" || taskType === "classification") {
       return [
         { id: "resnet18", name: "ResNet-18 (Standard)" },
         { id: "resnet50", name: "ResNet-50 (Deep)" },
@@ -277,7 +278,7 @@ export default function ModelGarden() {
         { id: "efficientnet", name: "EfficientNet-B0 (Optimized)" },
         { id: "vgg16", name: "VGG-16 (Classic)" }
       ];
-    } else if (project.task_type === "segmentation") {
+    } else if (taskType === "image_segmentation" || taskType === "segmentation") {
       return [
         { id: "deeplabv3_resnet50", name: "DeepLabV3 ResNet-50 (High Accuracy)" },
         { id: "fcn_resnet50", name: "FCN ResNet-50 (Standard)" },
@@ -285,6 +286,7 @@ export default function ModelGarden() {
         { id: "mask_rcnn", name: "Mask R-CNN (Instance Segmentation)" }
       ];
     } else {
+      // object_detection (default)
       return [
         { id: "faster_rcnn", name: "Faster R-CNN (ResNet-50 Backbone)" },
         { id: "ssd", name: "SSDLite (MobileNet-V3 Backbone)" }
