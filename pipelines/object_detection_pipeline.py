@@ -871,7 +871,18 @@ class ObjectDetectionPipeline(BasePipeline):
     async def _update_job_log(self, job_id: str, message: str):
         """Update the job log with a message"""
         print(f"Job {job_id}: {message}")
-        # This would integrate with the job management system in main.py
+        try:
+            from main import job_manager
+            job = job_manager.get_job(job_id)
+            if job:
+                job.logs.append(message)
+                if len(job.logs) > 1000:
+                    job.logs = job.logs[-1000:]
+                job_manager.save_job_metadata(job)
+        except Exception as e:
+            print(f"Error updating job log: {e}")
+        import asyncio
+        await asyncio.sleep(0.001)
     
     async def predict(self, image, model=None) -> Dict[str, Any]:
         """

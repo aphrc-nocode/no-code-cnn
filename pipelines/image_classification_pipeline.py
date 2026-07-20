@@ -789,6 +789,16 @@ class ImageClassificationPipeline(BasePipeline):
         
     async def _update_job_log(self, job_id: str, message: str):
         """Update the job log with a message"""
-        # This method should be implemented in the JobManager class
-        # But we include it here for completeness
         print(f"Job {job_id}: {message}")
+        try:
+            from main import job_manager
+            job = job_manager.get_job(job_id)
+            if job:
+                job.logs.append(message)
+                if len(job.logs) > 1000:
+                    job.logs = job.logs[-1000:]
+                job_manager.save_job_metadata(job)
+        except Exception as e:
+            print(f"Error updating job log: {e}")
+        import asyncio
+        await asyncio.sleep(0.001)

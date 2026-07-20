@@ -269,6 +269,8 @@ class JobManager:
         self.jobs: Dict[str, TrainingJob] = {}
         self.running_jobs: Dict[str, asyncio.Task] = {}
         self.loaded_models: Dict[str, tuple[nn.Module, Dict]] = {}  # Cache for loaded models
+        self.max_concurrent_jobs = int(os.getenv("MAX_CONCURRENT_JOBS", "1"))
+        self.queue: List[tuple[str, str]] = []  # Queue of (job_id, dataset_path)
         
         # Initialize MLflow
         setup_mlflow()
@@ -508,7 +510,7 @@ class JobManager:
         return job
     
     async def start_job(self, job_id: str, dataset_path: str):
-        """Start a training job with the given dataset"""
+        """Start a training job with the given dataset, or queue it if worker slots are full"""
         job = self.get_job(job_id)
         if not job:
             raise ValueError(f"Job {job_id} not found")
@@ -523,6 +525,15 @@ class JobManager:
             else:
                 raise ValueError(f"Dataset '{dataset_id}' does not exist locally or in MinIO")
 
+        # Check if we have active slots
+        if len(self.running_jobs) >= self.max_concurrent_jobs:
+            job.status = TrainingStatus.PENDING
+            job.logs.append(f"Job queued (Position: {len(self.queue) + 1}). Waiting for active training run to finish...")
+            self.save_job_metadata(job)
+            self.queue.append((job_id, dataset_path))
+            print(f"Job {job_id} queued. Currently running: {list(self.running_jobs.keys())}. Queue size: {len(self.queue)}")
+            return {"message": "Training queued", "job_id": job_id}
+
         # Ensure models directory exists
         models_base_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
         models_base_dir.mkdir(parents=True, exist_ok=True)
@@ -534,18 +545,22 @@ class JobManager:
         # Set job status to running
         job.status = TrainingStatus.RUNNING
         job.started_at = datetime.now()
+        job.logs.append("Acquired active worker slot. Starting training pipeline...")
         self.save_job_metadata(job)
         
         # Create pipeline for this job
         pipeline = PipelineFactory.create_pipeline(job.pipeline_config)
         
         # Start training in the background
-        asyncio.create_task(self._run_training(pipeline, job_id, dataset_path))
+        task = asyncio.create_task(self._run_training(pipeline, job_id, dataset_path))
+        self.running_jobs[job_id] = task
         
         return {"message": "Training started", "job_id": job_id}
     
     async def _run_training(self, pipeline: BasePipeline, job_id: str, dataset_path: str):
         """Run the training pipeline"""
+        # Yield control immediately to allow uvicorn to send the response to the client
+        await asyncio.sleep(0.2)
         try:
             result = await pipeline.train(dataset_path, job_id)
             
@@ -604,6 +619,43 @@ class JobManager:
                             print(f"Synced model directory for {job_id} to MinIO")
                     except Exception as e:
                         print(f"Warning: Failed to sync model directory to MinIO for {job_id}: {e}")
+            
+            # Start the next job in the queue
+            self._trigger_next_job()
+            
+    def _trigger_next_job(self):
+        """Trigger the next queued job if concurrency slot is available"""
+        if len(self.running_jobs) < self.max_concurrent_jobs and self.queue:
+            next_job_id, next_dataset_path = self.queue.pop(0)
+            print(f"Acquired slot for queued job {next_job_id}. Starting...")
+            asyncio.create_task(self._run_queued_job(next_job_id, next_dataset_path))
+
+    async def _run_queued_job(self, job_id: str, dataset_path: str):
+        """Start the training loop for a queued job"""
+        job = self.get_job(job_id)
+        if not job:
+            return
+        
+        # Ensure models directory exists
+        models_base_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
+        models_base_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create model directory for this job
+        job_model_dir = models_base_dir / job_id
+        job_model_dir.mkdir(exist_ok=True)
+        
+        # Set job status to running
+        job.status = TrainingStatus.RUNNING
+        job.started_at = datetime.now()
+        job.logs.append("Acquired active worker slot. Starting training pipeline...")
+        self.save_job_metadata(job)
+        
+        # Create pipeline for this job
+        pipeline = PipelineFactory.create_pipeline(job.pipeline_config)
+        
+        # Start training in the background
+        task = asyncio.create_task(self._run_training(pipeline, job_id, dataset_path))
+        self.running_jobs[job_id] = task
     
     def get_job(self, job_id: str) -> Optional[TrainingJob]:
         """Get job by ID"""
