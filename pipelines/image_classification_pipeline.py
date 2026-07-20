@@ -126,8 +126,8 @@ class ImageClassificationPipeline(BasePipeline):
             
             # We'll use MLflow for model storage primarily
             # Local directory only used as fallback if MLflow fails
-            models_base_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
-            model_dir = models_base_dir / job_id
+            project_id = getattr(self.config, "project_id", "default")
+            model_dir = Path("logs/projects") / project_id / "models" / job_id
             model_dir.mkdir(exist_ok=True, parents=True)
             best_model_path = None
             
@@ -435,7 +435,7 @@ class ImageClassificationPipeline(BasePipeline):
                 # final_model_path already points to the correct file
             else:
                 # Fallback to local storage only if MLflow run isn't active
-                final_model_path = model_dir / "final_model.pth"
+                final_model_path = model_dir / "model.pth"
                 torch.save({
                     'model_state_dict': model.state_dict(),
                     'class_to_idx': class_to_idx,
@@ -496,10 +496,12 @@ class ImageClassificationPipeline(BasePipeline):
     
     def create_model(self) -> nn.Module:
         """Create a model based on the architecture specified in config"""
-        return model_factory.create_model(
+        model = model_factory.create_model(
             self.config.architecture,
             num_classes=self.config.num_classes
         ).to(self.device)
+        model = self.load_parent_weights(model)
+        return model
     
     def get_transforms(self, train: bool = False):
         """Get data transforms based on configuration"""
@@ -520,14 +522,23 @@ class ImageClassificationPipeline(BasePipeline):
         
         if train and self.config.augmentation_enabled:
             # Training transforms with data augmentation
-            transform = transforms.Compose([
-                transforms.RandomResizedCrop((resize_w, resize_h)),
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomRotation(20),
-                transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+            aug_list = [transforms.RandomResizedCrop((resize_w, resize_h))]
+            aug_types = getattr(self.config, "augmentation_types", None)
+            if aug_types is None:
+                aug_types = ["horizontal_flip", "random_rotation", "color_jitter"]
+            if "horizontal_flip" in aug_types:
+                aug_list.append(transforms.RandomHorizontalFlip())
+            if "vertical_flip" in aug_types:
+                aug_list.append(transforms.RandomVerticalFlip())
+            if "random_rotation" in aug_types:
+                aug_list.append(transforms.RandomRotation(20))
+            if "color_jitter" in aug_types:
+                aug_list.append(transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1))
+            aug_list.extend([
                 transforms.ToTensor(),
                 normalize,
             ])
+            transform = transforms.Compose(aug_list)
         else:
             # Validation and testing transforms (no augmentation)
             transform = transforms.Compose([

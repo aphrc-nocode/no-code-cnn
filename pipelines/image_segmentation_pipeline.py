@@ -297,9 +297,10 @@ class ImageSegmentationPipeline(BasePipeline):
                 model.load_state_dict(best_model_state)
             
             # Save the model
-            models_base_dir = os.getenv("MODELS_DIR", "logs/models")
-            os.makedirs(models_base_dir, exist_ok=True)
-            model_path = os.path.join(models_base_dir, f"{job_id}.pth")
+            project_id = getattr(self.config, "project_id", "default")
+            models_dir = os.path.join("logs", "projects", project_id, "models", job_id)
+            os.makedirs(models_dir, exist_ok=True)
+            model_path = os.path.join(models_dir, "model.pth")
             
             # Save necessary components
             torch.save({
@@ -346,20 +347,24 @@ class ImageSegmentationPipeline(BasePipeline):
     
     def create_model(self) -> nn.Module:
         """Create a model based on the architecture specified in config"""
-        return model_factory.create_model(
+        model = model_factory.create_model(
             self.config.architecture,
             num_classes=self.config.num_classes,
             segmentation_type=self.config.segmentation_type,
             pretrained=True
         ).to(self.device)
+        model = self.load_parent_weights(model)
+        return model
     
     def get_transforms(self, train: bool = False):
         """Get data transforms for image segmentation"""
         from datasets_module.segmentation.transforms import get_segmentation_transforms
+        aug_types = getattr(self.config, "augmentation_types", None)
         return get_segmentation_transforms(
             train=train,
             segmentation_type=self.config.segmentation_type,
-            image_size=self.config.image_size
+            image_size=self.config.image_size,
+            augmentation_types=aug_types
         )
         
     async def predict(self, image, model=None) -> Dict[str, Any]:

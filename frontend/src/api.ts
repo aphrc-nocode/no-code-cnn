@@ -20,7 +20,7 @@ export interface ImageItem {
 export interface Project {
   id: number;
   name: string;
-  task_type: 'classification' | 'detection' | 'segmentation';
+  task_type: 'image_classification' | 'object_detection' | 'image_segmentation';
   classes: string[];
 }
 

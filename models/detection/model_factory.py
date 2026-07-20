@@ -43,12 +43,44 @@ def create_faster_rcnn_model(num_classes: int, pretrained: bool = True) -> nn.Mo
     return model
 
 
+def create_ssd_model(num_classes: int, pretrained: bool = True) -> nn.Module:
+    """
+    Create a custom SSDLite model with MobileNetV3 Large backbone
+    
+    Args:
+        num_classes: Number of output classes (including background)
+        pretrained: Whether to use pre-trained weights
+        
+    Returns:
+        SSDLite model
+    """
+    model = torchvision.models.detection.ssdlite320_mobilenet_v3_large(pretrained=pretrained)
+    
+    # Retrieve out channels of backbone
+    in_channels = model.backbone.out_channels
+    num_anchors = model.anchor_generator.num_anchors_per_location()
+    
+    from torchvision.models.detection.ssd import SSDHead
+    model.head = SSDHead(in_channels, num_anchors, num_classes)
+    
+    # Freeze backbone if running on CPU or if explicitly configured via env to save memory
+    import os
+    freeze_backbone = os.getenv("FREEZE_BACKBONE", "true").lower() == "true"
+    if freeze_backbone or not torch.cuda.is_available():
+        print("Freezing SSD backbone to save memory and speed up training on CPU...")
+        for param in model.backbone.parameters():
+            param.requires_grad = False
+            
+    print(f"Created SSDLite MobileNetV3 with {num_classes} classes")
+    return model
+
+
 def create_model(architecture: str, num_classes: int, pretrained: bool = True) -> nn.Module:
     """
     Create an object detection model based on architecture name
     
     Args:
-        architecture: Name of the architecture (e.g., 'faster_rcnn')
+        architecture: Name of the architecture (e.g., 'faster_rcnn', 'ssd')
         num_classes: Number of output classes (including background)
         pretrained: Whether to use pre-trained weights on COCO dataset
         
@@ -57,5 +89,7 @@ def create_model(architecture: str, num_classes: int, pretrained: bool = True) -
     """
     if architecture == "faster_rcnn":
         return create_faster_rcnn_model(num_classes, pretrained)
+    elif architecture == "ssd":
+        return create_ssd_model(num_classes, pretrained)
     else:
-        raise ValueError(f"Unsupported architecture: {architecture}. Only 'faster_rcnn' is supported in this implementation.")
+        raise ValueError(f"Unsupported architecture: {architecture}. Supported: ['faster_rcnn', 'ssd']")

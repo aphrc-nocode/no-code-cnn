@@ -136,8 +136,10 @@ class PipelineConfig(BaseModel):
     epochs: int = 10
     image_size: tuple = (224, 224)
     augmentation_enabled: bool = True
+    augmentation_types: Optional[List[str]] = ["horizontal_flip", "vertical_flip", "random_rotation", "color_jitter"]
     early_stopping: bool = True
     patience: int = 5  # Early stopping patience
+    parent_model_id: Optional[str] = None  # <-- Added for weights inheritance
     
     # Hugging Face specific configuration
     use_hf_transformers: bool = False
@@ -277,8 +279,8 @@ class JobManager:
     def save_job_metadata(self, job: TrainingJob):
         """Save job metadata locally and upload to MinIO"""
         try:
-            models_base_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
-            job_dir = models_base_dir / job.id
+            project_id = getattr(job.pipeline_config, "project_id", "default")
+            job_dir = Path("logs/projects") / project_id / "models" / job.id
             job_dir.mkdir(parents=True, exist_ok=True)
             meta_file = job_dir / "job_metadata.json"
             
@@ -294,8 +296,15 @@ class JobManager:
 
     def _recover_jobs(self):
         """Recursively scan logs/models for saved checkpoints and recover job details, falling back to MinIO"""
-        models_base_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
-        if models_base_dir.exists():
+        models_dirs = []
+        legacy_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
+        if legacy_dir.exists():
+            models_dirs.append(legacy_dir)
+        projects_dir = Path("logs/projects")
+        if projects_dir.exists():
+            models_dirs.append(projects_dir)
+            
+        for models_base_dir in models_dirs:
             # Helper to infer task type from architecture string/enum
             def get_task_type_for_architecture(arch: str) -> TaskType:
                 classification_archs = {"resnet18", "resnet50", "vgg16", "efficientnet", "mobilenet"}
@@ -584,8 +593,12 @@ class JobManager:
                 # If training completed successfully, sync local model folder to MinIO
                 if job.status == TrainingStatus.COMPLETED:
                     try:
-                        models_base_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
-                        local_job_model_dir = models_base_dir / job_id
+                        if job.model_path and Path(job.model_path).exists():
+                            local_job_model_dir = Path(job.model_path).parent
+                        else:
+                            models_base_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
+                            local_job_model_dir = models_base_dir / job_id
+                        
                         if local_job_model_dir.exists():
                             minio_utils.upload_directory(MODELS_BUCKET, job_id, str(local_job_model_dir))
                             print(f"Synced model directory for {job_id} to MinIO")
@@ -4142,6 +4155,491 @@ async def sam_segment(project_id: str, image_id: str, payload: SamSegmentRequest
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/projects/{project_id}/images/{image_id}/auto-annotate", tags=["Projects"])
+async def auto_annotate_project_image(
+    project_id: str,
+    image_id: str,
+    conf: float = 0.5,
+    run_id: Optional[str] = None,
+    external_model_id: Optional[str] = None,
+    current_user: User = Depends(get_current_approved_user)
+):
+    import json
+    from pathlib import Path
+    from PIL import Image as PILImage
+    import traceback
+    
+    project = check_project_access(project_id, current_user)
+    
+    # Helper to map class name (string) to array index string (e.g. "0", "1")
+    def get_class_id_str(class_name: str) -> str:
+        try:
+            return str(project.classes.index(class_name))
+        except ValueError:
+            # Fallback if class_name is already a string number or not found
+            if class_name.isdigit():
+                return class_name
+            return "0"
+            
+    # 1. Resolve image filepath
+    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+    metadata_file = project_dir / "images_metadata.json"
+    
+    if not metadata_file.exists():
+        raise HTTPException(status_code=404, detail="Image list not found")
+        
+    try:
+        with open(metadata_file, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to load image metadata")
+        
+    img_info = metadata.get(image_id)
+    if not img_info:
+        raise HTTPException(status_code=404, detail="Image not found in metadata")
+        
+    img_path = project_dir / "images" / img_info["filename"]
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail="Image file not found on disk")
+        
+    # 2. Get active job / model configuration
+    job_id = run_id
+    if not job_id and external_model_id:
+        job_id = external_model_id
+        
+    if not job_id:
+        raise HTTPException(status_code=400, detail="No active model run selected")
+        
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+        
+    if job.status != TrainingStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail=f"Model run is not completed. Status: {job.status}")
+        
+    if not job.model_path or not Path(job.model_path).exists():
+        raise HTTPException(status_code=400, detail="Model weights file not found on server")
+
+    # 3. Load image & run predict
+    try:
+        pil_img = PILImage.open(img_path)
+        img_w, img_h = pil_img.size
+        
+        # Make prediction
+        pred_result = await job_manager.predict(job_id, pil_img)
+        
+        suggested_annotations = []
+        task_type = job.pipeline_config.task_type
+        
+        # 4. Map output to normalized AnnData shapes
+        if task_type == TaskType.OBJECT_DETECTION:
+            detections = pred_result.get("predictions", pred_result.get("detections", []))
+            for d in detections:
+                confidence_score = d.get("confidence", 100.0) / 100.0
+                if confidence_score < conf:
+                    continue
+                    
+                box = d.get("box") # [x1, y1, x2, y2]
+                if not box or len(box) != 4:
+                    continue
+                    
+                x1, y1, x2, y2 = box
+                
+                # Normalize relative to [0..1]
+                w_rel = float((x2 - x1) / img_w)
+                h_rel = float((y2 - y1) / img_h)
+                x_cen_rel = float((x1 + x2) / (2 * img_w))
+                y_cen_rel = float((y1 + y2) / (2 * img_h))
+                
+                class_name = d.get("class_name", "unknown")
+                suggested_annotations.append({
+                    "class_id": get_class_id_str(class_name),
+                    "shape_type": "bbox",
+                    "x_center": x_cen_rel,
+                    "y_center": y_cen_rel,
+                    "width": w_rel,
+                    "height": h_rel,
+                    "points": []
+                })
+                
+        elif task_type == TaskType.IMAGE_SEGMENTATION:
+            if job.pipeline_config.segmentation_type == "instance":
+                labels = pred_result.get("labels", [])
+                scores = pred_result.get("scores", [])
+                masks = pred_result.get("masks", [])
+                boxes = pred_result.get("boxes", [])
+                
+                class_names = job.pipeline_config.classes or []
+                
+                for idx, score in enumerate(scores):
+                    if score < conf:
+                        continue
+                        
+                    label_idx = labels[idx]
+                    class_name = class_names[label_idx] if label_idx < len(class_names) else f"class_{label_idx}"
+                    
+                    import numpy as np
+                    import cv2
+                    
+                    mask = np.array(masks[idx], dtype=np.uint8)
+                    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    
+                    for contour in contours:
+                        if len(contour) < 3:
+                            continue
+                            
+                        epsilon = 0.005 * cv2.arcLength(contour, True)
+                        approx = cv2.approxPolyDP(contour, epsilon, True)
+                        
+                        points = []
+                        for pt in approx:
+                            x_px, y_px = pt[0]
+                            points.append([float(x_px / img_w), float(y_px / img_h)])
+                            
+                        if len(points) >= 3:
+                            x_coords = [p[0] for p in points]
+                            y_coords = [p[1] for p in points]
+                            x_min, x_max = min(x_coords), max(x_coords)
+                            y_min, y_max = min(y_coords), max(y_coords)
+                            
+                            suggested_annotations.append({
+                                "class_id": get_class_id_str(class_name),
+                                "shape_type": "polygon",
+                                "x_center": (x_min + x_max) / 2,
+                                "y_center": (y_min + y_max) / 2,
+                                "width": x_max - x_min,
+                                "height": y_max - y_min,
+                                "points": points
+                            })
+            else:
+                import numpy as np
+                import cv2
+                
+                mask_grid = np.array(pred_result.get("segmentation_mask", []), dtype=np.uint8)
+                if mask_grid.size > 0:
+                    class_names = job.pipeline_config.classes or []
+                    unique_labels = np.unique(mask_grid)
+                    
+                    for label_idx in unique_labels:
+                        if label_idx == 0:
+                            continue
+                            
+                        class_name = class_names[label_idx] if label_idx < len(class_names) else f"class_{label_idx}"
+                        label_mask = (mask_grid == label_idx).astype(np.uint8)
+                        
+                        contours, _ = cv2.findContours(label_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        for contour in contours:
+                            if len(contour) < 3:
+                                continue
+                                
+                            epsilon = 0.005 * cv2.arcLength(contour, True)
+                            approx = cv2.approxPolyDP(contour, epsilon, True)
+                            
+                            points = []
+                            for pt in approx:
+                                x_px, y_px = pt[0]
+                                points.append([float(x_px / img_w), float(y_px / img_h)])
+                                
+                            if len(points) >= 3:
+                                x_coords = [p[0] for p in points]
+                                y_coords = [p[1] for p in points]
+                                x_min, x_max = min(x_coords), max(x_coords)
+                                y_min, y_max = min(y_coords), max(y_coords)
+                                
+                                suggested_annotations.append({
+                                    "class_id": get_class_id_str(class_name),
+                                    "shape_type": "polygon",
+                                    "x_center": (x_min + x_max) / 2,
+                                    "y_center": (y_min + y_max) / 2,
+                                    "width": x_max - x_min,
+                                    "height": y_max - y_min,
+                                    "points": points
+                                })
+                                
+        elif task_type == TaskType.IMAGE_CLASSIFICATION:
+            predictions = pred_result.get("predictions", [])
+            if predictions:
+                best_pred = max(predictions, key=lambda x: x.get("confidence", 0.0))
+                best_conf = best_pred.get("confidence", 0.0) / 100.0
+                if best_conf >= conf:
+                    class_name = best_pred.get("class_name", "unknown")
+                    suggested_annotations.append({
+                        "class_id": get_class_id_str(class_name),
+                        "shape_type": "bbox",
+                        "x_center": 0.5,
+                        "y_center": 0.5,
+                        "width": 1.0,
+                        "height": 1.0,
+                        "points": []
+                    })
+                    
+        return {"annotations": suggested_annotations}
+        
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Auto-annotate execution failed: {str(e)}")
+
+
+@app.post("/api/v1/projects/{project_id}/import-zip-dataset", tags=["Projects"])
+async def import_project_zip_dataset(
+    project_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_approved_user)
+):
+    import json
+    import zipfile
+    import shutil
+    import tempfile
+    from pathlib import Path
+    from PIL import Image as PILImage
+    import uuid
+    import traceback
+    
+    project = check_project_access(project_id, current_user)
+    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+    project_dir.mkdir(parents=True, exist_ok=True)
+    images_dir = project_dir / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 1. Create temporary directory to unpack zip
+    temp_dir = Path(tempfile.mkdtemp())
+    try:
+        zip_path = temp_dir / "dataset.zip"
+        with open(zip_path, "wb") as f:
+            f.write(await file.read())
+            
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            zip_ref.extractall(temp_dir)
+            
+        # 2. Look for COCO JSON files
+        coco_json_path = None
+        for p in temp_dir.rglob("*.json"):
+            if p.name == "dataset_config.json":
+                continue
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    sample = f.read(2000)
+                    if '"images"' in sample and '"categories"' in sample:
+                        coco_json_path = p
+                        break
+            except:
+                pass
+                
+        metadata_file = project_dir / "images_metadata.json"
+        annotations_file = project_dir / "annotations.json"
+        
+        metadata = {}
+        if metadata_file.exists():
+            try:
+                with open(metadata_file, "r", encoding="utf-8") as f:
+                    metadata = json.load(f)
+            except: pass
+            
+        annotations = {}
+        if annotations_file.exists():
+            try:
+                with open(annotations_file, "r", encoding="utf-8") as f:
+                    annotations = json.load(f)
+            except: pass
+            
+        new_classes = list(project.classes)
+        
+        # 3. Check if we found a COCO dataset zip (Detection/Segmentation)
+        if coco_json_path:
+            with open(coco_json_path, "r", encoding="utf-8") as f:
+                coco_data = json.load(f)
+                
+            coco_categories = coco_data.get("categories", [])
+            cat_id_to_name = {}
+            for cat in coco_categories:
+                cat_name = cat.get("name")
+                cat_id = cat.get("id")
+                cat_id_to_name[cat_id] = cat_name
+                if cat_name not in new_classes:
+                    new_classes.append(cat_name)
+                    
+            if len(new_classes) > len(project.classes):
+                project.classes = new_classes
+                project_manager.projects[project_id] = project
+                project_manager.save_projects()
+                
+            coco_images = coco_data.get("images", [])
+            filename_to_coco_id = {}
+            coco_id_to_info = {}
+            for img in coco_images:
+                img_id = img.get("id")
+                file_name = Path(img.get("file_name")).name
+                filename_to_coco_id[file_name] = img_id
+                coco_id_to_info[img_id] = {
+                    "filename": file_name,
+                    "width": img.get("width"),
+                    "height": img.get("height")
+                }
+                
+            coco_id_to_local_id = {}
+            for p in temp_dir.rglob("*"):
+                if p.is_file() and p.suffix.lower() in [".jpg", ".jpeg", ".png", ".bmp"]:
+                    base_name = p.name
+                    if base_name in filename_to_coco_id:
+                        coco_id = filename_to_coco_id[base_name]
+                        local_id = str(uuid.uuid4()).replace("-", "")[:24]
+                        coco_id_to_local_id[coco_id] = local_id
+                        
+                        dest_path = images_dir / base_name
+                        shutil.copy2(p, dest_path)
+                        
+                        img_info = coco_id_to_info[coco_id]
+                        metadata[local_id] = {
+                            "id": local_id,
+                            "filename": base_name,
+                            "width": img_info["width"],
+                            "height": img_info["height"],
+                            "annotated": False,
+                            "color_space": "RGB"
+                        }
+                        annotations[local_id] = []
+                        
+            coco_anns = coco_data.get("annotations", [])
+            for ann in coco_anns:
+                img_id = ann.get("image_id")
+                if img_id not in coco_id_to_local_id:
+                    continue
+                    
+                local_id = coco_id_to_local_id[img_id]
+                cat_id = ann.get("category_id")
+                class_name = cat_id_to_name.get(cat_id, "unknown")
+                try:
+                    class_idx = project.classes.index(class_name)
+                except ValueError:
+                    class_idx = 0
+                    
+                img_info = coco_id_to_info[img_id]
+                img_w = img_info["width"] or 1
+                img_h = img_info["height"] or 1
+                
+                segmentation = ann.get("segmentation", [])
+                bbox = ann.get("bbox")
+                
+                if segmentation and isinstance(segmentation, list) and len(segmentation) > 0 and len(segmentation[0]) >= 6:
+                    poly_pts_px = segmentation[0]
+                    pts_rel = []
+                    for i in range(0, len(poly_pts_px), 2):
+                        px = poly_pts_px[i]
+                        py = poly_pts_px[i+1]
+                        pts_rel.append([float(px / img_w), float(py / img_h)])
+                        
+                    xs = [p[0] for p in pts_rel]
+                    ys = [p[1] for p in pts_rel]
+                    x_min, x_max = min(xs), max(xs)
+                    y_min, y_max = min(ys), max(ys)
+                    
+                    annotations[local_id].append({
+                        "id": len(annotations[local_id]) + 1,
+                        "class_id": str(class_idx),
+                        "shape_type": "polygon",
+                        "x_center": (x_min + x_max) / 2,
+                        "y_center": (y_min + y_max) / 2,
+                        "width": x_max - x_min,
+                        "height": y_max - y_min,
+                        "points": pts_rel
+                    })
+                    metadata[local_id]["annotated"] = True
+                    
+                elif bbox and len(bbox) == 4:
+                    x_min, y_min, w, h = bbox
+                    w_rel = float(w / img_w)
+                    h_rel = float(h / img_h)
+                    x_cen_rel = float((x_min + w/2) / img_w)
+                    y_cen_rel = float((y_min + h/2) / img_h)
+                    
+                    annotations[local_id].append({
+                        "id": len(annotations[local_id]) + 1,
+                        "class_id": str(class_idx),
+                        "shape_type": "bbox",
+                        "x_center": x_cen_rel,
+                        "y_center": y_cen_rel,
+                        "width": w_rel,
+                        "height": h_rel,
+                        "points": []
+                    })
+                    metadata[local_id]["annotated"] = True
+                    
+        else:
+            subdirs = [d for d in temp_dir.rglob("*") if d.is_dir() and d != temp_dir]
+            images_in_root = [p for p in temp_dir.glob("*") if p.is_file() and p.suffix.lower() in [".jpg", ".jpeg", ".png", ".bmp"]]
+            
+            if images_in_root and not subdirs:
+                subdirs = [temp_dir]
+                
+            for d in subdirs:
+                class_name = d.name if d != temp_dir else "unclassified"
+                img_files = [p for p in d.glob("*") if p.is_file() and p.suffix.lower() in [".jpg", ".jpeg", ".png", ".bmp"]]
+                if not img_files:
+                    continue
+                    
+                if class_name not in new_classes:
+                    new_classes.append(class_name)
+                    
+                if len(new_classes) > len(project.classes):
+                    project.classes = new_classes
+                    project_manager.projects[project_id] = project
+                    project_manager.save_projects()
+                    
+                class_idx = project.classes.index(class_name)
+                
+                for p in img_files:
+                    local_id = str(uuid.uuid4()).replace("-", "")[:24]
+                    base_name = p.name
+                    
+                    dest_path = images_dir / base_name
+                    shutil.copy2(p, dest_path)
+                    
+                    try:
+                        img = PILImage.open(dest_path)
+                        img_w, img_h = img.size
+                    except:
+                        img_w, img_h = 224, 224
+                        
+                    metadata[local_id] = {
+                        "id": local_id,
+                        "filename": base_name,
+                        "width": img_w,
+                        "height": img_h,
+                        "annotated": True,
+                        "color_space": "RGB"
+                    }
+                    
+                    annotations[local_id] = [{
+                        "id": 1,
+                        "class_id": str(class_idx),
+                        "shape_type": "bbox",
+                        "x_center": 0.5,
+                        "y_center": 0.5,
+                        "width": 1.0,
+                        "height": 1.0,
+                        "points": []
+                    }]
+                    
+        with open(metadata_file, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2)
+            
+        with open(annotations_file, "w", encoding="utf-8") as f:
+            json.dump(annotations, f, indent=2)
+            
+        return {
+            "message": f"Successfully imported dataset zip: {len(metadata)} total images registered in workspace.",
+            "imported_count": len(metadata)
+        }
+        
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=400, detail=f"Failed to process and import dataset zip: {str(e)}")
+        
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 @app.get("/api/v1/projects/{project_id}/analytics", tags=["Projects"])
 async def get_project_analytics(project_id: str, current_user: User = Depends(get_current_approved_user)):

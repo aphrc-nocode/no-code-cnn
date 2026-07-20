@@ -28,6 +28,13 @@ class ProjectManager:
                 with open(self.registry_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     for k, v in data.items():
+                        # Normalize legacy short task types to standard backend enums
+                        if v.get("task_type") == "classification":
+                            v["task_type"] = "image_classification"
+                        elif v.get("task_type") == "detection":
+                            v["task_type"] = "object_detection"
+                        elif v.get("task_type") == "segmentation":
+                            v["task_type"] = "image_segmentation"
                         self.projects[k] = Project(**v)
             except Exception as e:
                 print(f"Error loading projects: {e}")
@@ -39,6 +46,13 @@ class ProjectManager:
             json.dump({k: v.dict() for k, v in self.projects.items()}, f, default=str)
             
     def create_project(self, project: Project) -> Project:
+        # Normalize legacy short task types to standard backend enums
+        if project.task_type == "classification":
+            project.task_type = "image_classification"
+        elif project.task_type == "detection":
+            project.task_type = "object_detection"
+        elif project.task_type == "segmentation":
+            project.task_type = "image_segmentation"
         self.projects[project.id] = project
         self.save_projects()
         return project

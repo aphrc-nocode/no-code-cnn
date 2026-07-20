@@ -666,7 +666,7 @@ class ObjectDetectionPipeline(BasePipeline):
             )
         
         # Save only the final model to models folder
-        model_path = await self._save_model(job_id, f"model_final.pth", save_dir=os.getenv("MODELS_DIR", "logs/models"), history=training_metrics)
+        model_path = await self._save_model(job_id, "model.pth", save_dir=None, history=training_metrics)
         return {
             'status': 'completed',
             'metrics': training_metrics,
@@ -836,13 +836,15 @@ class ObjectDetectionPipeline(BasePipeline):
         Returns:
             Path to the saved model
         """
-        if save_dir is None:
-            save_dir = os.getenv("MODELS_DIR", "logs/models")
         if self.model is None:
             raise ValueError("No model to save")
         
         # Create logs directory structure
-        models_dir = Path(save_dir) / job_id
+        if save_dir is None:
+            project_id = getattr(self.config, "project_id", "default")
+            models_dir = Path("logs/projects") / project_id / "models" / job_id
+        else:
+            models_dir = Path(save_dir) / job_id
         models_dir.mkdir(parents=True, exist_ok=True)
         
         model_path = models_dir / filename
@@ -1032,7 +1034,7 @@ class ObjectDetectionPipeline(BasePipeline):
         
         # Move to device
         model.to(self.device)
-        
+        model = self.load_parent_weights(model)
         return model
     
     def get_transforms(self, train: bool = False):

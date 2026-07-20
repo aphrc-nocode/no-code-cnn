@@ -261,7 +261,8 @@ class RandomRotation:
 
 def get_segmentation_transforms(train: bool = True, 
                                segmentation_type: str = "semantic", 
-                               image_size: Union[int, Tuple[int, int]] = 224) -> Compose:
+                               image_size: Union[int, Tuple[int, int]] = 224,
+                               augmentation_types: Optional[List[str]] = None) -> Compose:
     """
     Get transforms for image segmentation
     
@@ -269,6 +270,7 @@ def get_segmentation_transforms(train: bool = True,
         train: Whether to use training transforms with data augmentation
         segmentation_type: Type of segmentation ('semantic' or 'instance')
         image_size: Size to resize images to (int or tuple)
+        augmentation_types: List of selected augmentation types
         
     Returns:
         Compose transform for image segmentation
@@ -284,15 +286,29 @@ def get_segmentation_transforms(train: bool = True,
         crop_size = int(0.8 * min(size))
         
         # Training transforms with augmentation
-        transforms = [
-            Resize(size),
-            RandomHorizontalFlip(prob=0.5),
-            RandomCrop(crop_size),  # Crop to 80% then resize back
-            Resize(size),  # Resize back to original size after crop
-            ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+        transforms = [Resize(size)]
+        
+        if augmentation_types is None:
+            augmentation_types = ["horizontal_flip", "random_rotation", "color_jitter"]
+            
+        if "horizontal_flip" in augmentation_types:
+            transforms.append(RandomHorizontalFlip(prob=0.5))
+        if "vertical_flip" in augmentation_types:
+            transforms.append(RandomVerticalFlip(prob=0.5))
+        if "random_rotation" in augmentation_types:
+            transforms.append(RandomRotation(degrees=20))
+            
+        # Keep Crop and Resize as a base regularizer for spatial diversity
+        transforms.append(RandomCrop(crop_size))
+        transforms.append(Resize(size))
+        
+        if "color_jitter" in augmentation_types:
+            transforms.append(ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1))
+            
+        transforms.extend([
             ToTensor(),
             Normalize()
-        ]
+        ])
     else:
         # Evaluation/inference transforms
         transforms = [

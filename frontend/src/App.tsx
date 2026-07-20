@@ -1,15 +1,15 @@
 import { Routes, Route, useNavigate, useLocation, Navigate } from "react-router-dom";
 import { Sun, Moon, ExternalLink, LogOut, User, X, Pencil } from "lucide-react";
 import { useTheme } from "./components/ThemeContext";
-import { useAuth } from "./components/AuthContext";
+import { useAuth } from "./features/auth/AuthContext";
 import { useState, useEffect } from "react";
 import api from "./api";
-import Dashboard from "./components/Dashboard";
+import Dashboard from "./features/dashboard/Dashboard";
 import ProjectWorkspace from "./components/ProjectWorkspace";
-import Login from "./components/Login";
-import Register from "./components/Register";
-import PendingApproval from "./components/PendingApproval";
-import AdminDashboard from "./components/AdminDashboard";
+import Login from "./features/auth/Login";
+import Register from "./features/auth/Register";
+import PendingApproval from "./features/auth/PendingApproval";
+import AdminDashboard from "./features/dashboard/AdminDashboard";
 import dswbLogo  from "./assets/dswb-logo.PNG";
 import aphrcLogo from "./assets/aphrc-logo.png";
 
@@ -258,7 +258,8 @@ export default function App() {
         }}>
 
           {/* Left column: wordmark */}
-          <div style={{ display: "flex", alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <img src={aphrcLogo} alt="APHRC Logo" style={{ height: 42, width: "auto", objectFit: "contain", cursor: "pointer" }} onClick={() => navigate("/")} />
             <span onClick={() => navigate("/")}
               style={{ fontWeight: 900, letterSpacing: "-0.04em", cursor: "pointer",
                 fontSize: "clamp(15px, 3vw, 18px)", lineHeight: 1, userSelect: "none" }}>

@@ -4,97 +4,96 @@
 
 @layer base {
   :root {
-    --background: 210, 20%, 98%;
-    --foreground: 222.2, 84%, 4.9%;
+    --background: 210, 20%, 98%;          /* #f8fafc - light grey-blue */
+    --foreground: 220, 24%, 7%;           /* deep dark slate text */
 
-    --card: 0, 0%, 100%;
-    --card-foreground: 222.2, 84%, 4.9%;
+    --card: 0, 0%, 100%;                  /* pure white card */
+    --card-foreground: 220, 24%, 7%;
 
     --popover: 0, 0%, 100%;
-    --popover-foreground: 222.2, 84%, 4.9%;
+    --popover-foreground: 220, 24%, 7%;
 
-    --primary: 95, 49%, 52%;
+    --primary: 158, 95%, 26%;             /* APHRC emerald green: #028257 */
     --primary-foreground: 0, 0%, 100%;
 
-    --secondary: 210, 40%, 96.1%;
-    --secondary-foreground: 222.2, 47.4%, 11.2%;
+    --secondary: 220, 14%, 96%;           /* light background accent */
+    --secondary-foreground: 220, 24%, 7%;
 
-    --muted: 210, 40%, 96.1%;
-    --muted-foreground: 215.4, 16.3%, 46.9%;
+    --muted: 220, 14%, 96%;
+    --muted-foreground: 220, 10%, 45%;
 
-    --accent: 210, 40%, 96.1%;
-    --accent-foreground: 222.2, 47.4%, 11.2%;
+    --accent: 220, 14%, 96%;
+    --accent-foreground: 220, 24%, 7%;
 
     --destructive: 0, 84.2%, 60.2%;
     --destructive-foreground: 210, 40%, 98%;
 
-    --border: 214.3, 31.8%, 91.4%;
-    --input: 214.3, 31.8%, 91.4%;
-    --ring: 95, 49%, 52%;
+    --border: 220, 13%, 91%;              /* light border */
+    --input: 220, 13%, 91%;
+    --ring: 158, 95%, 26%;
 
-    --radius: 0.5rem;
+    --radius: 0.25rem;
 
     /* Real CSS variables for inline styles in components */
     --surface: #ffffff;
-    --surface2: #f9f9f9;
-    --surface3: #f4f4f4;
+    --surface2: #f1f5f9;
+    --surface3: #e2e8f0;
     --text: hsl(var(--foreground));
-    --text2: hsl(var(--foreground) / 0.7);
+    --text2: hsl(var(--foreground) / 0.75);
     --text3: hsl(var(--muted-foreground));
-    --success: hsl(142.1, 76.2%, 36.3%);
+    --success: #10b981;
     --danger: hsl(var(--destructive));
     --bg-elev: #ffffff;
 
     --annotator-border: hsl(var(--border));
     --annotator-accent: hsl(var(--primary));
-    --annotator-accent-s: hsla(var(--primary), 0.12);
-    --annotator-accent-t: hsla(var(--primary), 0.08);
+    --annotator-accent-s: hsla(var(--primary), 0.18);
+    --annotator-accent-t: hsla(var(--primary), 0.12);
   }
 
   .dark {
-    --background: 0, 0%, 7%;         /* #121212 - near black */
-    --foreground: 210, 17%, 90%;     /* #dde3ec - light neutral text */
+    --background: 220, 24%, 7%;          /* #0b0d12 - deep black slate */
+    --foreground: 210, 25%, 94%;          /* high contrast text */
 
-    --card: 0, 0%, 10%;              /* #1a1a1a - elevated card surface */
-    --card-foreground: 210, 17%, 90%;
+    --card: 220, 20%, 11%;                /* #12151e - dark grey-blue card */
+    --card-foreground: 210, 25%, 94%;
 
-    --popover: 0, 0%, 10%;
-    --popover-foreground: 210, 17%, 90%;
+    --popover: 220, 20%, 11%;
+    --popover-foreground: 210, 25%, 94%;
 
-    --primary: 95, 59%, 58%;
-    --primary-foreground: 0, 0%, 100%;
+    --primary: 158, 75%, 40%;             /* APHRC emerald green (brighter for contrast): #19b27b */
+    --primary-foreground: 220, 24%, 7%;
 
-    --secondary: 0, 0%, 14%;         /* #242424 - subtle contrast */
-    --secondary-foreground: 210, 17%, 80%;
+    --secondary: 220, 16%, 15%;           /* intermediate surface #1a1f2c */
+    --secondary-foreground: 210, 25%, 94%;
 
-    --muted: 0, 0%, 14%;
-    --muted-foreground: 0, 0%, 55%;  /* #8c8c8c - muted grey */
+    --muted: 220, 16%, 15%;
+    --muted-foreground: 218, 10%, 65%;
 
-    --accent: 0, 0%, 14%;
-    --accent-foreground: 210, 17%, 90%;
+    --accent: 220, 16%, 15%;
+    --accent-foreground: 210, 25%, 94%;
 
-    --destructive: 0, 62.8%, 45%;
+    --destructive: 0, 84.2%, 60.2%;
     --destructive-foreground: 210, 40%, 98%;
 
-    --border: 0, 0%, 18%;            /* #2e2e2e - subtle border */
-    --input: 0, 0%, 14%;
-    --ring: 95, 59%, 58%;
+    --border: 220, 15%, 18%;              /* grid/border #202735 */
+    --input: 220, 15%, 18%;
+    --ring: 158, 75%, 40%;
 
-    /* Real CSS variables for inline styles in components */
-    --surface: #1a1a1a;
-    --surface2: #141414;
-    --surface3: #0f0f0f;
+    --surface: #12151e;
+    --surface2: #0b0d12;
+    --surface3: #06070a;
     --text: hsl(var(--foreground));
-    --text2: hsl(var(--foreground) / 0.72);
+    --text2: hsl(var(--foreground) / 0.75);
     --text3: hsl(var(--muted-foreground));
-    --success: hsl(142.1, 70.2%, 45.3%);
+    --success: #10b981;
     --danger: hsl(var(--destructive));
-    --bg-elev: #1a1a1a;
+    --bg-elev: #12151e;
 
     --annotator-border: hsl(var(--border));
     --annotator-accent: hsl(var(--primary));
-    --annotator-accent-s: hsla(var(--primary), 0.15);
-    --annotator-accent-t: hsla(var(--primary), 0.10);
+    --annotator-accent-s: hsla(var(--primary), 0.18);
+    --annotator-accent-t: hsla(var(--primary), 0.12);
   }
 }
 

@@ -5,7 +5,7 @@ import {
   MousePointer2, Square, Hexagon, Crosshair, Sparkles, Hand,
   ZoomIn, ZoomOut, Maximize2, Copy, Undo2, Redo2, Zap, Download, Pencil, Plus, Loader2
 } from 'lucide-react'
-import api, { type AnnData, type ImageItem, type Project, type ExternalModel } from '../api'
+import api, { type AnnData, type ImageItem, type Project, type ExternalModel } from '../../api'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#06b6d4','#6366f1','#a855f7','#ec4899']
@@ -86,11 +86,66 @@ export default function Annotate() {
   const [selected, setSelected] = useState<number | null>(null)
   const [tool, setTool]         = useState<Tool>('bbox')
 
+  const [dialog, setDialog] = useState<{
+    isOpen: boolean;
+    type: 'alert' | 'confirm' | 'prompt';
+    message: string;
+    defaultValue: string;
+    inputValue: string;
+    onConfirm: (val: string) => void;
+    onCancel?: () => void;
+  }>({
+    isOpen: false,
+    type: 'alert',
+    message: '',
+    defaultValue: '',
+    inputValue: '',
+    onConfirm: () => {}
+  });
+
+  const showCustomAlert = (message: string, onConfirm?: () => void) => {
+    setDialog({
+      isOpen: true,
+      type: 'alert',
+      message,
+      defaultValue: '',
+      inputValue: '',
+      onConfirm: () => { if (onConfirm) onConfirm(); }
+    });
+  };
+
+  const showCustomConfirm = (message: string, onConfirm: () => void, onCancel?: () => void) => {
+    setDialog({
+      isOpen: true,
+      type: 'confirm',
+      message,
+      defaultValue: '',
+      inputValue: '',
+      onConfirm: () => onConfirm(),
+      onCancel
+    });
+  };
+
+  const showCustomPrompt = (message: string, defaultValue: string, onConfirm: (val: string) => void, onCancel?: () => void) => {
+    setDialog({
+      isOpen: true,
+      type: 'prompt',
+      message,
+      defaultValue,
+      inputValue: defaultValue,
+      onConfirm: (val) => onConfirm(val),
+      onCancel
+    });
+  };
+
   const filteredTools = TOOLS.filter(t => {
-    if (project?.task_type === 'detection') {
-      return t.id !== 'polygon';
+    // Exclude point tool since point-based models are not trained in this platform
+    if (t.id === 'point') return false;
+    
+    if (project?.task_type === 'object_detection') {
+      return t.id !== 'polygon' && t.id !== 'sam';
     }
-    if (project?.task_type === 'segmentation') {
+    if (project?.task_type === 'image_segmentation') {
       return t.id !== 'bbox';
     }
     return true;
@@ -98,7 +153,7 @@ export default function Annotate() {
 
   useEffect(() => {
     if (project) {
-      setTool(project.task_type === 'segmentation' ? 'polygon' : 'bbox')
+      setTool(project.task_type === 'image_segmentation' ? 'polygon' : 'bbox')
     }
   }, [project])
 
@@ -219,7 +274,7 @@ export default function Annotate() {
       /\.(jpe?g|png|bmp|webp)$/i.test(f.name)
     )
     if (filesArray.length === 0) {
-      alert("Please select valid image files.")
+      showCustomAlert("Please select valid image files.")
       return
     }
 
@@ -300,6 +355,9 @@ export default function Annotate() {
         setShapes(loaded)
         historyRef.current = [[...loaded]]
         histIdxRef.current = 0
+        if (project?.task_type === 'image_classification' && loaded.length > 0) {
+          setActiveClass(Number(loaded[0].class_id))
+        }
       })
   }, [currentImage?.id])
 
@@ -350,42 +408,73 @@ export default function Annotate() {
     const cy = (ny: number) => ny * ch
     const hSz = H * 2 / zoom  // handle size in zoomed space
 
+    // ── Draw alignment crosshair lines ──
+    if (mouse && ['bbox', 'point', 'polygon', 'sam'].includes(tool) && project?.task_type !== 'image_classification') {
+      ctx.save()
+      const mx = cx(mouse[0])
+      const my = cy(mouse[1])
+      
+      // 1. Draw dark dashes for backing contrast
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)'
+      ctx.lineWidth = 1.2 / zoom
+      ctx.setLineDash([4 / zoom, 4 / zoom])
+      ctx.lineDashOffset = 0
+      
+      ctx.beginPath()
+      ctx.moveTo(mx, 0); ctx.lineTo(mx, ch)
+      ctx.moveTo(0, my); ctx.lineTo(cw, my)
+      ctx.stroke()
+      
+      // 2. Draw light dashes alternating end-to-end (marching ants effect)
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
+      ctx.lineWidth = 1.2 / zoom
+      ctx.setLineDash([4 / zoom, 4 / zoom])
+      ctx.lineDashOffset = 4 / zoom
+      
+      ctx.beginPath()
+      ctx.moveTo(mx, 0); ctx.lineTo(mx, ch)
+      ctx.moveTo(0, my); ctx.lineTo(cw, my)
+      ctx.stroke()
+      
+      ctx.restore()
+    }
+
     // ── Draw all shapes ──
     const allShapes: Shape[] = liveBbox ? [...shapes, liveBbox] : shapes
-    allShapes.forEach((s, i) => {
-      const isSel = selected === i && tool === 'select'
-      const color = COLORS[s.class_id % COLORS.length]
-      ctx.strokeStyle = color
-      ctx.lineWidth   = (isSel ? 2.5 : 1.8) / zoom
+    if (project?.task_type !== 'image_classification') {
+      allShapes.forEach((s, i) => {
+        const isSel = selected === i && tool === 'select'
+        const color = COLORS[s.class_id % COLORS.length]
+        ctx.strokeStyle = color
+        ctx.lineWidth   = (isSel ? 2.5 : 1.8) / zoom
 
-      if (s.type === 'bbox') {
-        const px = cx(s.x), py = cy(s.y), pw = cx(s.w), ph = cy(s.h)
-        ctx.fillStyle = color + '25'; ctx.fillRect(px, py, pw, ph)
-        ctx.strokeRect(px, py, pw, ph)
-        drawLabel(ctx, project?.classes?.[s.class_id] ?? `cls${s.class_id}`, color, cx(s.x), cy(s.y), zoom)
-        if (isSel) drawBBoxHandles(ctx, s, cw, ch, zoom, color, hSz)
-      }
+        if (s.type === 'bbox') {
+          const px = cx(s.x), py = cy(s.y), pw = cx(s.w), ph = cy(s.h)
+          ctx.fillStyle = color + '25'; ctx.fillRect(px, py, pw, ph)
+          ctx.strokeRect(px, py, pw, ph)
+          drawLabel(ctx, project?.classes?.[s.class_id] ?? `cls${s.class_id}`, color, cx(s.x), cy(s.y), zoom)
+          if (isSel) drawBBoxHandles(ctx, s, cw, ch, zoom, color, hSz)
+        }
 
-      if (s.type === 'polygon') {
-        if (s.pts.length < 2) return
-        ctx.beginPath()
-        ctx.moveTo(cx(s.pts[0][0]), cy(s.pts[0][1]))
-        s.pts.slice(1).forEach(p => ctx.lineTo(cx(p[0]), cy(p[1])))
-        ctx.closePath()
-        ctx.fillStyle = color + '25'; ctx.fill()
-        ctx.stroke()
-        drawLabel(ctx, project?.classes?.[s.class_id] ?? `cls${s.class_id}`, color, cx(s.pts[0][0]), cy(s.pts[0][1]), zoom)
-        if (isSel) s.pts.forEach(p => drawDot(ctx, cx(p[0]), cy(p[1]), H / zoom, '#fff', color))
-      }
+        if (s.type === 'polygon') {
+          if (s.pts.length < 2) return
+          ctx.fillStyle = color + '25'; ctx.beginPath()
+          ctx.moveTo(cx(s.pts[0][0]), cy(s.pts[0][1]))
+          s.pts.slice(1).forEach(p => ctx.lineTo(cx(p[0]), cy(p[1])))
+          ctx.closePath()
+          ctx.fill(); ctx.stroke()
+          drawLabel(ctx, project?.classes?.[s.class_id] ?? `cls${s.class_id}`, color, cx(s.pts[0][0]), cy(s.pts[0][1]), zoom)
+          if (isSel) s.pts.forEach(p => drawDot(ctx, cx(p[0]), cy(p[1]), H / zoom, '#fff', color))
+        }
 
-      if (s.type === 'point') {
-        const r = DOT_PX / zoom
-        ctx.beginPath(); ctx.arc(cx(s.x), cy(s.y), r, 0, Math.PI * 2)
-        ctx.fillStyle = color + '80'; ctx.fill(); ctx.stroke()
-        drawLabel(ctx, project?.classes?.[s.class_id] ?? `cls${s.class_id}`, color, cx(s.x) + r, cy(s.y) - r, zoom)
-        if (isSel) drawDot(ctx, cx(s.x), cy(s.y), (H + 2) / zoom, 'transparent', '#fff')
-      }
-    })
+        if (s.type === 'point') {
+          const r = DOT_PX / zoom
+          drawDot(ctx, cx(s.x), cy(s.y), r, color + '80', color)
+          drawLabel(ctx, project?.classes?.[s.class_id] ?? `cls${s.class_id}`, color, cx(s.x) + r, cy(s.y) - r, zoom)
+          if (isSel) drawDot(ctx, cx(s.x), cy(s.y), (H + 2) / zoom, 'transparent', '#fff')
+        }
+      })
+    }
 
     // ── Draw in-progress polygon ──
     if (polyPts.length > 0) {
@@ -486,14 +575,43 @@ export default function Annotate() {
         const pts = r.data.points as [number, number][]
         if (!pts || pts.length < 3) return
         const cur = shapesRef.current
-        if (sess.idx >= 0 && sess.idx < cur.length && cur[sess.idx]?.type === 'polygon') {
-          const ns = cur.map((s, i) =>
-            i === sess.idx ? { type: 'polygon' as const, class_id: activeClass, pts } : s)
-          setShapes(ns); snapshotHistory(ns)
+        const taskType = project?.task_type || 'image_segmentation'
+        
+        if (taskType === 'object_detection') {
+          const xs = pts.map(p => p[0])
+          const ys = pts.map(p => p[1])
+          const x_min = Math.min(...xs)
+          const x_max = Math.max(...xs)
+          const y_min = Math.min(...ys)
+          const y_max = Math.max(...ys)
+          
+          const newBbox: Shape = {
+            type: 'bbox',
+            class_id: activeClass,
+            x: x_min,
+            y: y_min,
+            w: x_max - x_min,
+            h: y_max - y_min
+          }
+          
+          if (sess.idx >= 0 && sess.idx < cur.length && cur[sess.idx]?.type === 'bbox') {
+            const ns = cur.map((s, i) => i === sess.idx ? newBbox : s)
+            setShapes(ns); snapshotHistory(ns)
+          } else {
+            const ns = [...cur, newBbox]
+            setShapes(ns); snapshotHistory(ns)
+            sess.idx = ns.length - 1
+          }
         } else {
-          const ns = [...cur, { type: 'polygon' as const, class_id: activeClass, pts }]
-          setShapes(ns); snapshotHistory(ns)
-          sess.idx = ns.length - 1
+          if (sess.idx >= 0 && sess.idx < cur.length && cur[sess.idx]?.type === 'polygon') {
+            const ns = cur.map((s, i) =>
+              i === sess.idx ? { type: 'polygon' as const, class_id: activeClass, pts } : s)
+            setShapes(ns); snapshotHistory(ns)
+          } else {
+            const ns = [...cur, { type: 'polygon' as const, class_id: activeClass, pts }]
+            setShapes(ns); snapshotHistory(ns)
+            sess.idx = ns.length - 1
+          }
         }
       })
       .catch(() => { /* no object / model loading */ })
@@ -678,7 +796,7 @@ export default function Annotate() {
     }
   }
 
-  // ──��� Scroll to zoom ─────────────────────────────────────────────────────
+  // ── Scroll to zoom ─────────────────────────────────────────────────────
   const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault()
     const { cx, cy } = canvasPx(e)
@@ -702,11 +820,11 @@ export default function Annotate() {
         setSelected(null)
       }
       if (!e.ctrlKey && !e.metaKey) {
+        const taskType = project?.task_type
         if (e.key === 'v' || e.key === '1') setTool('select')
-        if (e.key === 'r' || e.key === '2') { setTool('bbox');    setPolyPts([]) }
-        if (e.key === 'p' || e.key === '3') { setTool('polygon'); setPolyPts([]) }
-        if (e.key === 'd' || e.key === '4') { setTool('point');   setPolyPts([]) }
-        if (e.key === 's' || e.key === '5') { setTool('sam');     setPolyPts([]) }
+        if ((e.key === 'r' || e.key === '2') && taskType === 'object_detection') { setTool('bbox');    setPolyPts([]) }
+        if ((e.key === 'p' || e.key === '3') && taskType === 'image_segmentation') { setTool('polygon'); setPolyPts([]) }
+        if ((e.key === 's' || e.key === '5') && taskType === 'image_segmentation') { setTool('sam');     setPolyPts([]) }
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo() }
       if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); redo() }
@@ -727,7 +845,7 @@ export default function Annotate() {
     window.addEventListener('keydown', down)
     window.addEventListener('keyup',   up)
     return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up) }
-  }, [])
+  }, [project])
 
   // ─── Cursor ─────────────────────────────────────────────────────────────
   const computeCursor = (_e: React.MouseEvent<HTMLCanvasElement>, nx: number, ny: number) => {
@@ -855,48 +973,50 @@ export default function Annotate() {
       setAutoMsg({ text: 'Nothing to do — all images are already annotated', ok: false })
       return
     }
-    if (!window.confirm(
+    showCustomConfirm(
       `Run the model on ${targets.length} image${targets.length > 1 ? 's' : ''} and save the results?` +
-      (batchOnlyUnann ? '' : '\n\nThis OVERWRITES existing annotations on every image.'))) return
+      (batchOnlyUnann ? '' : '\n\nThis OVERWRITES existing annotations on every image.'),
+      async () => {
+        await save()   // don't lose edits on the current image
+        batchCancelRef.current = false
+        setBatchProgress({ done: 0, total: targets.length, labeled: 0 })
+        const [kind, rawId] = autoRunId.split(':')
+        const params: Record<string, unknown> = { conf: autoConf }
+        if (kind === 'run') params.run_id = rawId; else params.external_model_id = rawId
 
-    await save()   // don't lose edits on the current image
-    batchCancelRef.current = false
-    setBatchProgress({ done: 0, total: targets.length, labeled: 0 })
-    const [kind, rawId] = autoRunId.split(':')
-    const params: Record<string, unknown> = { conf: autoConf }
-    if (kind === 'run') params.run_id = rawId; else params.external_model_id = rawId
-
-    let labeled = 0
-    const annotatedIds = new Set<number>()
-    for (let i = 0; i < targets.length; i++) {
-      if (batchCancelRef.current) break
-      const img = targets[i]
-      try {
-        const res = await api.post(`/projects/${projectId}/images/${img.id}/auto-annotate`, null, { params })
-        const anns = res.data.annotations as AnnData[]
-        if (anns.length > 0) {
-          const apiAnns = anns.map(apiToShape).map(shapeToApi)
-          await api.post(`/projects/${projectId}/images/${img.id}/annotations`, apiAnns)
-          labeled++; annotatedIds.add(img.id)
+        let labeled = 0
+        const annotatedIds = new Set<number>()
+        for (let i = 0; i < targets.length; i++) {
+          if (batchCancelRef.current) break
+          const img = targets[i]
+          try {
+            const res = await api.post(`/projects/${projectId}/images/${img.id}/auto-annotate`, null, { params })
+            const anns = res.data.annotations as AnnData[]
+            if (anns.length > 0) {
+              const apiAnns = anns.map(apiToShape).map(shapeToApi)
+              await api.post(`/projects/${projectId}/images/${img.id}/annotations`, apiAnns)
+              labeled++; annotatedIds.add(img.id)
+            }
+          } catch { /* skip failed image, keep going */ }
+          setBatchProgress({ done: i + 1, total: targets.length, labeled })
         }
-      } catch { /* skip failed image, keep going */ }
-      setBatchProgress({ done: i + 1, total: targets.length, labeled })
-    }
-    // Reflect new annotated flags in the list
-    if (annotatedIds.size > 0) {
-      setImages(prev => prev.map(im => annotatedIds.has(im.id) ? { ...im, annotated: true } : im))
-    }
-    // Refresh the current image's shapes from the server (it may have been labeled)
-    if (currentImage) {
-      try {
-        const r = await api.get(`/projects/${projectId}/images/${currentImage.id}/annotations`)
-        const fresh = (r.data as AnnData[]).map(apiToShape)
-        setShapes(fresh); snapshotHistory(fresh)
-      } catch { /* ignore */ }
-    }
-    const cancelled = batchCancelRef.current
-    setBatchProgress(null)
-    setAutoMsg({ text: `${cancelled ? 'Stopped' : 'Done'} — labeled ${labeled} of ${targets.length} image${targets.length > 1 ? 's' : ''}`, ok: true })
+        // Reflect new annotated flags in the list
+        if (annotatedIds.size > 0) {
+          setImages(prev => prev.map(im => annotatedIds.has(im.id) ? { ...im, annotated: true } : im))
+        }
+        // Refresh the current image's shapes from the server (it may have been labeled)
+        if (currentImage) {
+          try {
+            const r = await api.get(`/projects/${projectId}/images/${currentImage.id}/annotations`)
+            const fresh = (r.data as AnnData[]).map(apiToShape)
+            setShapes(fresh); snapshotHistory(fresh)
+          } catch { /* ignore */ }
+        }
+        const cancelled = batchCancelRef.current
+        setBatchProgress(null)
+        setAutoMsg({ text: `${cancelled ? 'Stopped' : 'Done'} — labeled ${labeled} of ${targets.length} image${targets.length > 1 ? 's' : ''}`, ok: true })
+      }
+    )
   }
 
   const copyFromPrev = async () => {
@@ -966,54 +1086,39 @@ export default function Annotate() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: isIframe ? '100vh' : 'calc(100vh - 48px)',
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%',
       width: '100%', overflow: 'hidden' }}>
 
       {/* ═══ Top toolbar ═══ */}
       <div className="annotator-header" style={{
         display: 'flex', alignItems: 'center', gap: 0, flexShrink: 0,
-        height: 42, background: 'var(--surface)', borderBottom: '1px solid var(--annotator-border)',
-        padding: '0 8px',
+        height: 48, background: 'var(--surface)', borderBottom: '1px solid var(--annotator-border)',
+        padding: '0 16px',
       }}>
         {/* Left: Back + filename + counter */}
         <div className="ann-group-info" style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <button onClick={() => navigate(`/projects/${projectId}/annotate`)}
-            style={{ ...tbIconBtn, border: 'none', marginRight: 4 }} title="Back to images">
+          <button onClick={() => navigate(`/projects/${projectId}/datasets`)}
+            style={{ ...tbIconBtn, border: 'none', marginRight: 4 }} title="Back to datasets">
             <ChevronLeft size={16} />
           </button>
           <h1 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', margin: 0,
-            maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {currentImage?.filename}
           </h1>
-          <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 6, fontFamily: 'JetBrains Mono, monospace' }}>
+          <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 6, fontFamily: 'monospace' }}>
             {currentIdx + 1}/{images.length}
           </span>
         </div>
 
         {/* Separator */}
-        <div className="ann-sep" style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
-
-        {/* Tools — horizontal strip */}
-        <div className="ann-group-tools" style={{ display: 'flex', gap: 2 }}>
-          {filteredTools.map(t => (
-            <button key={t.id} onClick={() => { setTool(t.id); setPolyPts([]) }}
-              title={`${t.label}${t.hint ? ` (${t.hint})` : ''}`}
-              style={tbBtn(tool === t.id)}>
-              {t.icon}
-              <span className="ann-btn-txt" style={{ fontSize: 11 }}>{t.label}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Separator */}
-        <div className="ann-sep" style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
+        <div className="ann-sep" style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 16px' }} />
 
         {/* Zoom controls */}
         <div className="ann-group-zoom" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button onClick={() => setZoom(z => clamp(z / 1.3, 0.15, 15))} style={tbIconBtn} title="Zoom out">
             <ZoomOut size={14} />
           </button>
-          <span style={{ fontSize: 11, color: 'var(--text2)', fontFamily: 'JetBrains Mono, monospace',
+          <span style={{ fontSize: 11, color: 'var(--text2)', fontFamily: 'monospace',
             width: 38, textAlign: 'center' }}>
             {Math.round(zoom * 100)}%
           </span>
@@ -1026,7 +1131,7 @@ export default function Annotate() {
         </div>
 
         {/* Separator */}
-        <div className="ann-sep" style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
+        <div className="ann-sep" style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 16px' }} />
 
         {/* Undo / Redo */}
         <div className="ann-group-actions" style={{ display: 'flex', gap: 2 }}>
@@ -1034,22 +1139,9 @@ export default function Annotate() {
           <button onClick={redo} title="Redo (Ctrl+Y)" style={tbIconBtn}><Redo2 size={14} /></button>
           {currentIdx > 0 && (
             <button onClick={copyFromPrev} title="Copy from previous" style={{ ...tbIconBtn, width: 'auto', padding: '0 8px', gap: 4, fontSize: 11, color: 'var(--text2)' }}>
-              <Copy size={12} /> <span className="ann-btn-txt">Copy prev</span>
+              <Copy size={12} /> <span className="ann-btn-txt">Copy Prev</span>
             </button>
           )}
-        </div>
-
-        <div className="ann-sep" style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 10px' }} />
-        
-        <div className="ann-group-upload" style={{ display: 'flex', gap: 2 }}>
-          <button
-            onClick={triggerFileSelect}
-            style={{ ...tbIconBtn, width: 'auto', padding: '0 8px', gap: 4, color: 'var(--text2)' }}
-            title="Upload more images"
-          >
-            <Download size={14} />
-            <span className="ann-btn-txt" style={{ fontSize: 11 }}>Upload</span>
-          </button>
         </div>
 
         {/* Spacer */}
@@ -1086,8 +1178,55 @@ export default function Annotate() {
         {/* ── Canvas area ── */}
         <div ref={containerRef} style={{
           flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0,
-          position: 'relative', background: '#0c0c10',
+          position: 'relative', background: '#0a0d16',
         }}>
+          {/* Floating Left Vertical Tool Dock (Intel Geti Paradigm) */}
+          {project?.task_type !== 'image_classification' && (
+            <div style={{
+              position: 'absolute',
+              left: 16,
+              top: 16,
+              zIndex: 10,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              background: 'var(--surface)',
+              border: '1px solid var(--annotator-border)',
+              borderRadius: 4,
+              padding: 4,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.25)'
+            }}>
+              {filteredTools.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => { setTool(t.id); setPolyPts([]) }}
+                  title={`${t.label}${t.hint ? ` (${t.hint})` : ''}`}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    border: 'none',
+                    borderRadius: 4,
+                    background: tool === t.id ? 'hsl(var(--primary))' : 'transparent',
+                    color: tool === t.id ? '#fff' : 'var(--text2)',
+                    cursor: 'pointer',
+                    transition: 'all 0.1s'
+                  }}
+                  onMouseEnter={e => {
+                    if (tool !== t.id) e.currentTarget.style.background = 'hsl(var(--secondary))';
+                  }}
+                  onMouseLeave={e => {
+                    if (tool !== t.id) e.currentTarget.style.background = 'transparent';
+                  }}
+                >
+                  {t.icon}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* SAM overlay hint */}
           {tool === 'sam' && (
             <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
@@ -1130,7 +1269,7 @@ export default function Annotate() {
                 onClick={triggerFileSelect}
                 style={{
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  border: '2px dashed var(--annotator-border)', borderRadius: 12, padding: '40px 30px', cursor: 'pointer',
+                  border: '2px dashed var(--annotator-border)', borderRadius: 4, padding: '40px 30px', cursor: 'pointer',
                   background: isDragOver ? 'var(--annotator-accent-s)' : 'transparent',
                   borderColor: isDragOver ? 'var(--annotator-accent)' : 'var(--annotator-border)',
                   transition: 'all 0.2s', color: 'var(--text2)', textAlign: 'center', maxWidth: 400, width: '100%', margin: 20
@@ -1176,6 +1315,52 @@ export default function Annotate() {
               />
             )}
           </div>
+
+          {/* Bottom Filmstrip Image Reel (Intel Geti Paradigm) */}
+          {images.length > 0 && (
+            <div style={{
+              height: 68,
+              background: 'var(--surface)',
+              borderTop: '1px solid var(--annotator-border)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '0 16px',
+              overflowX: 'auto',
+              flexShrink: 0
+            }}>
+              {images.map((img, idx) => {
+                const isCurrent = idx === currentIdx;
+                return (
+                  <div
+                    key={img.id}
+                    onClick={() => goTo(idx)}
+                    style={{
+                      width: 64,
+                      height: 48,
+                      borderRadius: 4,
+                      border: isCurrent ? '2px solid hsl(var(--primary))' : '1px solid var(--annotator-border)',
+                      cursor: 'pointer',
+                      background: 'var(--surface3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      overflow: 'hidden',
+                      flexShrink: 0,
+                      opacity: isCurrent ? 1 : 0.65,
+                      transition: 'all 0.15s'
+                    }}
+                  >
+                    <img
+                      src={`/api/projects/${projectId}/images/${img.id}/file`}
+                      alt={img.filename}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* ── Right panel (collapsible) ── */}
@@ -1192,14 +1377,23 @@ export default function Annotate() {
                 <p style={{ ...panelLabel, marginBottom: 0 }}>Classes</p>
                 <button
                   title="Add class"
-                  onClick={async () => {
-                    const name = window.prompt('New class name:', `class${(project?.classes.length ?? 0)}`);
-                    if (!name?.trim() || !project) return;
-                    const cleaned = name.trim();
-                    if (project.classes.includes(cleaned)) { alert('Class already exists.'); return; }
-                    const newClasses = [...project.classes, cleaned];
-                    setProject({ ...project, classes: newClasses });
-                    await api.put(`/projects/${projectId}`, { ...project, classes: newClasses });
+                  onClick={() => {
+                    if (!project) return;
+                    showCustomPrompt(
+                      'New class name:',
+                      `class${(project.classes.length ?? 0)}`,
+                      async (name) => {
+                        const cleaned = name.trim();
+                        if (!cleaned) return;
+                        if (project.classes.includes(cleaned)) {
+                          showCustomAlert('Class already exists.');
+                          return;
+                        }
+                        const newClasses = [...project.classes, cleaned];
+                        setProject({ ...project, classes: newClasses });
+                        await api.put(`/projects/${projectId}`, { ...project, classes: newClasses });
+                      }
+                    );
                   }}
                   style={{ border: 'none', background: 'transparent', color: 'var(--text3)',
                     cursor: 'pointer', padding: 2, display: 'flex', borderRadius: 3 }}>
@@ -1209,7 +1403,27 @@ export default function Annotate() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {project?.classes.map((c, i) => (
                   <div key={i}
-                    onClick={() => setActiveClass(i)}
+                    onClick={async () => {
+                      setActiveClass(i);
+                      if (project?.task_type === 'image_classification') {
+                        const newShapes = [{
+                          type: 'bbox' as const,
+                          class_id: i,
+                          x: 0,
+                          y: 0,
+                          w: 1,
+                          h: 1
+                        }];
+                        setShapes(newShapes);
+                        try {
+                          await api.post(`/projects/${projectId}/images/${currentImage?.id}/annotations`, newShapes.map(shapeToApi));
+                          setSaved(true);
+                          setImages(prev => prev.map(img => img.id === currentImage.id ? { ...img, annotated: true } : img));
+                        } catch (err) {
+                          console.error("Auto-save classification label failed:", err);
+                        }
+                      }
+                    }}
                     style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px',
                       borderRadius: 4, border: `1px solid ${activeClass === i ? 'var(--annotator-accent)' : 'var(--annotator-border)'}`,
                       background: activeClass === i ? 'var(--annotator-accent-s)' : 'transparent',
@@ -1223,32 +1437,40 @@ export default function Annotate() {
                     <span style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto', flexShrink: 0 }}
                       className="class-btn-actions">
                       <span title="Rename class"
-                        onClick={async (e) => {
+                        onClick={(e) => {
                           e.stopPropagation();
                           if (!project) return;
-                          const newName = window.prompt(`Rename "${c}" to:`, c);
-                          if (!newName?.trim()) return;
-                          const cleaned = newName.trim();
-                          if (project.classes.includes(cleaned) && cleaned !== c) { alert('Name already exists.'); return; }
-                          const newClasses = project.classes.map((x, j) => j === i ? cleaned : x);
-                          setProject({ ...project, classes: newClasses });
-                          await api.put(`/projects/${projectId}`, { ...project, classes: newClasses });
+                          showCustomPrompt(`Rename "${c}" to:`, c, async (newName) => {
+                            const cleaned = newName.trim();
+                            if (!cleaned) return;
+                            if (project.classes.includes(cleaned) && cleaned !== c) {
+                              showCustomAlert('Name already exists.');
+                              return;
+                            }
+                            const newClasses = project.classes.map((x, j) => j === i ? cleaned : x);
+                            setProject({ ...project, classes: newClasses });
+                            await api.put(`/projects/${projectId}`, { ...project, classes: newClasses });
+                          });
                         }}
                         style={{ color: 'var(--text3)', cursor: 'pointer', display: 'flex',
                           padding: 2, borderRadius: 3 }}>
                         <Pencil size={10} />
                       </span>
                       <span title="Delete class"
-                        onClick={async (e) => {
+                        onClick={(e) => {
                           e.stopPropagation();
                           if (!project) return;
-                          if (project.classes.length <= 1) { alert('Project must have at least one class.'); return; }
-                          if (!window.confirm(`Delete class "${c}"?`)) return;
-                          const newClasses = project.classes.filter((_, j) => j !== i);
-                          const newActive = activeClass >= newClasses.length ? newClasses.length - 1 : activeClass;
-                          setProject({ ...project, classes: newClasses });
-                          setActiveClass(newActive);
-                          await api.put(`/projects/${projectId}`, { ...project, classes: newClasses });
+                          if (project.classes.length <= 1) {
+                            showCustomAlert('Project must have at least one class.');
+                            return;
+                          }
+                          showCustomConfirm(`Delete class "${c}"?`, async () => {
+                            const newClasses = project.classes.filter((_, j) => j !== i);
+                            const newActive = activeClass >= newClasses.length ? newClasses.length - 1 : activeClass;
+                            setProject({ ...project, classes: newClasses });
+                            setActiveClass(newActive);
+                            await api.put(`/projects/${projectId}`, { ...project, classes: newClasses });
+                          });
                         }}
                         style={{ color: 'var(--text3)', cursor: 'pointer', display: 'flex',
                           padding: 2, borderRadius: 3 }}>
@@ -1261,71 +1483,73 @@ export default function Annotate() {
             </div>
 
             {/* Shapes list */}
-            <div style={{ ...panelSection, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <p style={{ ...panelLabel, marginBottom: 0 }}>Annotations ({shapes.length})</p>
-                {shapes.length > 0 && (
-                  <button onClick={() => { const n: Shape[] = []; setShapes(n); snapshotHistory(n); setSelected(null) }}
-                    title="Clear all"
-                    style={{ border: 'none', background: 'transparent', color: 'var(--text3)',
-                      cursor: 'pointer', display: 'flex', padding: 2, borderRadius: 3 }}>
-                    <RotateCcw size={11} />
-                  </button>
-                )}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto', flex: 1 }}>
-                {shapes.map((s, i) => (
-                  <div key={i} onClick={() => { setSelected(i); setTool('select') }}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '4px 8px', borderRadius: 4, cursor: 'pointer',
-                      border: `1px solid ${selected === i ? 'var(--annotator-accent)' : 'transparent'}`,
-                      background: selected === i ? 'var(--annotator-accent-t)' : 'transparent',
-                      transition: 'all 0.08s' }}
-                    onMouseEnter={e => { if (selected !== i) e.currentTarget.style.background = 'var(--surface2)' }}
-                    onMouseLeave={e => { if (selected !== i) e.currentTarget.style.background = 'transparent' }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0,
-                        background: COLORS[s.class_id % COLORS.length] }} />
-                      <span style={{ fontSize: 11, color: 'var(--text3)', display: 'flex' }}>{shapeIcon(s)}</span>
-                      <span style={{ fontSize: 11, color: 'var(--text2)',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {project?.classes[s.class_id]}
-                      </span>
+            {project?.task_type !== 'image_classification' && (
+              <div style={{ ...panelSection, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <p style={{ ...panelLabel, marginBottom: 0 }}>Annotations ({shapes.length})</p>
+                  {shapes.length > 0 && (
+                    <button onClick={() => { const n: Shape[] = []; setShapes(n); snapshotHistory(n); setSelected(null) }}
+                      title="Clear all"
+                      style={{ border: 'none', background: 'transparent', color: 'var(--text3)',
+                        cursor: 'pointer', padding: 2, display: 'flex', borderRadius: 3 }}>
+                      <RotateCcw size={11} />
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto', flex: 1 }}>
+                  {shapes.map((s, i) => (
+                    <div key={i} onClick={() => { setSelected(i); setTool('select') }}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '4px 8px', borderRadius: 4, cursor: 'pointer',
+                        border: `1px solid ${selected === i ? 'var(--annotator-accent)' : 'transparent'}`,
+                        background: selected === i ? 'var(--annotator-accent-t)' : 'transparent',
+                        transition: 'all 0.08s' }}
+                      onMouseEnter={e => { if (selected !== i) e.currentTarget.style.background = 'var(--surface2)' }}
+                      onMouseLeave={e => { if (selected !== i) e.currentTarget.style.background = 'transparent' }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0,
+                          background: COLORS[s.class_id % COLORS.length] }} />
+                        <span style={{ fontSize: 11, color: 'var(--text3)', display: 'flex' }}>{shapeIcon(s)}</span>
+                        <span style={{ fontSize: 11, color: 'var(--text2)',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {project?.classes[s.class_id]}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0, opacity: selected === i ? 1 : 0.5 }}>
+                        <button onClick={e => { e.stopPropagation()
+                          const sh = shapesRef.current[i]; if (!sh) return
+                          let dup: Shape
+                          if (sh.type === 'bbox')    dup = { ...sh, x: Math.min(sh.x+0.02,1-sh.w) }
+                          else if (sh.type === 'point') dup = { ...sh, x: Math.min(sh.x+0.02,1) }
+                          else dup = { ...sh, pts: sh.pts.map(p => [Math.min(p[0]+0.02,1), p[1]] as [number,number]) }
+                          const ns = [...shapesRef.current, dup]
+                          setShapes(ns); snapshotHistory(ns)
+                        }} style={{ border: 'none', background: 'transparent',
+                          color: 'var(--text3)', cursor: 'pointer', padding: 2, display: 'flex', borderRadius: 3 }}
+                          title="Duplicate">
+                          <Copy size={10} />
+                        </button>
+                        <button onClick={e => { e.stopPropagation()
+                          const ns = shapesRef.current.filter((_,j)=>j!==i)
+                          setShapes(ns); snapshotHistory(ns)
+                          if(selectedRef.current===i) setSelected(null)
+                        }} style={{ border: 'none', background: 'transparent',
+                          color: 'var(--text3)', cursor: 'pointer', padding: 2, display: 'flex', borderRadius: 3 }}
+                          title="Delete">
+                          <Trash2 size={10} />
+                        </button>
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0, opacity: selected === i ? 1 : 0.5 }}>
-                      <button onClick={e => { e.stopPropagation()
-                        const sh = shapesRef.current[i]; if (!sh) return
-                        let dup: Shape
-                        if (sh.type === 'bbox')    dup = { ...sh, x: Math.min(sh.x+0.02,1-sh.w) }
-                        else if (sh.type === 'point') dup = { ...sh, x: Math.min(sh.x+0.02,1) }
-                        else dup = { ...sh, pts: sh.pts.map(p => [Math.min(p[0]+0.02,1), p[1]] as [number,number]) }
-                        const ns = [...shapesRef.current, dup]
-                        setShapes(ns); snapshotHistory(ns)
-                      }} style={{ border: 'none', background: 'transparent',
-                        color: 'var(--text3)', cursor: 'pointer', padding: 2, display: 'flex', borderRadius: 3 }}
-                        title="Duplicate">
-                        <Copy size={10} />
-                      </button>
-                      <button onClick={e => { e.stopPropagation()
-                        const ns = shapesRef.current.filter((_,j)=>j!==i)
-                        setShapes(ns); snapshotHistory(ns)
-                        if(selectedRef.current===i) setSelected(null)
-                      }} style={{ border: 'none', background: 'transparent',
-                        color: 'var(--text3)', cursor: 'pointer', padding: 2, display: 'flex', borderRadius: 3 }}
-                        title="Delete">
-                        <Trash2 size={10} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {shapes.length === 0 && (
-                  <p style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'center', padding: '16px 0', opacity: 0.6 }}>
-                    No annotations yet
-                  </p>
-                )}
+                  ))}
+                  {shapes.length === 0 && (
+                    <p style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'center', padding: '16px 0', opacity: 0.6 }}>
+                      No annotations yet
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Auto-annotate */}
             <div style={panelSection}>
@@ -1339,7 +1563,7 @@ export default function Annotate() {
                     cursor: trainingRuns.length === 0 && externalModels.length === 0 ? 'default' : 'pointer',
                     opacity: trainingRuns.length === 0 && externalModels.length === 0 ? 0.4 : 1 }}>
                   {trainingRuns.length === 0 && externalModels.length === 0 && (
-                    <option value="">No models — import below</option>
+                    <option value="">No models — train first</option>
                   )}
                   {trainingRuns.length > 0 && (
                     <optgroup label="Trained">
@@ -1359,47 +1583,7 @@ export default function Annotate() {
                   )}
                 </select>
 
-                {/* Import buttons */}
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <label style={{ flex: 1, cursor: importing ? 'wait' : 'pointer' }}>
-                    <input type="file" accept=".pt" style={{ display: 'none' }}
-                      onChange={e => { const f = e.target.files?.[0]; if (f) importModel(f); e.target.value = '' }} />
-                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
-                      padding: '4px 6px', background: 'var(--surface2)',
-                      border: '1px solid var(--annotator-border)', borderRadius: 4, fontSize: 10,
-                      color: 'var(--text2)', cursor: 'inherit' }}>
-                      {importing ? '…' : <><Download size={10} /> .pt</>}
-                    </span>
-                  </label>
-                  <label style={{ flex: 1, cursor: importing ? 'wait' : 'pointer' }}>
-                    <input type="file" style={{ display: 'none' }}
-                      ref={el => { if (el) { el.setAttribute('webkitdirectory', ''); el.setAttribute('directory', '') } }}
-                      onChange={e => { if (e.target.files?.length) importHfModel(e.target.files); e.target.value = '' }} />
-                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
-                      padding: '4px 6px', background: 'var(--surface2)',
-                      border: '1px solid var(--annotator-border)', borderRadius: 4, fontSize: 10,
-                      color: 'var(--text2)', cursor: 'inherit' }}>
-                      {importing ? '…' : <><Download size={10} /> HF</>}
-                    </span>
-                  </label>
-                </div>
-
-                {/* HF Hub import */}
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <input value={hfRepo} onChange={e => setHfRepo(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && !importing) importHfHub() }}
-                    placeholder="owner/model (Hub)" disabled={importing}
-                    style={{ flex: 1, minWidth: 0, padding: '4px 8px', background: 'var(--surface2)',
-                      border: '1px solid var(--annotator-border)', borderRadius: 4, fontSize: 10,
-                      color: 'var(--text)', outline: 'none' }} />
-                  <button onClick={importHfHub} disabled={importing || !hfRepo.trim()}
-                    style={{ padding: '4px 8px', background: 'var(--surface2)',
-                      border: '1px solid var(--annotator-border)', borderRadius: 4, fontSize: 10,
-                      color: 'var(--text2)', cursor: importing || !hfRepo.trim() ? 'default' : 'pointer',
-                      opacity: importing || !hfRepo.trim() ? 0.5 : 1 }}>
-                    <Download size={11} />
-                  </button>
-                </div>
+                {/* Model import forms removed */}
 
                 {/* Confidence slider */}
                 <div>
@@ -1526,6 +1710,110 @@ export default function Annotate() {
           }
         }
       `}</style>
+
+      {dialog.isOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(5, 7, 12, 0.75)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+        }}>
+          <div style={{
+            background: '#101524',
+            border: '1px solid #1d2538',
+            borderRadius: 8,
+            padding: 24,
+            width: 380,
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.4)',
+            color: '#fff',
+            fontFamily: 'system-ui, sans-serif'
+          }}>
+            <p style={{ margin: '0 0 16px 0', fontSize: 14, fontWeight: 500, lineHeight: 1.5, whiteSpace: 'pre-line' }}>
+              {dialog.message}
+            </p>
+            
+            {dialog.type === 'prompt' && (
+              <input
+                type="text"
+                value={dialog.inputValue}
+                onChange={e => setDialog(prev => ({ ...prev, inputValue: e.target.value }))}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    dialog.onConfirm(dialog.inputValue);
+                    setDialog(prev => ({ ...prev, isOpen: false }));
+                  } else if (e.key === 'Escape') {
+                    if (dialog.onCancel) dialog.onCancel();
+                    setDialog(prev => ({ ...prev, isOpen: false }));
+                  }
+                }}
+                autoFocus
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  background: '#090d16',
+                  border: '1px solid #1d2538',
+                  borderRadius: 4,
+                  color: '#fff',
+                  fontSize: 13,
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  marginBottom: 20
+                }}
+              />
+            )}
+            
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              {(dialog.type === 'confirm' || dialog.type === 'prompt') && (
+                <button
+                  onClick={() => {
+                    if (dialog.onCancel) dialog.onCancel();
+                    setDialog(prev => ({ ...prev, isOpen: false }));
+                  }}
+                  style={{
+                    padding: '8px 16px',
+                    background: '#1d2538',
+                    border: 'none',
+                    borderRadius: 4,
+                    color: '#94a3b8',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s'
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  dialog.onConfirm(dialog.inputValue);
+                  setDialog(prev => ({ ...prev, isOpen: false }));
+                }}
+                style={{
+                  padding: '8px 16px',
+                  background: '#3b82f6',
+                  border: 'none',
+                  borderRadius: 4,
+                  color: '#fff',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
