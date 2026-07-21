@@ -22,6 +22,7 @@ export interface Project {
   name: string;
   task_type: 'image_classification' | 'object_detection' | 'image_segmentation';
   classes: string[];
+  annotation_type?: 'bbox' | 'point';
 }
 
 export interface ExternalModel {

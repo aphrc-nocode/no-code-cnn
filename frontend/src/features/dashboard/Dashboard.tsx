@@ -28,6 +28,7 @@ export default function Dashboard() {
   // New Project Form State
   const [projectName, setProjectName] = useState("");
   const [projectTask, setProjectTask] = useState<"image_classification" | "object_detection" | "image_segmentation">("image_classification");
+  const [annotationType, setAnnotationType] = useState<"bbox" | "point">("bbox");
   const [classesInput, setClassesInput] = useState("");
   const [selectedTaskFilter, setSelectedTaskFilter] = useState<string>("all");
 
@@ -94,12 +95,14 @@ export default function Dashboard() {
       const payload = {
         name: projectName.trim(),
         task_type: projectTask,
+        annotation_type: projectTask === "object_detection" ? annotationType : "bbox",
         classes: classesArray
       };
       const res = await api.post("/projects", payload);
       setShowCreateModal(false);
       setProjectName("");
       setClassesInput("");
+      setAnnotationType("bbox");
       fetchProjects();
       navigate(`/projects/${res.data.id}/workflow`);
     } catch (err: any) {
@@ -442,7 +445,13 @@ export default function Dashboard() {
                 <label className="block text-xs font-semibold mb-1">Task Type</label>
                 <select
                   value={projectTask}
-                  onChange={(e: any) => setProjectTask(e.target.value)}
+                  onChange={(e: any) => {
+                    const val = e.target.value;
+                    setProjectTask(val);
+                    if (val !== "object_detection") {
+                      setAnnotationType("bbox");
+                    }
+                  }}
                   className="w-full bg-background border border-border text-foreground px-3 py-2 rounded-lg text-sm"
                 >
                   <option value="image_classification">Image Classification</option>
@@ -450,6 +459,19 @@ export default function Dashboard() {
                   <option value="image_segmentation">Image Segmentation</option>
                 </select>
               </div>
+              {projectTask === "object_detection" && (
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Annotation Type</label>
+                  <select
+                    value={annotationType}
+                    onChange={(e: any) => setAnnotationType(e.target.value)}
+                    className="w-full bg-background border border-border text-foreground px-3 py-2 rounded-lg text-sm"
+                  >
+                    <option value="bbox">Bounding Box</option>
+                    <option value="point">Point</option>
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold mb-1">Classes (comma separated)</label>
                 <input
@@ -463,7 +485,10 @@ export default function Dashboard() {
               <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowCreateModal(false)}
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    setAnnotationType("bbox");
+                  }}
                   className="px-4 py-2 border border-border rounded-lg text-xs font-semibold hover:bg-secondary/80 transition-colors"
                 >
                   Cancel

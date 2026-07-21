@@ -139,21 +139,33 @@ export default function Annotate() {
   };
 
   const filteredTools = TOOLS.filter(t => {
-    // Exclude point tool since point-based models are not trained in this platform
-    if (t.id === 'point') return false;
-    
+    const annType = project?.annotation_type || 'bbox';
+
     if (project?.task_type === 'object_detection') {
-      return t.id !== 'polygon' && t.id !== 'sam';
+      if (annType === 'point') {
+        // For point annotation project, only show Point, Select, and Pan
+        return t.id !== 'bbox' && t.id !== 'polygon' && t.id !== 'sam';
+      } else {
+        // For bounding box project, only show Rect, Select, and Pan
+        return t.id !== 'point' && t.id !== 'polygon' && t.id !== 'sam';
+      }
     }
     if (project?.task_type === 'image_segmentation') {
-      return t.id !== 'bbox';
+      return t.id !== 'bbox' && t.id !== 'point';
     }
-    return true;
+    // Exclude point tool for classification as classification doesn't use spatial annotations
+    return t.id !== 'point';
   })
 
   useEffect(() => {
     if (project) {
-      setTool(project.task_type === 'image_segmentation' ? 'polygon' : 'bbox')
+      if (project.task_type === 'image_segmentation') {
+        setTool('polygon')
+      } else if (project.task_type === 'object_detection' && project.annotation_type === 'point') {
+        setTool('point')
+      } else {
+        setTool('bbox')
+      }
     }
   }, [project])
 
