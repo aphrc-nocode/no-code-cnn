@@ -68,12 +68,23 @@ def create_ssd_model(num_classes: int, pretrained: bool = True) -> nn.Module:
     except Exception:
         model = torchvision.models.detection.ssdlite320_mobilenet_v3_large(pretrained=pretrained)
     
-    # Retrieve out channels of backbone
-    in_channels = model.backbone.out_channels
-    num_anchors = model.anchor_generator.num_anchors_per_location()
-    
-    from torchvision.models.detection.ssd import SSDHead
-    model.head = SSDHead(in_channels, num_anchors, num_classes)
+    # Replace the classification head for custom num_classes
+    try:
+        from torchvision.models.detection.ssd import SSDLiteClassificationHead
+        in_channels = [cls_layer[0][0].in_channels if hasattr(cls_layer[0], '__getitem__') and hasattr(cls_layer[0][0], 'in_channels') else cls_layer.in_channels for cls_layer in model.head.classification_head.module_list]
+        num_anchors = model.anchor_generator.num_anchors_per_location()
+        
+        model.head.classification_head = SSDLiteClassificationHead(
+            in_channels=in_channels,
+            num_anchors=num_anchors,
+            num_classes=num_classes
+        )
+    except Exception as e:
+        print(f"Custom SSDLite classification head replacement fallback: {e}")
+        from torchvision.models.detection.ssd import SSDHead
+        in_channels = getattr(model.backbone, 'out_channels', [480, 512, 512, 512, 256, 256])
+        num_anchors = model.anchor_generator.num_anchors_per_location()
+        model.head = SSDHead(in_channels, num_anchors, num_classes)
     
     import os
     freeze_backbone = os.getenv("FREEZE_BACKBONE", "false").lower() == "true"
