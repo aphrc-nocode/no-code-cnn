@@ -911,12 +911,20 @@ class JobManager:
                         raw_label = detection.get("label", 0)
                         mapped_idx = max(0, raw_label - 1) if raw_label > 0 else 0
                         
-                        if project_classes and mapped_idx < len(project_classes):
+                        if project_classes and len(project_classes) == 1:
+                            actual_name = project_classes[0]
+                        elif project_classes and mapped_idx < len(project_classes):
                             actual_name = project_classes[mapped_idx]
                         elif project_classes and raw_label < len(project_classes):
                             actual_name = project_classes[raw_label]
                         else:
                             actual_name = detection.get("class_name", f"class_{raw_label}")
+
+                        if actual_name.lower().replace("_", "") in ("cassavaslice", "background", "dataset") and project_classes:
+                            for p_cls in project_classes:
+                                if p_cls.lower().replace("_", "") not in ("cassavaslice", "background", "dataset"):
+                                    actual_name = p_cls
+                                    break
 
                         formatted_detections.append({
                             "box": detection["box"],

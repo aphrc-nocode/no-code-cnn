@@ -517,10 +517,14 @@ class ObjectDetectionPipeline(BasePipeline):
             from pycocotools.coco import COCO
             coco = COCO(self.train_annotation_path)
             
-            # Get all categories and deduplicate by name (same logic as in dataset)
+            # Get categories that actually have bounding box annotations in the training dataset
             category_ids = sorted(coco.getCatIds())
             categories = coco.loadCats(category_ids)
             
+            active_cat_ids = {ann['category_id'] for ann in coco.anns.values() if 'category_id' in ann}
+            if active_cat_ids:
+                categories = [cat for cat in categories if cat['id'] in active_cat_ids]
+
             # Get unique class names (same as in the dataset)
             unique_class_names = []
             seen_names = set()

@@ -33,33 +33,12 @@ class CocoDetectionDataset(Dataset):
         category_ids = sorted(self.coco.getCatIds())
         categories = self.coco.loadCats(category_ids)
         
-        # Scan all JSON files in the dataset folder to determine active category IDs (with at least 1 annotation)
-        import json
-        from pathlib import Path
-        active_cat_ids = set()
-        annotation_file = Path(annotation_path)
-        dataset_dir = annotation_file.parent.parent
-        json_files = list(dataset_dir.glob("**/*.json"))
-        if not json_files:
-            json_files = [annotation_file]
-            
-        for jf in json_files:
-            if jf.name == "dataset_config.json":
-                continue
-            try:
-                with open(jf, "r") as f:
-                    data = json.load(f)
-                    if "annotations" in data:
-                        for ann in data["annotations"]:
-                            if "category_id" in ann:
-                                active_cat_ids.add(ann["category_id"])
-            except:
-                pass
-                
+        # Determine active category IDs from annotations in this dataset file
+        active_cat_ids = {ann['category_id'] for ann in self.coco.anns.values() if 'category_id' in ann}
         if not active_cat_ids:
             active_cat_ids = set(category_ids)
             
-        # Only keep categories that are active in annotations
+        # Only keep categories that actually have bounding box annotations
         categories = [cat for cat in categories if cat['id'] in active_cat_ids]
         
         # Get unique class names and create mapping
