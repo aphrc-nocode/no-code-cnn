@@ -11,7 +11,6 @@ import Register from "./features/auth/Register";
 import PendingApproval from "./features/auth/PendingApproval";
 import AdminDashboard from "./features/dashboard/AdminDashboard";
 import dswbLogo  from "./assets/dswb-logo.PNG";
-import aphrcLogo from "./assets/aphrc-logo.png";
 
 // ── Partner organisations shown on /about ────────────────────────────────────
 const PARTNERS = [
@@ -19,7 +18,7 @@ const PARTNERS = [
     name: "Mak-AI Research Centre",
     tagline: "AI for Societal Good",
     description:
-      "Based at Makerere University, Mak-AI drives responsible AI research and innovation. Mak-AI collaborates on APHRC DeepLens to democratise computer vision for industry, agriculture, healthcare and urban planning across the continent.",
+      "Based at Makerere University, Mak-AI drives responsible AI research and innovation. Mak-AI collaborates on DeepLens to democratise computer vision for industry, agriculture, healthcare and urban planning across the continent.",
     logo: "https://air.ug/wp-content/uploads/2025/06/Mak-AI-06.png",
     url: "https://air.ug/",
     logoHeight: 48,
@@ -28,17 +27,17 @@ const PARTNERS = [
     name: "Data Science Without Borders",
     tagline: "Bridging the data divide across Africa",
     description:
-      "DSWB is a continent-wide initiative that builds data science capacity, promotes open data, and enables African researchers and institutions to harness the power of data for development. APHRC DeepLens benefits from DSWB's infrastructure and collaborative network.",
+      "DSWB is a continent-wide initiative that builds data science capacity, promotes open data, and enables African researchers and institutions to harness the power of data for development. DeepLens benefits from DSWB's infrastructure and collaborative network.",
     logo: dswbLogo,
     url: "https://dswb.africa/",
     logoHeight: 44,
   },
   {
     name: "African Population and Health Research Center",
-    tagline: "APHRC — Evidence for Change",
+    tagline: "Evidence for Change",
     description:
-      "APHRC is a leading pan-African research institution generating evidence on population, health, education, and development. APHRC DeepLens is a flagship platform designed to ensure computer vision applications incorporate responsible data governance and health equity principles.",
-    logo: aphrcLogo,
+      "APHRC is a leading pan-African research institution generating evidence on population, health, education, and development. DeepLens is a flagship platform designed to ensure computer vision applications incorporate responsible data governance and health equity principles.",
+    logo: "",
     url: "https://aphrc.org/",
     logoHeight: 52,
   },
@@ -54,7 +53,7 @@ function About() {
       <div style={{ textAlign: "center", marginBottom: 48 }}>
         <h1 style={{ fontSize: "clamp(26px, 5vw, 40px)", fontWeight: 800,
           letterSpacing: "-0.03em", margin: "0 0 10px" }}>
-          About <span style={{ color: "hsl(var(--primary))" }}>APHRC DeepLens</span>
+          About <span style={{ color: "hsl(var(--primary))" }}>DeepLens</span>
         </h1>
         <p style={{ fontSize: 14, color: "hsl(var(--muted-foreground))",
           maxWidth: 520, margin: "0 auto", lineHeight: 1.65 }}>
@@ -72,7 +71,7 @@ function About() {
         </h2>
         <p style={{ fontSize: 14, lineHeight: 1.75,
           color: "hsl(var(--muted-foreground))", margin: 0 }}>
-          APHRC DeepLens lowers the barrier to deploying computer vision solutions — enabling researchers,
+          DeepLens lowers the barrier to deploying computer vision solutions — enabling researchers,
           field workers and organisations to build, train, and deploy custom vision models without
           writing a single line of code. From image labelling to model evaluation, every step is
           visual and accessible.
@@ -259,11 +258,10 @@ export default function App() {
 
           {/* Left column: wordmark */}
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <img src={aphrcLogo} alt="APHRC Logo" style={{ height: 42, width: "auto", objectFit: "contain", cursor: "pointer" }} onClick={() => navigate("/")} />
             <span onClick={() => navigate("/")}
               style={{ fontWeight: 900, letterSpacing: "-0.04em", cursor: "pointer",
                 fontSize: "clamp(15px, 3vw, 18px)", lineHeight: 1, userSelect: "none" }}>
-              APHRC <span style={{ color: "hsl(var(--primary))" }}>DeepLens</span>
+              <span style={{ color: "hsl(var(--primary))" }}>DeepLens</span>
             </span>
           </div>
 

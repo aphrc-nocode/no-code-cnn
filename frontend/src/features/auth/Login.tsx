@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { KeyRound, User as UserIcon, AlertCircle, Eye, EyeOff } from "lucide-react";
 import api from "../../api";
-import aphrcLogo from "../../assets/aphrc-logo.png";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -62,9 +61,8 @@ export default function Login() {
       <div className="w-full max-w-md bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-xl overflow-hidden relative z-10 transition-all">
         <div className="p-8">
           <div className="text-center mb-8 flex flex-col items-center">
-            <img src={aphrcLogo} alt="APHRC DeepLens Logo" className="h-16 w-auto mb-4 object-contain" />
             <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mb-2">
-              APHRC <span className="text-primary">DeepLens</span>
+              <span className="text-primary">DeepLens</span>
             </h1>
             <p className="text-sm text-slate-500 dark:text-zinc-400">
               Log in to access your no-code AI workspace

@@ -4,7 +4,6 @@ import { Edit3, Database, Cpu, Play, ChevronLeft, Sun, Moon, User, LogOut, Penci
 import api, { type Project } from "../api";
 import { useTheme } from "./ThemeContext";
 import { useAuth } from "../features/auth/AuthContext";
-import aphrcLogo from "../assets/aphrc-logo.png";
 
 import Annotator from "../features/annotator/Annotator";
 import ImageGallery from "../features/dataset/ImageGallery";

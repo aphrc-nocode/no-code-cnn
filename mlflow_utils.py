@@ -74,7 +74,7 @@ def start_run(job_id: str, config: Dict[str, Any]) -> str:
                 try:
                     val_str = str(value) if not isinstance(value, (int, float, str, bool)) else value
                     client.log_param(run_id, key, val_str)
-                except Exception:
+                except Exception:                                                                                                                                                                                                                                                                         
                     pass
         except Exception as e:
             print(f"Warning: Failed to log parameters: {e}")

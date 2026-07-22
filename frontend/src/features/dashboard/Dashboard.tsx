@@ -144,7 +144,7 @@ export default function Dashboard() {
               <span className="text-primary bg-clip-text">Models in Days</span>
             </h1>
             <p className="text-base sm:text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
-              APHRC DeepLens simplifies laborious data upload, manual image annotation, pipeline construction, and model evaluation. Develop custom models for your operations with less data, powered by active learning.
+              DeepLens simplifies laborious data upload, manual image annotation, pipeline construction, and model evaluation. Develop custom models for your operations with less data, powered by active learning.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <button
