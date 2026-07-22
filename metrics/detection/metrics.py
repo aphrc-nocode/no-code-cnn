@@ -253,3 +253,113 @@ def calculate_map_by_size(detections, targets, small_threshold=32*32, medium_thr
         'mAP_medium': medium_metrics['mAP'],
         'mAP_large': large_metrics['mAP']
     }
+
+def calculate_detection_confusion_matrix(detections, targets, class_names, iou_threshold=0.5, score_threshold=0.25):
+    """
+    Calculate Object Detection Confusion Matrix across ground truth and predicted bounding boxes.
+    
+    Args:
+        detections: List of detection dicts with 'boxes', 'labels', 'scores'
+        targets: List of target dicts with 'boxes', 'labels'
+        class_names: List of class names (e.g. ['background', 'class1', 'class2'] or ['class1', 'class2'])
+        iou_threshold: IoU threshold for box matching (default 0.5)
+        score_threshold: Confidence score threshold for predictions (default 0.25)
+        
+    Returns:
+        cm: Confusion matrix (np.ndarray of shape (num_classes, num_classes))
+        cm_class_names: List of class names corresponding to rows/cols of cm
+    """
+    if not class_names:
+        cm_class_names = ['background', 'object']
+    elif class_names[0].lower() not in ['background', 'bg', 'none']:
+        cm_class_names = ['background'] + list(class_names)
+    else:
+        cm_class_names = list(class_names)
+
+    num_classes = len(cm_class_names)
+    cm = np.zeros((num_classes, num_classes), dtype=np.int64)
+
+    name_to_idx = {name: i for i, name in enumerate(cm_class_names)}
+    
+    for detection, target in zip(detections, targets):
+        tgt_boxes = target.get('boxes', torch.tensor([]))
+        tgt_labels = target.get('labels', torch.tensor([]))
+        
+        det_boxes = detection.get('boxes', torch.tensor([]))
+        det_labels = detection.get('labels', torch.tensor([]))
+        det_scores = detection.get('scores', torch.tensor([]))
+        
+        # Filter predictions by confidence score threshold
+        if len(det_scores) > 0:
+            keep = det_scores >= score_threshold
+            det_boxes = det_boxes[keep]
+            det_labels = det_labels[keep]
+            det_scores = det_scores[keep]
+            
+        n_tgt = len(tgt_boxes)
+        n_det = len(det_boxes)
+
+        # Convert target labels to matrix indices
+        tgt_indices = []
+        for l in tgt_labels:
+            lbl_val = l.item() if torch.is_tensor(l) else l
+            if isinstance(lbl_val, int) and lbl_val < len(class_names):
+                cls_str = class_names[lbl_val]
+                tgt_indices.append(name_to_idx.get(cls_str, lbl_val if lbl_val < num_classes else 0))
+            else:
+                tgt_indices.append(lbl_val if lbl_val < num_classes else 0)
+
+        # Convert det labels to matrix indices
+        det_indices = []
+        for l in det_labels:
+            lbl_val = l.item() if torch.is_tensor(l) else l
+            if isinstance(lbl_val, int) and lbl_val < len(class_names):
+                cls_str = class_names[lbl_val]
+                det_indices.append(name_to_idx.get(cls_str, lbl_val if lbl_val < num_classes else 0))
+            else:
+                det_indices.append(lbl_val if lbl_val < num_classes else 0)
+
+        if n_tgt == 0 and n_det == 0:
+            continue
+        elif n_tgt == 0:
+            for d_idx in det_indices:
+                cm[0, d_idx] += 1
+            continue
+        elif n_det == 0:
+            for t_idx in tgt_indices:
+                cm[t_idx, 0] += 1
+            continue
+
+        ious = box_iou(tgt_boxes.cpu(), det_boxes.cpu())
+        
+        matched_tgt = [False] * n_tgt
+        matched_det = [False] * n_det
+
+        iou_candidates = []
+        for t_i in range(n_tgt):
+            for d_j in range(n_det):
+                val = ious[t_i, d_j].item()
+                if val >= iou_threshold:
+                    iou_candidates.append((val, t_i, d_j))
+        
+        iou_candidates.sort(key=lambda x: x[0], reverse=True)
+
+        for val, t_i, d_j in iou_candidates:
+            if not matched_tgt[t_i] and not matched_det[d_j]:
+                matched_tgt[t_i] = True
+                matched_det[d_j] = True
+                gt_c = tgt_indices[t_i]
+                pred_c = det_indices[d_j]
+                cm[gt_c, pred_c] += 1
+
+        for t_i in range(n_tgt):
+            if not matched_tgt[t_i]:
+                gt_c = tgt_indices[t_i]
+                cm[gt_c, 0] += 1
+
+        for d_j in range(n_det):
+            if not matched_det[d_j]:
+                pred_c = det_indices[d_j]
+                cm[0, pred_c] += 1
+
+    return cm, cm_class_names

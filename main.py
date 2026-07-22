@@ -2097,7 +2097,7 @@ async def evaluate_pipeline(job_id: str, current_user: User = Depends(get_curren
                 "top_3_predictions": top_3
             })
             
-        from metrics.detection.metrics import calculate_detection_metrics
+        from metrics.detection.metrics import calculate_detection_metrics, calculate_detection_confusion_matrix
         try:
             metrics = calculate_detection_metrics(detections_list, targets_list)
         except Exception as e:
@@ -2107,6 +2107,40 @@ async def evaluate_pipeline(job_id: str, current_user: User = Depends(get_curren
         mAP = metrics.get("mAP", 0.0)
         AP50 = metrics.get("AP50", 0.0)
         AP75 = metrics.get("AP75", 0.0)
+
+        cm_base64 = None
+        try:
+            cm, cm_class_names = calculate_detection_confusion_matrix(detections_list, targets_list, class_names)
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+
+            fig, ax = plt.subplots(figsize=(max(6, len(cm_class_names) * 1.2), max(5, len(cm_class_names) * 1.0)))
+            sns.heatmap(
+                cm,
+                annot=True,
+                fmt='d',
+                cmap='Blues',
+                xticklabels=cm_class_names,
+                yticklabels=cm_class_names,
+                cbar=True,
+                ax=ax
+            )
+            ax.set_title("Object Detection Confusion Matrix", fontsize=14, fontweight='bold', pad=12)
+            ax.set_ylabel('True Label', fontsize=11, fontweight='bold')
+            ax.set_xlabel('Predicted Label', fontsize=11, fontweight='bold')
+            plt.xticks(rotation=45, ha='right')
+            plt.yticks(rotation=0)
+            plt.tight_layout()
+
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', dpi=130)
+            plt.close(fig)
+
+            cm_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+        except Exception as e:
+            print(f"Error generating object detection confusion matrix heatmap: {e}")
         
         class_metrics_list = []
         top_class_name = "None"
@@ -2144,7 +2178,8 @@ async def evaluate_pipeline(job_id: str, current_user: User = Depends(get_curren
             "lowest_recall_class": str(total_preds_cnt),
             "top_confusion": top_confusion,
             "class_metrics": class_metrics_list,
-            "samples": samples_results
+            "samples": samples_results,
+            "confusion_matrix_base64": cm_base64
         }
         
     else:

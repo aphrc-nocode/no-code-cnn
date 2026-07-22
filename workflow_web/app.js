@@ -1162,8 +1162,8 @@ function renderInspector() {
       valBoxesDiv.innerHTML = boxesHtml;
       els.nodeForm.appendChild(valBoxesDiv);
 
-      // 2. Heatmap Confusion Matrix (For classification only)
-      if (res.task_type === "image_classification" && res.confusion_matrix_base64) {
+      // 2. Heatmap Confusion Matrix
+      if (res.confusion_matrix_base64) {
         const matrixLabel = document.createElement("label");
         matrixLabel.style.marginTop = "10px";
         matrixLabel.innerHTML = "<span>Confusion Matrix</span>";
