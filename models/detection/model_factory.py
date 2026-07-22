@@ -143,25 +143,41 @@ def create_ssd_model(num_classes: int, pretrained: bool = True) -> nn.Module:
     elif not torch.cuda.is_available():
         print("Notice: CUDA GPU is not available in environment. Running SSD training on CPU.")
             
-    print(f"Created SSDLite MobileNetV3 with {num_classes} classes")
-    return model
+def convert_to_frozen_batchnorm(module: nn.Module) -> nn.Module:
+    """
+    Recursively replace all nn.BatchNorm2d in a model with FrozenBatchNorm2d.
+    Prevents 'Expected more than 1 value per channel when training' errors on small batch sizes / 1x1 feature maps.
+    """
+    try:
+        from torchvision.ops import FrozenBatchNorm2d
+    except ImportError:
+        return module
+
+    if isinstance(module, nn.BatchNorm2d):
+        module_output = FrozenBatchNorm2d(module.num_features)
+        module_output.running_mean = module.running_mean
+        module_output.running_var = module.running_var
+        if module.affine and module.weight is not None:
+            module_output.weight = module.weight
+            module_output.bias = module.bias
+        module_output.eps = module.eps
+        return module_output
+    else:
+        for name, child in list(module.named_children()):
+            module.add_module(name, convert_to_frozen_batchnorm(child))
+        return module
 
 
 def create_model(architecture: str, num_classes: int, pretrained: bool = True) -> nn.Module:
     """
     Create an object detection model based on architecture name
-    
-    Args:
-        architecture: Name of the architecture (e.g., 'faster_rcnn', 'ssd')
-        num_classes: Number of output classes (including background)
-        pretrained: Whether to use pre-trained weights on COCO dataset
-        
-    Returns:
-        Object detection model
     """
     if architecture == "faster_rcnn":
-        return create_faster_rcnn_model(num_classes, pretrained)
+        model = create_faster_rcnn_model(num_classes, pretrained)
     elif architecture == "ssd":
-        return create_ssd_model(num_classes, pretrained)
+        model = create_ssd_model(num_classes, pretrained)
     else:
         raise ValueError(f"Unsupported architecture: {architecture}. Supported: ['faster_rcnn', 'ssd']")
+    
+    # Convert all BatchNorm2d modules to FrozenBatchNorm2d for stability with batch_size=1
+    return convert_to_frozen_batchnorm(model)
