@@ -105,11 +105,17 @@ def create_ssd_model(num_classes: int, pretrained: bool = True) -> nn.Module:
                         break
 
             num_anchors = model.anchor_generator.num_anchors_per_location()
+            try:
+                from torchvision.ops import FrozenBatchNorm2d
+                norm_layer_cls = FrozenBatchNorm2d
+            except Exception:
+                norm_layer_cls = nn.BatchNorm2d
+
             model.head.classification_head = SSDLiteClassificationHead(
                 in_channels=in_channels,
                 num_anchors=num_anchors,
                 num_classes=num_classes,
-                norm_layer=nn.BatchNorm2d
+                norm_layer=norm_layer_cls
             )
         except Exception as e:
             print(f"Notice: SSDLite head replacement fallback ({e}). Replacing classification layers directly.")

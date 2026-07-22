@@ -688,6 +688,9 @@ class ObjectDetectionPipeline(BasePipeline):
             Dictionary with epoch metrics
         """
         self.model.train()
+        for m in self.model.modules():
+            if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.SyncBatchNorm)):
+                m.eval()
         total_loss = 0.0
         num_batches = 0
         
@@ -720,8 +723,11 @@ class ObjectDetectionPipeline(BasePipeline):
                 self.optimizer.zero_grad()
                 
                 # Forward pass
-                # Ensure model is in training mode
+                # Ensure model is in training mode, but keep BatchNorm in eval mode for stability
                 self.model.train()
+                for m in self.model.modules():
+                    if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.SyncBatchNorm)):
+                        m.eval()
                 outputs = self.model(images, targets)
                 
                 # Handle different output formats
