@@ -3725,7 +3725,7 @@ async def get_trained_models(current_user: User = Depends(get_current_approved_u
 
 @app.get("/api/v1/pipelines/{job_id}/training-metrics", tags=["Pipelines & Training"])
 async def get_training_metrics(job_id: str, current_user: User = Depends(get_current_approved_user)):
-    """Fetch training metrics from MLflow or local job history and generate a plot."""
+    """Fetch training metrics from MLflow or local job history and generate task-specific plots."""
     import base64
     import io
     import matplotlib
@@ -3738,8 +3738,31 @@ async def get_training_metrics(job_id: str, current_user: User = Depends(get_cur
     client = MlflowClient()
     train_loss_steps, t_loss = [], []
     val_loss_steps, v_loss = [], []
-    train_acc_steps, t_acc = [], []
-    val_acc_steps, v_acc = [], []
+
+    sec_metric_name = "Accuracy"
+    train_sec_steps, t_sec = [], []
+    val_sec_steps, v_sec = [], []
+
+    job = job_manager.get_job(job_id)
+    task_type = str(getattr(job.pipeline_config, "task_type", "")).lower() if (job and hasattr(job, "pipeline_config")) else ""
+
+    if "detection" in task_type:
+        sec_metric_name = "mAP"
+    elif "segmentation" in task_type:
+        sec_metric_name = "mIoU"
+
+    def get_sorted_history(history_list):
+        if not history_list:
+            return [], []
+        step_to_val = {}
+        for m in history_list:
+            try:
+                step_to_val[int(m.step)] = float(m.value)
+            except Exception:
+                pass
+        sorted_steps = sorted(step_to_val.keys())
+        sorted_vals = [step_to_val[s] for s in sorted_steps]
+        return sorted_steps, sorted_vals
 
     # 1. Try fetching from MLflow
     try:
@@ -3754,55 +3777,36 @@ async def get_training_metrics(job_id: str, current_user: User = Depends(get_cur
                 run_id = runs[0].info.run_id
 
         if run_id:
-            run = client.get_run(run_id)
             train_loss = client.get_metric_history(run_id, "train_loss")
             val_loss = client.get_metric_history(run_id, "val_loss")
-            train_acc = client.get_metric_history(run_id, "train_accuracy")
-            val_acc = client.get_metric_history(run_id, "val_accuracy")
 
-            if not train_loss and run:
-                metrics = run.data.metrics
-                epochs_list = set()
-                for key in metrics.keys():
-                    if "_epoch_" in key:
-                        try:
-                            epochs_list.add(int(key.split("_")[-1]))
-                        except Exception:
-                            pass
-                if epochs_list:
-                    epochs = sorted(list(epochs_list))
-                    train_loss_steps = epochs
-                    t_loss = [metrics.get(f"train_loss_epoch_{e}", 0) for e in epochs]
-                    val_loss_steps = [e for e in epochs if f"val_loss_epoch_{e}" in metrics]
-                    v_loss = [metrics[f"val_loss_epoch_{e}"] for e in val_loss_steps]
-                    train_acc_steps = epochs
-                    t_acc = [metrics.get(f"train_acc_epoch_{e}", 0) for e in epochs]
-                    val_acc_steps = [e for e in epochs if f"val_acc_epoch_{e}" in metrics]
-                    v_acc = [metrics[f"val_acc_epoch_{e}"] for e in val_acc_steps]
-            else:
-                def get_sorted_history(history_list):
-                    if not history_list:
-                        return [], []
-                    step_to_val = {}
-                    for m in history_list:
-                        try:
-                            step_to_val[int(m.step)] = float(m.value)
-                        except Exception:
-                            pass
-                    sorted_steps = sorted(step_to_val.keys())
-                    sorted_vals = [step_to_val[s] for s in sorted_steps]
-                    return sorted_steps, sorted_vals
+            t_sec_hist = (client.get_metric_history(run_id, "train_accuracy") or
+                          client.get_metric_history(run_id, "train_acc") or
+                          client.get_metric_history(run_id, "train_miou"))
+            v_sec_hist = (client.get_metric_history(run_id, "val_accuracy") or
+                          client.get_metric_history(run_id, "val_acc") or
+                          client.get_metric_history(run_id, "mAP") or
+                          client.get_metric_history(run_id, "val_mAP") or
+                          client.get_metric_history(run_id, "map") or
+                          client.get_metric_history(run_id, "val_miou") or
+                          client.get_metric_history(run_id, "miou"))
 
-                train_loss_steps, t_loss = get_sorted_history(train_loss)
-                val_loss_steps, v_loss = get_sorted_history(val_loss)
-                train_acc_steps, t_acc = get_sorted_history(train_acc)
-                val_acc_steps, v_acc = get_sorted_history(val_acc)
+            train_loss_steps, t_loss = get_sorted_history(train_loss)
+            val_loss_steps, v_loss = get_sorted_history(val_loss)
+            train_sec_steps, t_sec = get_sorted_history(t_sec_hist)
+            val_sec_steps, v_sec = get_sorted_history(v_sec_hist)
+
+            if "detection" in task_type and v_sec:
+                sec_metric_name = "mAP"
+            elif "segmentation" in task_type and (t_sec or v_sec):
+                sec_metric_name = "mIoU"
+            elif (t_sec or v_sec) and not ("detection" in task_type or "segmentation" in task_type):
+                sec_metric_name = "Accuracy"
     except Exception:
         pass
 
-    # 2. Fallback to local job history if MLflow metrics were not found
+    # 2. Fallback to local job history if metrics not found in MLflow
     if not train_loss_steps and not t_loss:
-        job = job_manager.get_job(job_id)
         if job and job.history:
             for item in job.history:
                 if isinstance(item, dict):
@@ -3813,50 +3817,78 @@ async def get_training_metrics(job_id: str, current_user: User = Depends(get_cur
                     if "val_loss" in item and item["val_loss"] is not None:
                         val_loss_steps.append(ep)
                         v_loss.append(float(item["val_loss"]))
+
+                    # Accuracy
                     if "train_accuracy" in item and item["train_accuracy"] is not None:
-                        train_acc_steps.append(ep)
-                        t_acc.append(float(item["train_accuracy"]))
+                        train_sec_steps.append(ep)
+                        t_sec.append(float(item["train_accuracy"]))
                     elif "train_acc" in item and item["train_acc"] is not None:
-                        train_acc_steps.append(ep)
-                        t_acc.append(float(item["train_acc"]))
+                        train_sec_steps.append(ep)
+                        t_sec.append(float(item["train_acc"]))
+
                     if "val_accuracy" in item and item["val_accuracy"] is not None:
-                        val_acc_steps.append(ep)
-                        v_acc.append(float(item["val_accuracy"]))
+                        val_sec_steps.append(ep)
+                        v_sec.append(float(item["val_accuracy"]))
                     elif "val_acc" in item and item["val_acc"] is not None:
-                        val_acc_steps.append(ep)
-                        v_acc.append(float(item["val_acc"]))
+                        val_sec_steps.append(ep)
+                        v_sec.append(float(item["val_acc"]))
+
+                    # mAP (Object Detection)
+                    if "mAP" in item and item["mAP"] is not None:
+                        val_sec_steps.append(ep)
+                        v_sec.append(float(item["mAP"]))
+                        sec_metric_name = "mAP"
+                    elif "val_mAP" in item and item["val_mAP"] is not None:
+                        val_sec_steps.append(ep)
+                        v_sec.append(float(item["val_mAP"]))
+                        sec_metric_name = "mAP"
+
+                    # mIoU (Segmentation)
+                    if "val_miou" in item and item["val_miou"] is not None:
+                        val_sec_steps.append(ep)
+                        v_sec.append(float(item["val_miou"]))
+                        sec_metric_name = "mIoU"
 
     if not train_loss_steps and not t_loss:
         return {"error": "No training metrics found."}
 
     try:
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+        has_sec_data = bool(train_sec_steps or val_sec_steps)
+
+        if has_sec_data:
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+        else:
+            fig, ax1 = plt.subplots(1, 1, figsize=(7, 4.5))
+            ax2 = None
 
         # Loss plot
         if train_loss_steps:
-            ax1.plot(train_loss_steps, t_loss, label='Train Loss', color='blue', linewidth=2)
+            ax1.plot(train_loss_steps, t_loss, label='Train Loss', color='#2563eb', linewidth=2, marker='o', markersize=4)
         if val_loss_steps:
-            ax1.plot(val_loss_steps, v_loss, label='Val Loss', color='orange', linewidth=2)
-        ax1.set_title('Loss over Epochs', fontsize=14)
-        ax1.set_xlabel('Epoch')
-        ax1.set_ylabel('Loss')
-        ax1.legend()
-        ax1.grid(True, linestyle='--', alpha=0.7)
+            ax1.plot(val_loss_steps, v_loss, label='Val Loss', color='#f59e0b', linewidth=2, marker='s', markersize=4)
+        ax1.set_title('Loss over Epochs', fontsize=13, fontweight='bold', pad=10)
+        ax1.set_xlabel('Epoch', fontsize=10)
+        ax1.set_ylabel('Loss', fontsize=10)
+        if ax1.get_legend_handles_labels()[0]:
+            ax1.legend(loc='best', frameon=True)
+        ax1.grid(True, linestyle='--', alpha=0.6)
 
-        # Accuracy plot
-        if train_acc_steps:
-            ax2.plot(train_acc_steps, t_acc, label='Train Accuracy', color='green', linewidth=2)
-        if val_acc_steps:
-            ax2.plot(val_acc_steps, v_acc, label='Val Accuracy', color='red', linewidth=2)
-        ax2.set_title('Accuracy over Epochs', fontsize=14)
-        ax2.set_xlabel('Epoch')
-        ax2.set_ylabel('Accuracy')
-        ax2.legend()
-        ax2.grid(True, linestyle='--', alpha=0.7)
+        # Secondary metric plot if available (Accuracy / mAP / mIoU)
+        if has_sec_data and ax2:
+            if train_sec_steps:
+                ax2.plot(train_sec_steps, t_sec, label=f'Train {sec_metric_name}', color='#10b981', linewidth=2, marker='o', markersize=4)
+            if val_sec_steps:
+                ax2.plot(val_sec_steps, v_sec, label=f'Val {sec_metric_name}', color='#ef4444', linewidth=2, marker='s', markersize=4)
+            ax2.set_title(f'{sec_metric_name} over Epochs', fontsize=13, fontweight='bold', pad=10)
+            ax2.set_xlabel('Epoch', fontsize=10)
+            ax2.set_ylabel(sec_metric_name, fontsize=10)
+            if ax2.get_legend_handles_labels()[0]:
+                ax2.legend(loc='best', frameon=True)
+            ax2.grid(True, linestyle='--', alpha=0.6)
 
         plt.tight_layout()
         buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=120)
+        plt.savefig(buf, format='png', dpi=130)
         plt.close()
 
         plot_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
