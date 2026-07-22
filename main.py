@@ -517,7 +517,7 @@ class JobManager:
         
         # Ensure dataset is local by lazy downloading from MinIO
         local_dataset_path = Path(dataset_path)
-        if not local_dataset_path.exists() or not local_dataset_path.is_dir() or not any(local_dataset_path.iterdir()):
+        if not local_dataset_path.exists() or not local_dataset_path.is_dir() or not any(local_dataset_path.iterdir() if local_dataset_path.exists() else []):
             dataset_id = local_dataset_path.name
             if minio_utils.exists(DATASETS_BUCKET, dataset_id):
                 print(f"Dataset '{dataset_id}' not found locally for training. Downloading from MinIO...")
@@ -525,14 +525,22 @@ class JobManager:
             else:
                 raise ValueError(f"Dataset '{dataset_id}' does not exist locally or in MinIO")
 
+        # Check if job is already running
+        if job_id in self.running_jobs:
+            return {"message": "Job is already running", "job_id": job_id, "status": str(job.status)}
+
+        # Check if job is already queued
+        if any(item[0] == job_id for item in self.queue):
+            return {"message": "Job is already queued", "job_id": job_id, "status": "pending"}
+
         # Check if we have active slots
         if len(self.running_jobs) >= self.max_concurrent_jobs:
             job.status = TrainingStatus.PENDING
             job.logs.append(f"Job queued (Position: {len(self.queue) + 1}). Waiting for active training run to finish...")
             self.save_job_metadata(job)
             self.queue.append((job_id, dataset_path))
-            print(f"Job {job_id} queued. Currently running: {list(self.running_jobs.keys())}. Queue size: {len(self.queue)}")
-            return {"message": "Training queued", "job_id": job_id}
+            print(f"Job {job_id} queued with status PENDING. Currently running: {list(self.running_jobs.keys())}. Queue size: {len(self.queue)}")
+            return {"message": "Training queued", "job_id": job_id, "status": "pending"}
 
         # Ensure models directory exists
         models_base_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
@@ -555,7 +563,7 @@ class JobManager:
         task = asyncio.create_task(self._run_training(pipeline, job_id, dataset_path))
         self.running_jobs[job_id] = task
         
-        return {"message": "Training started", "job_id": job_id}
+        return {"message": "Training started", "job_id": job_id, "status": "running"}
     
     async def _run_training(self, pipeline: BasePipeline, job_id: str, dataset_path: str):
         """Run the training pipeline"""
@@ -3717,7 +3725,7 @@ async def get_trained_models(current_user: User = Depends(get_current_approved_u
 
 @app.get("/api/v1/pipelines/{job_id}/training-metrics", tags=["Pipelines & Training"])
 async def get_training_metrics(job_id: str, current_user: User = Depends(get_current_approved_user)):
-    """Fetch training metrics from MLflow and generate a plot."""
+    """Fetch training metrics from MLflow or local job history and generate a plot."""
     import base64
     import io
     import matplotlib
@@ -3728,74 +3736,102 @@ async def get_training_metrics(job_id: str, current_user: User = Depends(get_cur
     import mlflow
 
     client = MlflowClient()
+    train_loss_steps, t_loss = [], []
+    val_loss_steps, v_loss = [], []
+    train_acc_steps, t_acc = [], []
+    val_acc_steps, v_acc = [], []
+
+    # 1. Try fetching from MLflow
     try:
-        run_id = job_id
-        try:
-            experiment = mlflow.get_experiment_by_name(EXPERIMENT_NAME)
-            if experiment:
-                runs = client.search_runs(
-                    experiment_ids=[experiment.experiment_id],
-                    filter_string=f"attributes.run_name = 'job_{job_id}'"
-                )
-                if runs:
-                    run_id = runs[0].info.run_id
-        except Exception as search_err:
-            print(f"Error searching MLflow runs: {search_err}")
+        run_id = None
+        experiment = mlflow.get_experiment_by_name(EXPERIMENT_NAME)
+        if experiment:
+            runs = client.search_runs(
+                experiment_ids=[experiment.experiment_id],
+                filter_string=f"attributes.run_name = 'job_{job_id}'"
+            )
+            if runs:
+                run_id = runs[0].info.run_id
 
-        run = client.get_run(run_id)
-        
-        # Get metric history using the resolved run_id
-        train_loss = client.get_metric_history(run_id, "train_loss")
-        val_loss = client.get_metric_history(run_id, "val_loss")
-        train_acc = client.get_metric_history(run_id, "train_accuracy")
-        val_acc = client.get_metric_history(run_id, "val_accuracy")
-        
-        if not train_loss:
-            # Fallback for old logging style (e.g. train_loss_epoch_X)
-            metrics = run.data.metrics
-            epochs_list = set()
-            for key in metrics.keys():
-                if "_epoch_" in key:
-                    try:
-                        epochs_list.add(int(key.split("_")[-1]))
-                    except: pass
-            
-            if not epochs_list:
-                return {"error": "No training metrics found."}
-                
-            epochs = sorted(list(epochs_list))
-            train_loss_steps = epochs
-            t_loss = [metrics.get(f"train_loss_epoch_{e}", 0) for e in epochs]
-            
-            val_loss_steps = [e for e in epochs if f"val_loss_epoch_{e}" in metrics]
-            v_loss = [metrics[f"val_loss_epoch_{e}"] for e in val_loss_steps]
-            
-            train_acc_steps = epochs
-            t_acc = [metrics.get(f"train_acc_epoch_{e}", 0) for e in epochs]
-            
-            val_acc_steps = [e for e in epochs if f"val_acc_epoch_{e}" in metrics]
-            v_acc = [metrics[f"val_acc_epoch_{e}"] for e in val_acc_steps]
-        else:
-            def get_sorted_history(history_list):
-                if not history_list:
-                    return [], []
-                step_to_val = {}
-                for m in history_list:
-                    try:
-                        step_to_val[int(m.step)] = float(m.value)
-                    except:
-                        pass
-                sorted_steps = sorted(step_to_val.keys())
-                sorted_vals = [step_to_val[s] for s in sorted_steps]
-                return sorted_steps, sorted_vals
+        if run_id:
+            run = client.get_run(run_id)
+            train_loss = client.get_metric_history(run_id, "train_loss")
+            val_loss = client.get_metric_history(run_id, "val_loss")
+            train_acc = client.get_metric_history(run_id, "train_accuracy")
+            val_acc = client.get_metric_history(run_id, "val_accuracy")
 
-            train_loss_steps, t_loss = get_sorted_history(train_loss)
-            val_loss_steps, v_loss = get_sorted_history(val_loss)
-            train_acc_steps, t_acc = get_sorted_history(train_acc)
-            val_acc_steps, v_acc = get_sorted_history(val_acc)
-        
+            if not train_loss and run:
+                metrics = run.data.metrics
+                epochs_list = set()
+                for key in metrics.keys():
+                    if "_epoch_" in key:
+                        try:
+                            epochs_list.add(int(key.split("_")[-1]))
+                        except Exception:
+                            pass
+                if epochs_list:
+                    epochs = sorted(list(epochs_list))
+                    train_loss_steps = epochs
+                    t_loss = [metrics.get(f"train_loss_epoch_{e}", 0) for e in epochs]
+                    val_loss_steps = [e for e in epochs if f"val_loss_epoch_{e}" in metrics]
+                    v_loss = [metrics[f"val_loss_epoch_{e}"] for e in val_loss_steps]
+                    train_acc_steps = epochs
+                    t_acc = [metrics.get(f"train_acc_epoch_{e}", 0) for e in epochs]
+                    val_acc_steps = [e for e in epochs if f"val_acc_epoch_{e}" in metrics]
+                    v_acc = [metrics[f"val_acc_epoch_{e}"] for e in val_acc_steps]
+            else:
+                def get_sorted_history(history_list):
+                    if not history_list:
+                        return [], []
+                    step_to_val = {}
+                    for m in history_list:
+                        try:
+                            step_to_val[int(m.step)] = float(m.value)
+                        except Exception:
+                            pass
+                    sorted_steps = sorted(step_to_val.keys())
+                    sorted_vals = [step_to_val[s] for s in sorted_steps]
+                    return sorted_steps, sorted_vals
+
+                train_loss_steps, t_loss = get_sorted_history(train_loss)
+                val_loss_steps, v_loss = get_sorted_history(val_loss)
+                train_acc_steps, t_acc = get_sorted_history(train_acc)
+                val_acc_steps, v_acc = get_sorted_history(val_acc)
+    except Exception:
+        pass
+
+    # 2. Fallback to local job history if MLflow metrics were not found
+    if not train_loss_steps and not t_loss:
+        job = job_manager.get_job(job_id)
+        if job and job.history:
+            for item in job.history:
+                if isinstance(item, dict):
+                    ep = item.get("epoch", len(train_loss_steps) + 1)
+                    if "train_loss" in item and item["train_loss"] is not None:
+                        train_loss_steps.append(ep)
+                        t_loss.append(float(item["train_loss"]))
+                    if "val_loss" in item and item["val_loss"] is not None:
+                        val_loss_steps.append(ep)
+                        v_loss.append(float(item["val_loss"]))
+                    if "train_accuracy" in item and item["train_accuracy"] is not None:
+                        train_acc_steps.append(ep)
+                        t_acc.append(float(item["train_accuracy"]))
+                    elif "train_acc" in item and item["train_acc"] is not None:
+                        train_acc_steps.append(ep)
+                        t_acc.append(float(item["train_acc"]))
+                    if "val_accuracy" in item and item["val_accuracy"] is not None:
+                        val_acc_steps.append(ep)
+                        v_acc.append(float(item["val_accuracy"]))
+                    elif "val_acc" in item and item["val_acc"] is not None:
+                        val_acc_steps.append(ep)
+                        v_acc.append(float(item["val_acc"]))
+
+    if not train_loss_steps and not t_loss:
+        return {"error": "No training metrics found."}
+
+    try:
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-        
+
         # Loss plot
         if train_loss_steps:
             ax1.plot(train_loss_steps, t_loss, label='Train Loss', color='blue', linewidth=2)
@@ -3806,7 +3842,7 @@ async def get_training_metrics(job_id: str, current_user: User = Depends(get_cur
         ax1.set_ylabel('Loss')
         ax1.legend()
         ax1.grid(True, linestyle='--', alpha=0.7)
-        
+
         # Accuracy plot
         if train_acc_steps:
             ax2.plot(train_acc_steps, t_acc, label='Train Accuracy', color='green', linewidth=2)
@@ -3817,17 +3853,15 @@ async def get_training_metrics(job_id: str, current_user: User = Depends(get_cur
         ax2.set_ylabel('Accuracy')
         ax2.legend()
         ax2.grid(True, linestyle='--', alpha=0.7)
-        
+
         plt.tight_layout()
         buf = io.BytesIO()
         plt.savefig(buf, format='png', dpi=120)
         plt.close()
-        
+
         plot_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
         return {"training_curves_base64": plot_base64}
-        
     except Exception as e:
-        print(f"Error fetching metrics for {job_id}: {e}")
         return {"error": str(e)}
 
 # ==================== Visual Dataset Annotator Endpoints ====================

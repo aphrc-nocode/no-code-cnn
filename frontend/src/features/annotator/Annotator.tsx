@@ -71,7 +71,7 @@ function shapeToApi(s: Shape): Omit<AnnData, 'id'> {
   return { class_id: s.class_id, shape_type: 'bbox', x_center: s.x + s.w/2, y_center: s.y + s.h/2, width: s.w, height: s.h, points: [] }
 }
 
-// ─── Component ────────────────────────────���───────────────────────────────────
+// ─── Component ───────────────────────────────────────────────────────────────
 export default function Annotate() {
   const { id, imageId } = useParams<{ id: string; imageId: string }>()
   const projectId = id ?? ''
@@ -85,6 +85,7 @@ export default function Annotate() {
   const [shapes, setShapes]     = useState<Shape[]>([])
   const [selected, setSelected] = useState<number | null>(null)
   const [tool, setTool]         = useState<Tool>('bbox')
+  const [showLabels, setShowLabels] = useState(true)
 
   const [dialog, setDialog] = useState<{
     isOpen: boolean;
@@ -247,7 +248,7 @@ export default function Annotate() {
   const [batchProgress,  setBatchProgress]  = useState<{done:number;total:number;labeled:number}|null>(null)
   const batchCancelRef = useRef(false)
 
-  // ─── Load project + image list ────────��─────────────────────────────────
+  // ─── Load project + image list ─────────────────────────────────────────
   // File upload state
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploadingProgress, setUploadingProgress] = useState<number | null>(null)
@@ -464,7 +465,9 @@ export default function Annotate() {
           const px = cx(s.x), py = cy(s.y), pw = cx(s.w), ph = cy(s.h)
           ctx.fillStyle = color + '25'; ctx.fillRect(px, py, pw, ph)
           ctx.strokeRect(px, py, pw, ph)
-          drawLabel(ctx, project?.classes?.[s.class_id] ?? `cls${s.class_id}`, color, cx(s.x), cy(s.y), zoom)
+          if (showLabels) {
+            drawLabel(ctx, project?.classes?.[s.class_id] ?? `cls${s.class_id}`, color, cx(s.x), cy(s.y), zoom)
+          }
           if (isSel) drawBBoxHandles(ctx, s, cw, ch, zoom, color, hSz)
         }
 
@@ -475,14 +478,18 @@ export default function Annotate() {
           s.pts.slice(1).forEach(p => ctx.lineTo(cx(p[0]), cy(p[1])))
           ctx.closePath()
           ctx.fill(); ctx.stroke()
-          drawLabel(ctx, project?.classes?.[s.class_id] ?? `cls${s.class_id}`, color, cx(s.pts[0][0]), cy(s.pts[0][1]), zoom)
+          if (showLabels) {
+            drawLabel(ctx, project?.classes?.[s.class_id] ?? `cls${s.class_id}`, color, cx(s.pts[0][0]), cy(s.pts[0][1]), zoom)
+          }
           if (isSel) s.pts.forEach(p => drawDot(ctx, cx(p[0]), cy(p[1]), H / zoom, '#fff', color))
         }
 
         if (s.type === 'point') {
           const r = DOT_PX / zoom
           drawDot(ctx, cx(s.x), cy(s.y), r, color + '80', color)
-          drawLabel(ctx, project?.classes?.[s.class_id] ?? `cls${s.class_id}`, color, cx(s.x) + r, cy(s.y) - r, zoom)
+          if (showLabels) {
+            drawLabel(ctx, project?.classes?.[s.class_id] ?? `cls${s.class_id}`, color, cx(s.x) + r, cy(s.y) - r, zoom)
+          }
           if (isSel) drawDot(ctx, cx(s.x), cy(s.y), (H + 2) / zoom, 'transparent', '#fff')
         }
       })
@@ -514,7 +521,7 @@ export default function Annotate() {
     }
 
     ctx.restore()
-  }, [shapes, liveBbox, selected, tool, polyPts, mouse, activeClass, zoom, pan, project])
+  }, [shapes, liveBbox, selected, tool, polyPts, mouse, activeClass, zoom, pan, project, showLabels])
 
   useEffect(() => { draw() }, [draw])
 
@@ -831,7 +838,10 @@ export default function Annotate() {
         snapshotHistory(newShapes)
         setSelected(null)
       }
-      if (!e.ctrlKey && !e.metaKey) {
+      if (!e.ctrlKey && !e.metaKey && document.activeElement?.tagName !== 'INPUT') {
+        if (e.key === 'l' || e.key === 'L') {
+          setShowLabels(s => !s)
+        }
         const taskType = project?.task_type
         if (e.key === 'v' || e.key === '1') setTool('select')
         if ((e.key === 'r' || e.key === '2') && taskType === 'object_detection') { setTool('bbox');    setPolyPts([]) }
@@ -1154,6 +1164,20 @@ export default function Annotate() {
               <Copy size={12} /> <span className="ann-btn-txt">Copy Prev</span>
             </button>
           )}
+        </div>
+
+        {/* Separator */}
+        <div className="ann-sep" style={{ width: 1, height: 20, background: 'var(--annotator-border)', margin: '0 16px' }} />
+
+        {/* Labels Toggle */}
+        <div className="ann-group-labels" style={{ display: 'flex', alignItems: 'center' }}>
+          <button
+            onClick={() => setShowLabels(s => !s)}
+            title="Toggle class labels visibility (L)"
+            style={tbBtn(showLabels)}
+          >
+            {showLabels ? 'Hide Labels' : 'Show Labels'}
+          </button>
         </div>
 
         {/* Spacer */}

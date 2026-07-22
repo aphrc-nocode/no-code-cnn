@@ -288,14 +288,13 @@ class ObjectDetectionPipeline(BasePipeline):
             training_results = await self._train_model(job_id)
             
             # End MLflow run
-            end_run()
+            end_run(getattr(self, 'run_id', None))
             
             return training_results
             
         except Exception as e:
             print(f"Training failed for job {job_id}: {str(e)}")
-            if self.run_id:
-                end_run()
+            end_run(getattr(self, 'run_id', None))
             raise e
 
     async def _load_datasets_from_path(self, dataset_path: str, job_id: str) -> None:
@@ -609,7 +608,7 @@ class ObjectDetectionPipeline(BasePipeline):
             'num_epochs': self.num_epochs,
             'weight_decay': self.weight_decay,
             'momentum': self.momentum
-        })
+        }, run_id=getattr(self, 'run_id', None))
         
         # Training loop
         training_metrics = []
@@ -654,7 +653,7 @@ class ObjectDetectionPipeline(BasePipeline):
             self.lr_scheduler.step()
             
             # Log metrics
-            log_metrics(epoch_metrics, step=epoch)
+            log_metrics(epoch_metrics, step=epoch, run_id=getattr(self, 'run_id', None))
             training_metrics.append(epoch_metrics)
             
             # Print epoch summary

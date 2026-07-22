@@ -53,7 +53,7 @@ class ImageSegmentationPipeline(BasePipeline):
             # Log optimizer configuration
             log_metrics({
                 "initial_learning_rate": self.config.learning_rate
-            })
+            }, run_id=self.run_id)
             
             # Create datasets and data loaders
             transform = self.get_transforms(train=True)
@@ -230,7 +230,7 @@ class ImageSegmentationPipeline(BasePipeline):
                             "val_loss": val_loss,
                             "val_miou": val_miou,
                             **{f"val_iou_class_{i}": val_metrics[f"iou_class_{i}"] for i in range(self.config.num_classes)}
-                        })
+                        }, run_id=self.run_id)
                     else:
                         # For instance segmentation, we need a different evaluation approach
                         val_miou = 0.0  # Placeholder
@@ -238,7 +238,7 @@ class ImageSegmentationPipeline(BasePipeline):
                             "epoch": epoch,
                             "train_loss": train_loss,
                             "val_loss": val_loss
-                        })
+                        }, run_id=self.run_id)
                     
                     # Store metrics for visualization
                     val_losses.append(val_loss)
@@ -318,7 +318,7 @@ class ImageSegmentationPipeline(BasePipeline):
             )
             
             # End MLflow run
-            end_run()
+            end_run(getattr(self, 'run_id', None))
             
             await self._update_job_log(job_id, f"Training completed successfully. Model saved to {model_path}")
             
@@ -337,7 +337,7 @@ class ImageSegmentationPipeline(BasePipeline):
         except Exception as e:
             # End MLflow run in case of error
             from mlflow_utils import end_run
-            end_run()
+            end_run(getattr(self, 'run_id', None))
             await self._update_job_log(job_id, f"Error during training: {str(e)}")
             # Return error status
             return {

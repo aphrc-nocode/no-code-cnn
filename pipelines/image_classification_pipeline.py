@@ -81,7 +81,7 @@ class ImageClassificationPipeline(BasePipeline):
             # Log optimizer configuration
             log_metrics({
                 "initial_learning_rate": self.config.learning_rate
-            })
+            }, run_id=getattr(self, 'run_id', None))
             
             # Store class mapping
             class_to_idx = {cls_name: i for i, cls_name in enumerate(classes)}
@@ -283,7 +283,7 @@ class ImageClassificationPipeline(BasePipeline):
                     "train_accuracy": train_acc / 100.0,
                     "val_loss": val_loss if val_loader else 0.0,
                     "val_accuracy": val_acc / 100.0 if val_loader else 0.0
-                }, step=epoch)
+                }, step=epoch, run_id=getattr(self, 'run_id', None))
                 
                 # Also log old format for backward compatibility temporarily
                 epoch_metrics = {
@@ -295,7 +295,7 @@ class ImageClassificationPipeline(BasePipeline):
                         f"val_loss_epoch_{epoch}": val_loss,
                         f"val_acc_epoch_{epoch}": val_acc / 100.0,
                     })
-                log_metrics(epoch_metrics)
+                log_metrics(epoch_metrics, run_id=getattr(self, 'run_id', None))
                 
                 # Log epoch summary
                 await self._update_job_log(
@@ -375,7 +375,7 @@ class ImageClassificationPipeline(BasePipeline):
                         
                         # Calculate and log final metrics
                         final_metrics = calculate_classification_metrics(all_targets, all_preds, all_scores)
-                        log_metrics({"final_" + k: v for k, v in final_metrics.items()})
+                        log_metrics({"final_" + k: v for k, v in final_metrics.items()}, run_id=getattr(self, 'run_id', None))
                     except Exception as e:
                         await self._update_job_log(job_id, f"Warning: Error creating validation metrics: {e}")
             
@@ -443,13 +443,14 @@ class ImageClassificationPipeline(BasePipeline):
                     'history': history
                 }, final_model_path)
             
-            # End MLflow run
-            end_run()
-            
-            # Get MLflow run information for model reference
-            run_info = mlflow.active_run()
-            mlflow_run_id = run_info.info.run_id if run_info else None
+            # Get MLflow run information for model reference before ending run
+            mlflow_run_id = getattr(self, "run_id", None)
+            if not mlflow_run_id and mlflow.active_run():
+                mlflow_run_id = mlflow.active_run().info.run_id
             mlflow_model_uri = f"runs:/{mlflow_run_id}/model" if mlflow_run_id else None
+
+            # End MLflow run
+            end_run(mlflow_run_id)
             
             return {
                 "status": "completed",
