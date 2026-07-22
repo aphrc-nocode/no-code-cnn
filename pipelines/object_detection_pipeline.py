@@ -615,6 +615,7 @@ class ObjectDetectionPipeline(BasePipeline):
         best_val_loss = float('inf')
         
         for epoch in range(self.num_epochs):
+            start_time = time.time()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             await self._update_job_log(job_id, f"Starting epoch {epoch + 1}/{self.num_epochs}")
