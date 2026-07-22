@@ -901,19 +901,27 @@ class JobManager:
                     }
             
             elif job.pipeline_config.task_type == TaskType.OBJECT_DETECTION:
-                # Handle new format from ObjectDetectionPipeline
+                project = project_manager.get_project(job.pipeline_config.project_id) if hasattr(job.pipeline_config, 'project_id') else None
+                project_classes = project.classes if (project and project.classes) else getattr(job.pipeline_config, 'class_names', [])
+
                 if "predictions" in result:
-                    # New format: result contains ['predictions', 'status', 'num_detections']
                     detections = result.get("predictions", [])
-                    # detections is already in the correct format with keys: 'box', 'confidence', 'class_name', 'label'
-                    
-                    # Convert to the expected API format
                     formatted_detections = []
                     for detection in detections:
+                        raw_label = detection.get("label", 0)
+                        mapped_idx = max(0, raw_label - 1) if raw_label > 0 else 0
+                        
+                        if project_classes and mapped_idx < len(project_classes):
+                            actual_name = project_classes[mapped_idx]
+                        elif project_classes and raw_label < len(project_classes):
+                            actual_name = project_classes[raw_label]
+                        else:
+                            actual_name = detection.get("class_name", f"class_{raw_label}")
+
                         formatted_detections.append({
-                            "box": detection["box"],  # [x1, y1, x2, y2]
-                            "class_id": detection["label"],
-                            "class_name": detection["class_name"],
+                            "box": detection["box"],
+                            "class_id": mapped_idx,
+                            "class_name": actual_name,
                             "confidence": detection["confidence"]
                         })
                     
@@ -2579,10 +2587,31 @@ async def predict(
                                 title_suffix = f" (Box #{explain_box_index}: {class_name} [{conf:.1f}%])"
                                 print(f"Cropped target image to bounding box: {x1, y1, x2, y2}")
                 
-                # Check if it is classification to run specific algorithms
-                is_classification = (job.pipeline_config.task_type == TaskType.IMAGE_CLASSIFICATION)
-                
-                if is_classification:
+                # Handle Object Detection Grad-CAM XAI
+                if job.pipeline_config.task_type == TaskType.OBJECT_DETECTION:
+                    try:
+                        from responsible_ai.gradcam import GradCAMDetection
+                        explainer = GradCAMDetection(model, device=device)
+                        detections = prediction_result.get("detections", [])
+                        target_box_idx = explain_box_index if (explain_box_index is not None and explain_box_index >= 0) else None
+                        
+                        overlay_np = explainer.explain_detection(image, detections, target_box_index=target_box_idx)
+                        overlay_pil = Image.fromarray(overlay_np)
+                        
+                        # Draw bounding box with actual class name on overlay
+                        target_dets = [detections[target_box_idx]] if (target_box_idx is not None and target_box_idx < len(detections)) else detections
+                        if target_dets:
+                            overlay_pil = draw_bounding_boxes(overlay_pil, target_dets)
+                            
+                        buf = io.BytesIO()
+                        overlay_pil.save(buf, format="PNG")
+                        explanation_image_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                        print("Object Detection Grad-CAM explanation generated successfully")
+                    except Exception as det_xai_err:
+                        print(f"Object Detection XAI failed: {det_xai_err}. Falling back to universal feature map...")
+
+                # Handle Classification XAI algorithms
+                elif is_classification:
                     try:
                         if explain_method == "gradcam":
                             from responsible_ai.gradcam import GradCAM

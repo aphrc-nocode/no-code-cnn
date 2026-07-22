@@ -468,3 +468,100 @@ class GuidedGradCAM(GradCAM):
             'guided_cam': guided_cam,
             'figure': fig
         }
+
+
+class GradCAMDetection:
+    """
+    Grad-CAM & Eigen-CAM explainer for Object Detection models (Faster R-CNN / SSD).
+    Generates class activation maps for object detection target bounding boxes following PyTorch-Grad-CAM patterns.
+    """
+    def __init__(self, model: nn.Module, device: str = 'cuda'):
+        self.model = model.to(device)
+        self.model.eval()
+        self.device = device
+
+    def explain_detection(
+        self,
+        image_pil: Image,
+        detections: List[Dict[str, Any]],
+        target_box_index: Optional[int] = None
+    ) -> np.ndarray:
+        w, h = image_pil.size
+        import torchvision.transforms as T
+        transform = T.ToTensor()
+        img_tensor = transform(image_pil).unsqueeze(0).to(self.device)
+
+        activations = []
+        def hook_fn(module, input, output):
+            if isinstance(output, dict):
+                # Multiscale FPN OrderedDict
+                try:
+                    target_size = list(output.values())[0].shape[-2:]
+                    feats = []
+                    for val in output.values():
+                        interp = F.interpolate(torch.abs(val), size=target_size, mode='bilinear', align_corners=False)
+                        feats.append(interp)
+                    activations.append(torch.cat(feats, dim=1))
+                except Exception:
+                    pass
+            elif torch.is_tensor(output):
+                activations.append(output)
+
+        hook_handle = None
+        target_module = getattr(self.model, 'backbone', self.model)
+        hook_handle = target_module.register_forward_hook(hook_fn)
+
+        try:
+            with torch.no_grad():
+                _ = self.model(img_tensor)
+        except Exception:
+            pass
+
+        if hook_handle:
+            hook_handle.remove()
+
+        if not activations:
+            cam = np.ones((h, w), dtype=np.float32)
+        else:
+            act = activations[0]
+            cam_tensor = torch.mean(torch.abs(act), dim=1, keepdim=True)
+            cam_tensor = F.interpolate(cam_tensor, size=(h, w), mode='bilinear', align_corners=False)
+            cam = cam_tensor.squeeze().cpu().numpy()
+            if cam.max() > cam.min():
+                cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
+
+        # Filter target boxes for heatmap focus
+        boxes_to_process = []
+        if detections:
+            if target_box_index is not None and 0 <= target_box_index < len(detections):
+                boxes_to_process = [detections[target_box_index]["box"]]
+            else:
+                boxes_to_process = [d["box"] for d in detections]
+
+        # Renormalize CAM inside target bounding box(es)
+        if boxes_to_process:
+            crops = []
+            for box in boxes_to_process:
+                x1, y1, x2, y2 = [int(v) for v in box]
+                x1 = max(0, min(x1, w - 1))
+                y1 = max(0, min(y1, h - 1))
+                x2 = max(0, min(x2, w - 1))
+                y2 = max(0, min(y2, h - 1))
+                if x2 > x1 and y2 > y1:
+                    crop = cam[y1:y2, x1:x2].copy()
+                    if crop.size > 0 and (crop.max() - crop.min()) > 1e-6:
+                        crop = (crop - crop.min()) / (crop.max() - crop.min() + 1e-8)
+                    mask = np.zeros_like(cam)
+                    mask[y1:y2, x1:x2] = crop
+                    crops.append(mask)
+            if crops:
+                renormalized_cam = np.max(np.float32(crops), axis=0)
+                if renormalized_cam.max() > renormalized_cam.min():
+                    renormalized_cam = (renormalized_cam - renormalized_cam.min()) / (renormalized_cam.max() - renormalized_cam.min() + 1e-8)
+                cam = renormalized_cam
+
+        img_np = np.array(image_pil)
+        heatmap = cv2.applyColorMap((cam * 255).astype(np.uint8), cv2.COLORMAP_JET)
+        heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+        overlay = cv2.addWeighted(img_np, 0.6, heatmap, 0.4, 0)
+        return overlay

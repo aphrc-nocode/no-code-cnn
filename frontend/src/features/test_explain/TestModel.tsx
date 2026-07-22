@@ -345,87 +345,90 @@ export default function TestModel() {
                 justifyContent: "center",
                 overflow: "hidden",
                 flex: 1,
-                minHeight: 350
+                minHeight: 350,
+                position: "relative"
               }}>
-                <img
-                  ref={imgRef}
-                  src={imageSrc}
-                  alt="Inference image"
-                  onLoad={handleImageLoad}
-                  style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }}
-                />
+                <div style={{ position: "relative", display: "inline-block", maxWidth: "100%", maxHeight: "100%" }}>
+                  <img
+                    ref={imgRef}
+                    src={predictionResults?.annotated_image ? `data:image/png;base64,${predictionResults.annotated_image}` : imageSrc}
+                    alt="Inference image"
+                    onLoad={handleImageLoad}
+                    style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }}
+                  />
 
-                {/* Overlaid bounding boxes for object detection */}
-                {taskType === "object_detection" && predictionResults && imgDimensions.width > 0 && (
-                  <div style={{
-                    position: "absolute",
-                    top: imgRef.current?.offsetTop || 0,
-                    left: imgRef.current?.offsetLeft || 0,
-                    width: imgDimensions.width,
-                    height: imgDimensions.height,
-                    pointerEvents: "none"
-                  }}>
-                    {filteredDetections.map((det: any, idx: number) => {
-                      const box = det.box;
-                      if (!box || box.length !== 4) return null;
+                  {/* Overlaid interactive bounding boxes for object detection */}
+                  {taskType === "object_detection" && predictionResults && imgDimensions.width > 0 && (
+                    <div style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: imgDimensions.width,
+                      height: imgDimensions.height,
+                      pointerEvents: "none"
+                    }}>
+                      {filteredDetections.map((det: any, idx: number) => {
+                        const box = det.box;
+                        if (!box || box.length !== 4) return null;
 
-                      // Scaled coordinates based on natural dimensions
-                      const scaleX = imgDimensions.width / imgDimensions.naturalWidth;
-                      const scaleY = imgDimensions.height / imgDimensions.naturalHeight;
+                        const scaleX = imgDimensions.width / (imgDimensions.naturalWidth || 1);
+                        const scaleY = imgDimensions.height / (imgDimensions.naturalHeight || 1);
 
-                      const x1 = box[0] * scaleX;
-                      const y1 = box[1] * scaleY;
-                      const x2 = box[2] * scaleX;
-                      const y2 = box[3] * scaleY;
+                        const x1 = box[0] * scaleX;
+                        const y1 = box[1] * scaleY;
+                        const x2 = box[2] * scaleX;
+                        const y2 = box[3] * scaleY;
 
-                      const width = x2 - x1;
-                      const height = y2 - y1;
+                        const width = x2 - x1;
+                        const height = y2 - y1;
 
-                      const isHovered = hoveredIndex === idx;
+                        const isHovered = hoveredIndex === idx;
+                        const isSelected = selectedBoxIndex === idx;
 
-                      return (
-                        <div
-                          key={idx}
-                          style={{
-                            position: "absolute",
-                            left: x1,
-                            top: y1,
-                            width: width,
-                            height: height,
-                            border: isHovered ? "2.5px solid hsl(var(--primary))" : "1.5px solid #0062E6",
-                            boxShadow: isHovered ? "0 0 8px rgba(0, 98, 230, 0.4)" : "none",
-                            pointerEvents: "auto",
-                            cursor: "pointer"
-                          }}
-                          onMouseEnter={() => setHoveredIndex(idx)}
-                          onMouseLeave={() => setHoveredIndex(null)}
-                          onClick={() => {
-                            if (explainMethod !== "none") {
+                        return (
+                          <div
+                            key={idx}
+                            style={{
+                              position: "absolute",
+                              left: x1,
+                              top: y1,
+                              width: width,
+                              height: height,
+                              border: isSelected ? "3px solid #10B981" : isHovered ? "2.5px solid hsl(var(--primary))" : "1.5px dashed rgba(0, 98, 230, 0.6)",
+                              boxShadow: isSelected ? "0 0 10px rgba(16, 185, 129, 0.6)" : isHovered ? "0 0 8px rgba(0, 98, 230, 0.4)" : "none",
+                              pointerEvents: "auto",
+                              cursor: "pointer",
+                              borderRadius: 2
+                            }}
+                            onMouseEnter={() => setHoveredIndex(idx)}
+                            onMouseLeave={() => setHoveredIndex(null)}
+                            onClick={() => {
                               setSelectedBoxIndex(idx);
-                            }
-                          }}
-                        >
-                          <div style={{
-                            position: "absolute",
-                            top: -16,
-                            left: -1.5,
-                            background: "#0062E6",
-                            color: "#fff",
-                            fontSize: 9,
-                            fontWeight: 700,
-                            padding: "1px 4px",
-                            whiteSpace: "nowrap",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 4
-                          }}>
-                            {det.class_name} ({Math.round(det.confidence > 1 ? det.confidence : det.confidence * 100)}%)
+                            }}
+                          >
+                            <div style={{
+                              position: "absolute",
+                              top: -18,
+                              left: -1.5,
+                              background: isSelected ? "#10B981" : "#0062E6",
+                              color: "#fff",
+                              fontSize: 9,
+                              fontWeight: 700,
+                              padding: "1px 5px",
+                              borderRadius: "3px 3px 0 0",
+                              whiteSpace: "nowrap",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 4
+                            }}>
+                              {det.class_name} ({Math.round(det.confidence > 1 ? det.confidence : det.confidence * 100)}%)
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
