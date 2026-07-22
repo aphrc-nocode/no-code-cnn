@@ -308,6 +308,15 @@ class ImageSegmentationPipeline(BasePipeline):
                 'config': {k: v for k, v in self.config.dict().items()},
                 'class_to_idx': class_to_idx
             }, model_path)
+
+            # Upload model.pth to MinIO for permanent persistence across container rebuilds
+            try:
+                import minio_utils
+                from main import MODELS_BUCKET
+                minio_utils.upload_file(MODELS_BUCKET, f"{job_id}/model.pth", str(model_path))
+                print(f"Uploaded model.pth for job {job_id} to MinIO bucket '{MODELS_BUCKET}'")
+            except Exception as minio_err:
+                print(f"Warning: Failed to upload segmentation model to MinIO: {minio_err}")
             
             # Log final model to MLflow
             log_model(

@@ -434,7 +434,6 @@ class ImageClassificationPipeline(BasePipeline):
                 # Keep final_model_path pointing to the actual .pth file
                 # final_model_path already points to the correct file
             else:
-                # Fallback to local storage only if MLflow run isn't active
                 final_model_path = model_dir / "model.pth"
                 torch.save({
                     'model_state_dict': model.state_dict(),
@@ -442,6 +441,16 @@ class ImageClassificationPipeline(BasePipeline):
                     'config': self.config.dict(),
                     'history': history
                 }, final_model_path)
+            
+            # Upload model.pth to MinIO for permanent persistence across container rebuilds
+            try:
+                import minio_utils
+                from main import MODELS_BUCKET
+                job_id = getattr(self.config, "id", None) or Path(final_model_path).parent.name
+                minio_utils.upload_file(MODELS_BUCKET, f"{job_id}/model.pth", str(final_model_path))
+                print(f"Uploaded model.pth for job {job_id} to MinIO bucket '{MODELS_BUCKET}'")
+            except Exception as minio_err:
+                print(f"Warning: Failed to upload classification model to MinIO: {minio_err}")
             
             # Get MLflow run information for model reference before ending run
             mlflow_run_id = getattr(self, "run_id", None)

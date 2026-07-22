@@ -880,6 +880,16 @@ class ObjectDetectionPipeline(BasePipeline):
         }, model_path)
         
         print(f"Model saved to {model_path}")
+        
+        # Upload model.pth to MinIO for permanent persistence across container rebuilds
+        try:
+            import minio_utils
+            from main import MODELS_BUCKET
+            minio_utils.upload_file(MODELS_BUCKET, f"{job_id}/{filename}", str(model_path))
+            print(f"Uploaded '{filename}' for job {job_id} to MinIO bucket '{MODELS_BUCKET}'")
+        except Exception as minio_err:
+            print(f"Warning: Failed to upload model to MinIO: {minio_err}")
+
         return str(model_path)
 
     async def _update_job_log(self, job_id: str, message: str):

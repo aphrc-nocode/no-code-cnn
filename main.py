@@ -680,10 +680,18 @@ class JobManager:
         # Lazy download model from MinIO if local file doesn't exist
         if model_path and not Path(model_path).exists():
             job_id = Path(model_path).parent.name
-            if minio_utils.exists(MODELS_BUCKET, job_id):
-                print(f"Local model path '{model_path}' not found. Downloading model files from MinIO...")
-                local_dir = Path(model_path).parent
-                minio_utils.download_directory(MODELS_BUCKET, job_id, str(local_dir))
+            local_dir = Path(model_path).parent
+            local_dir.mkdir(parents=True, exist_ok=True)
+            print(f"Local model path '{model_path}' not found. Downloading model files for job '{job_id}' from MinIO...")
+            try:
+                if minio_utils.exists(MODELS_BUCKET, f"{job_id}/model.pth"):
+                    minio_utils.download_file(MODELS_BUCKET, f"{job_id}/model.pth", str(model_path))
+                    print(f"Downloaded model.pth for job {job_id} from MinIO")
+                elif minio_utils.exists(MODELS_BUCKET, job_id):
+                    minio_utils.download_directory(MODELS_BUCKET, job_id, str(local_dir))
+                    print(f"Downloaded model directory for job {job_id} from MinIO")
+            except Exception as dl_err:
+                print(f"Warning: MinIO model download error: {dl_err}")
 
         # Try to load from MLflow if available
         try:
