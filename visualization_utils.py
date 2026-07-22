@@ -88,6 +88,15 @@ def draw_bounding_boxes(
             
         box = detection["box"]
         class_name = detection.get("class_name", "Unknown")
+        raw_label = detection.get("class_id", detection.get("label", 0))
+        
+        # Replace generic class_1, class_0, or dataset supercategory names with actual class label
+        if class_name.lower().startswith("class_") or class_name.lower().replace("_", "") in ("cassavaslice", "background", "dataset"):
+            alt_name = detection.get("actual_class_name")
+            if alt_name and not alt_name.lower().startswith("class_") and alt_name.lower().replace("_", "") not in ("cassavaslice", "background"):
+                class_name = alt_name
+            else:
+                class_name = "slice"
         
         print(f"Original box coordinates: {box}")
         
