@@ -65,15 +65,38 @@ def create_ssd_model(num_classes: int, pretrained: bool = True) -> nn.Module:
     import torch
     import torch.nn as nn
     import torchvision
-    from torchvision.models.detection.ssd import SSDLiteClassificationHead
 
     model = None
+    
+    # 1. Try creating model directly with weights_backbone or pretrained_backbone for custom num_classes
     if pretrained:
         try:
-            weights = torchvision.models.detection.SSDLite320_MobileNet_V3_Large_Weights.DEFAULT
-            model = torchvision.models.detection.ssdlite320_mobilenet_v3_large(weights=weights)
-            
-            # Extract exact in_channels for each of the feature maps from pre-trained classification head
+            weights_backbone = torchvision.models.MobileNet_V3_Large_Weights.DEFAULT
+            model = torchvision.models.detection.ssdlite320_mobilenet_v3_large(
+                weights_backbone=weights_backbone,
+                num_classes=num_classes
+            )
+        except Exception:
+            try:
+                model = torchvision.models.detection.ssdlite320_mobilenet_v3_large(
+                    pretrained_backbone=True,
+                    num_classes=num_classes
+                )
+            except Exception:
+                pass
+
+    # 2. If model could not be created above, create default and replace classification head
+    if model is None:
+        try:
+            model = torchvision.models.detection.ssdlite320_mobilenet_v3_large(
+                weights=torchvision.models.detection.SSDLite320_MobileNet_V3_Large_Weights.DEFAULT if pretrained else None
+            )
+        except Exception:
+            model = torchvision.models.detection.ssdlite320_mobilenet_v3_large(pretrained=pretrained)
+        
+        # Safely try to replace classification head for custom num_classes
+        try:
+            from torchvision.models.detection.ssd import SSDLiteClassificationHead
             in_channels = []
             for module in model.head.classification_head.module_list:
                 for layer in module.modules():
@@ -89,21 +112,23 @@ def create_ssd_model(num_classes: int, pretrained: bool = True) -> nn.Module:
                 norm_layer=nn.BatchNorm2d
             )
         except Exception as e:
-            print(f"Pretrained SSDLite weight initialization warning: {e}. Falling back to pretrained backbone.")
-            model = None
+            print(f"Notice: SSDLite head replacement fallback ({e}). Replacing classification layers directly.")
+            num_anchors = model.anchor_generator.num_anchors_per_location()
+            for i, module in enumerate(model.head.classification_head.module_list):
+                for name, layer in list(module.named_children()):
+                    if isinstance(layer, nn.Conv2d):
+                        in_ch = layer.in_channels
+                        kernel_sz = layer.kernel_size
+                        stride_val = layer.stride
+                        padding_val = layer.padding
+                        groups_val = layer.groups
+                        setattr(module, name, nn.Conv2d(
+                            in_ch, num_anchors[i] * num_classes,
+                            kernel_size=kernel_sz, stride=stride_val,
+                            padding=padding_val, groups=groups_val
+                        ))
+                        break
 
-    if model is None:
-        try:
-            model = torchvision.models.detection.ssdlite320_mobilenet_v3_large(
-                weights_backbone=torchvision.models.MobileNet_V3_Large_Weights.DEFAULT if pretrained else None,
-                num_classes=num_classes
-            )
-        except Exception:
-            model = torchvision.models.detection.ssdlite320_mobilenet_v3_large(
-                pretrained=pretrained,
-                num_classes=num_classes
-            )
-    
     freeze_backbone = os.getenv("FREEZE_BACKBONE", "false").lower() == "true"
     if freeze_backbone:
         print("Freezing SSD backbone to save memory...")
