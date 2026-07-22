@@ -1,11 +1,7 @@
-version: '3.8'
-
 services:
   app:
     build: .
     shm_size: 4gb
-    mem_limit: 8g
-    mem_reservation: 6g
     ports:
       - "${HOST_BACKEND_PORT:-8090}:8000"
     volumes:
@@ -19,7 +15,10 @@ services:
       - ai-network
     deploy:
       resources:
+        limits:
+          memory: 8g
         reservations:
+          memory: 6g
           devices:
             - driver: nvidia
               count: all
