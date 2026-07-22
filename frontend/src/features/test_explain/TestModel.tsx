@@ -351,7 +351,7 @@ export default function TestModel() {
                 <div style={{ position: "relative", display: "inline-block", maxWidth: "100%", maxHeight: "100%" }}>
                   <img
                     ref={imgRef}
-                    src={predictionResults?.annotated_image ? `data:image/png;base64,${predictionResults.annotated_image}` : imageSrc}
+                    src={imageSrc}
                     alt="Inference image"
                     onLoad={handleImageLoad}
                     style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }}
