@@ -113,13 +113,15 @@ def create_model(architecture: str, num_classes: int, segmentation_type: str = "
     else:
         raise ValueError(f"Unsupported segmentation type: {segmentation_type}. Choose 'semantic' or 'instance'.")
         
-    # Freeze backbone if running on CPU or if explicitly configured via env to save memory
+    # Freeze backbone if explicitly requested via FREEZE_BACKBONE env variable
     if hasattr(model, 'backbone'):
         import os
-        freeze_backbone = os.getenv("FREEZE_BACKBONE", "true").lower() == "true"
-        if freeze_backbone or not torch.cuda.is_available():
-            print("Freezing segmentation model backbone to save memory and speed up training on CPU...")
+        freeze_backbone = os.getenv("FREEZE_BACKBONE", "false").lower() == "true"
+        if freeze_backbone:
+            print("Freezing segmentation model backbone to save memory...")
             for param in model.backbone.parameters():
                 param.requires_grad = False
+        elif not torch.cuda.is_available():
+            print("Notice: CUDA GPU is not available in environment. Running segmentation training on CPU.")
                 
     return model
