@@ -136,7 +136,10 @@ export default function TestModel() {
 
   // Filter detections based on threshold slider in client-side
   const rawDetections = predictionResults?.detections || [];
-  const filteredDetections = rawDetections.filter((d: any) => d.confidence >= confidenceThreshold);
+  const filteredDetections = rawDetections.filter((d: any) => {
+    const confDec = d.confidence > 1 ? d.confidence / 100 : d.confidence;
+    return confDec >= confidenceThreshold;
+  });
 
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden", background: "hsl(var(--background))" }}>
@@ -416,7 +419,7 @@ export default function TestModel() {
                             alignItems: "center",
                             gap: 4
                           }}>
-                            {det.class_name} ({Math.round(det.confidence * 100)}%)
+                            {det.class_name} ({Math.round(det.confidence > 1 ? det.confidence : det.confidence * 100)}%)
                           </div>
                         </div>
                       );
@@ -516,7 +519,7 @@ export default function TestModel() {
                                   {JSON.stringify(det.box)}
                                 </td>
                                 <td style={{ padding: "10px 12px", fontWeight: 700, color: "hsl(var(--primary))" }}>
-                                  {Math.round(det.confidence * 100)}%
+                                  {Math.round(det.confidence > 1 ? det.confidence : det.confidence * 100)}%
                                 </td>
                                 <td style={{ padding: "10px 12px" }}>
                                   {explainMethod !== "none" ? (

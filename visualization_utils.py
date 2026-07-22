@@ -81,8 +81,9 @@ def draw_bounding_boxes(
     color_index = 0
     
     for detection in detections:
-        confidence = detection.get("confidence", 0)
-        if confidence < confidence_threshold * 100:  # confidence is in percentage
+        raw_conf = detection.get("confidence", 0)
+        conf_pct = raw_conf if raw_conf > 1.0 else raw_conf * 100.0
+        if conf_pct < confidence_threshold * 100.0:
             continue
             
         box = detection["box"]
@@ -132,7 +133,7 @@ def draw_bounding_boxes(
             draw.rectangle([x1 - i, y1 - i, x2 + i, y2 + i], outline=color, width=1)
         
         # Prepare label text
-        label = f"{class_name}: {confidence:.1f}%"
+        label = f"{class_name}: {conf_pct:.1f}%"
         
         # Get text size
         text_width, text_height = get_text_size(draw, label, font)
