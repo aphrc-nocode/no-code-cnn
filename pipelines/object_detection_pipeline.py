@@ -549,13 +549,13 @@ class ObjectDetectionPipeline(BasePipeline):
 
     def _build_model(self) -> None:
         """
-        Build the detection model following the article's approach
+        Build the detection model
         """
-        print("Building Faster R-CNN model...")
+        print(f"Building {self.architecture} model...")
         
-        # Ensure we're using Faster R-CNN (following the article)
-        if self.architecture != 'faster_rcnn':
-            print(f"Warning: Architecture '{self.architecture}' not supported. Using 'faster_rcnn' as per article.")
+        # Support both faster_rcnn and ssd
+        if self.architecture not in ['faster_rcnn', 'ssd']:
+            print(f"Warning: Architecture '{self.architecture}' not supported. Using 'faster_rcnn'.")
             self.architecture = 'faster_rcnn'
         
         # Create model using the factory
@@ -615,8 +615,8 @@ class ObjectDetectionPipeline(BasePipeline):
         best_val_loss = float('inf')
         
         for epoch in range(self.num_epochs):
-            start_time = time.time()
-            
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             await self._update_job_log(job_id, f"Starting epoch {epoch + 1}/{self.num_epochs}")
             
             # Train for one epoch using PyTorch Vision's utilities if available
@@ -690,68 +690,82 @@ class ObjectDetectionPipeline(BasePipeline):
         total_loss = 0.0
         num_batches = 0
         
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         for batch_idx, (images, targets) in enumerate(self.train_loader):
-            # Move data to device with proper type checking
-            images = [img.to(self.device) for img in images]
-            
-            # Move targets to device, handling different data types
-            processed_targets = []
-            for target in targets:
-                processed_target = {}
-                for k, v in target.items():
-                    if torch.is_tensor(v):
-                        processed_target[k] = v.to(self.device)
-                    else:
-                        # Convert non-tensors to appropriate tensor type
-                        if k == 'image_id':
-                            processed_target[k] = torch.tensor([v] if isinstance(v, int) else v, dtype=torch.int64).to(self.device)
+            try:
+                # Move data to device with proper type checking
+                images = [img.to(self.device) for img in images]
+                
+                # Move targets to device, handling different data types
+                processed_targets = []
+                for target in targets:
+                    processed_target = {}
+                    for k, v in target.items():
+                        if torch.is_tensor(v):
+                            processed_target[k] = v.to(self.device)
                         else:
-                            processed_target[k] = torch.tensor(v).to(self.device)
-                processed_targets.append(processed_target)
-            
-            targets = processed_targets
-            
-            # Zero gradients
-            self.optimizer.zero_grad()
-            
-            # Forward pass
-            # Ensure model is in training mode
-            self.model.train()
-            outputs = self.model(images, targets)
-            
-            # Handle different output formats
-            if isinstance(outputs, dict):
-                # Training mode: outputs is a dict of losses
-                loss_dict = outputs
-                losses = sum(loss for loss in loss_dict.values())
-            elif isinstance(outputs, list):
-                # Evaluation mode: outputs is a list of predictions
-                # This shouldn't happen during training, but handle it gracefully
-                print("Warning: Model returned predictions instead of losses. Switching to training mode.")
+                            # Convert non-tensors to appropriate tensor type
+                            if k == 'image_id':
+                                processed_target[k] = torch.tensor([v] if isinstance(v, int) else v, dtype=torch.int64).to(self.device)
+                            else:
+                                processed_target[k] = torch.tensor(v).to(self.device)
+                    processed_targets.append(processed_target)
+                
+                targets = processed_targets
+                
+                # Zero gradients
+                self.optimizer.zero_grad()
+                
+                # Forward pass
+                # Ensure model is in training mode
                 self.model.train()
                 outputs = self.model(images, targets)
+                
+                # Handle different output formats
                 if isinstance(outputs, dict):
+                    # Training mode: outputs is a dict of losses
                     loss_dict = outputs
                     losses = sum(loss for loss in loss_dict.values())
+                elif isinstance(outputs, list):
+                    # Evaluation mode: outputs is a list of predictions
+                    # This shouldn't happen during training, but handle it gracefully
+                    print("Warning: Model returned predictions instead of losses. Switching to training mode.")
+                    self.model.train()
+                    outputs = self.model(images, targets)
+                    if isinstance(outputs, dict):
+                        loss_dict = outputs
+                        losses = sum(loss for loss in loss_dict.values())
+                    else:
+                        raise RuntimeError("Model not returning losses in training mode")
                 else:
-                    raise RuntimeError("Model not returning losses in training mode")
-            else:
-                raise RuntimeError(f"Unexpected model output type: {type(outputs)}")
-            
-            # Backward pass
-            losses.backward()
-            self.optimizer.step()
-            
-            # Update metrics
-            total_loss += losses.item()
-            num_batches += 1
-            
-            # Log every 10 batches
-            if batch_idx % 10 == 0:
-                await self._update_job_log(
-                    job_id, 
-                    f"Epoch {epoch + 1}, Batch {batch_idx}: Loss = {losses.item():.4f}"
-                )
+                    raise RuntimeError(f"Unexpected model output type: {type(outputs)}")
+                
+                # Backward pass
+                losses.backward()
+                self.optimizer.step()
+                
+                # Update metrics
+                total_loss += losses.item()
+                num_batches += 1
+                
+                # Log every 10 batches
+                if batch_idx % 10 == 0:
+                    await self._update_job_log(
+                        job_id, 
+                        f"Epoch {epoch + 1}, Batch {batch_idx}: Loss = {losses.item():.4f}"
+                    )
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower() or "cuda" in str(e).lower():
+                    print(f"Warning: CUDA OOM on epoch {epoch+1}, batch {batch_idx}. Clearing cache...")
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    continue
+                else:
+                    raise e
         
         # Evaluate on validation set
         val_loss = await self._evaluate_epoch_custom()

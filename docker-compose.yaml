@@ -8,6 +8,8 @@ services:
       - .:/app
     env_file:
       - .env
+    environment:
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
     depends_on:
       - mlflow
       - minio
