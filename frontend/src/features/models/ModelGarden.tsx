@@ -613,25 +613,50 @@ export default function ModelGarden() {
                     </h4>
                     <div style={{
                       flex: 1,
-                      background: "#080c14",
+                      background: "#090d16",
                       border: "1px solid hsl(var(--border))",
-                      borderRadius: 4,
-                      padding: 12,
-                      fontFamily: "monospace",
-                      fontSize: 10,
-                      color: "#38bdf8",
+                      borderRadius: 6,
+                      padding: 14,
+                      fontFamily: "'JetBrains Mono', 'Fira Code', 'Roboto Mono', 'Courier New', monospace",
+                      fontSize: 11,
                       overflowY: "auto",
-                      lineHeight: 1.5,
-                      maxHeight: 300
+                      lineHeight: 1.6,
+                      maxHeight: 320,
+                      boxShadow: "inset 0 2px 4px rgba(0,0,0,0.5)"
                     }}>
                       {activeJob?.logs && activeJob.logs.length > 0 ? (
-                        activeJob.logs.map((log, idx) => (
-                          <div key={idx} style={{ borderBottom: "1px solid rgba(255,255,255,0.02)", padding: "2px 0" }}>
-                            {log}
-                          </div>
-                        ))
+                        activeJob.logs.map((log, idx) => {
+                          let textColor = "#e2e8f0"; // Default bright crisp text
+                          let fontWeight = 400;
+
+                          const lowerLog = log.toLowerCase();
+                          if (lowerLog.includes("starting epoch") || lowerLog.includes("epoch ")) {
+                            textColor = "#38bdf8"; // Sky blue for epoch headers
+                            fontWeight = 600;
+                          } else if (lowerLog.includes("loss =") || lowerLog.includes("completed in")) {
+                            textColor = "#a5f3fc"; // Cyan for loss metrics
+                          } else if (lowerLog.includes("success") || lowerLog.includes("saved") || lowerLog.includes("loaded")) {
+                            textColor = "#34d399"; // Emerald green for success/saved
+                            fontWeight = 500;
+                          } else if (lowerLog.includes("failed") || lowerLog.includes("error") || lowerLog.includes("exception") || lowerLog.includes("warning")) {
+                            textColor = "#f87171"; // Rose red for errors/warnings
+                            fontWeight = 600;
+                          }
+
+                          return (
+                            <div key={idx} style={{
+                              color: textColor,
+                              fontWeight,
+                              borderBottom: "1px solid rgba(255,255,255,0.03)",
+                              padding: "3px 0",
+                              wordBreak: "break-all"
+                            }}>
+                              {log}
+                            </div>
+                          );
+                        })
                       ) : (
-                        <span style={{ color: "hsl(var(--muted-foreground))" }}>Waiting for execution logs...</span>
+                        <span style={{ color: "#64748b", fontStyle: "italic" }}>Waiting for execution logs...</span>
                       )}
                       <div ref={logEndRef} />
                     </div>
