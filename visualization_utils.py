@@ -95,8 +95,8 @@ def draw_bounding_boxes(
             alt_name = detection.get("actual_class_name")
             if alt_name and not alt_name.lower().startswith("class_") and alt_name.lower().replace("_", "") not in ("cassavaslice", "background"):
                 class_name = alt_name
-            else:
-                class_name = "slice"
+        # Mutate dictionary so caller & frontend receive resolved class name
+        detection["class_name"] = class_name
         
         print(f"Original box coordinates: {box}")
         

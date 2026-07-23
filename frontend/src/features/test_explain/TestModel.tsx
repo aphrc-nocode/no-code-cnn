@@ -383,6 +383,10 @@ export default function TestModel() {
                         const isHovered = hoveredIndex === idx;
                         const isSelected = selectedBoxIndex === idx;
 
+                        const displayName = (det.class_name && !det.class_name.toLowerCase().startsWith("class_"))
+                          ? det.class_name
+                          : (det.actual_class_name || det.class_name || `Class ${det.label || idx + 1}`);
+
                         return (
                           <div
                             key={idx}
@@ -392,11 +396,12 @@ export default function TestModel() {
                               top: y1,
                               width: width,
                               height: height,
-                              border: isSelected ? "3px solid #10B981" : isHovered ? "2.5px solid hsl(var(--primary))" : "1.5px dashed rgba(0, 98, 230, 0.6)",
-                              boxShadow: isSelected ? "0 0 10px rgba(16, 185, 129, 0.6)" : isHovered ? "0 0 8px rgba(0, 98, 230, 0.4)" : "none",
+                              border: isSelected ? "3.5px solid #10B981" : isHovered ? "3.5px solid #2563EB" : "3px solid #3B82F6",
+                              backgroundColor: isSelected ? "rgba(16, 185, 129, 0.12)" : isHovered ? "rgba(37, 99, 235, 0.18)" : "rgba(59, 130, 246, 0.08)",
+                              boxShadow: isSelected ? "0 0 12px rgba(16, 185, 129, 0.6)" : isHovered ? "0 0 10px rgba(37, 99, 235, 0.5)" : "0 0 4px rgba(0, 0, 0, 0.2)",
                               pointerEvents: "auto",
                               cursor: "pointer",
-                              borderRadius: 2
+                              borderRadius: 3
                             }}
                             onMouseEnter={() => setHoveredIndex(idx)}
                             onMouseLeave={() => setHoveredIndex(null)}
@@ -406,20 +411,21 @@ export default function TestModel() {
                           >
                             <div style={{
                               position: "absolute",
-                              top: -18,
-                              left: -1.5,
-                              background: isSelected ? "#10B981" : "#0062E6",
+                              top: -20,
+                              left: -3,
+                              background: isSelected ? "#10B981" : "#2563EB",
                               color: "#fff",
-                              fontSize: 9,
+                              fontSize: 10,
                               fontWeight: 700,
-                              padding: "1px 5px",
-                              borderRadius: "3px 3px 0 0",
+                              padding: "2px 6px",
+                              borderRadius: "4px 4px 0 0",
                               whiteSpace: "nowrap",
                               display: "flex",
                               alignItems: "center",
-                              gap: 4
+                              gap: 4,
+                              boxShadow: "0 2px 4px rgba(0,0,0,0.2)"
                             }}>
-                              {det.class_name} ({Math.round(det.confidence > 1 ? det.confidence : det.confidence * 100)}%)
+                              {displayName} ({Math.round(det.confidence > 1 ? det.confidence : det.confidence * 100)}%)
                             </div>
                           </div>
                         );
@@ -460,7 +466,7 @@ export default function TestModel() {
             {predictionResults && (
               <div style={{ gridColumn: explanationImg ? "span 2" : "1", background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 4, padding: 20 }}>
                 <h4 style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "hsl(var(--muted-foreground))", margin: "0 0 12px" }}>
-                  Telemetry Predictions Report
+                  Prediction Performance Summary
                 </h4>
                 
                 {/* Image Classification Results */}

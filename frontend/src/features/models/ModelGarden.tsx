@@ -564,7 +564,7 @@ export default function ModelGarden() {
                       transition: "all 0.15s"
                     }}
                   >
-                    Telemetry & Logs
+                    Training Progress & Logs
                   </button>
                   <button
                     onClick={() => setRightTab("evaluation")}
@@ -593,15 +593,15 @@ export default function ModelGarden() {
                   {/* Telemetry Curves Plot */}
                   <div>
                     <h4 style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "hsl(var(--muted-foreground))", margin: "0 0 10px" }}>
-                      Training Telemetry History
+                      Learning Progress Charts
                     </h4>
                     {curvesPlot ? (
                       <div style={{ border: "1px solid hsl(var(--border))", borderRadius: 4, overflow: "hidden", background: "#fff", display: "flex", justifyContent: "center" }}>
-                        <img src={curvesPlot} alt="Telemetry Curves" style={{ maxWidth: "100%", maxHeight: 220, objectFit: "contain" }} />
+                        <img src={curvesPlot} alt="Training Progress Curves" style={{ maxWidth: "100%", maxHeight: 220, objectFit: "contain" }} />
                       </div>
                     ) : (
                       <div style={{ height: 120, border: "1px dashed hsl(var(--border))", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", color: "hsl(var(--muted-foreground))", fontSize: 11 }}>
-                        {activeJob?.status === "failed" ? "Job failed. No metrics generated." : "Telemetry graph will appear as epochs execute."}
+                        {activeJob?.status === "failed" ? "Job failed. No metrics generated." : "Learning progress charts will appear as epochs execute."}
                       </div>
                     )}
                   </div>
