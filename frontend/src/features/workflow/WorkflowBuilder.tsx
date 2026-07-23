@@ -945,8 +945,6 @@ export default function WorkflowBuilder() {
               >
                 <option value="none">None (Standard Predict)</option>
                 <option value="gradcam">Grad-CAM (CNN saliency map)</option>
-                <option value="lime">LIME (Locally interpretable explanations)</option>
-                <option value="shap">SHAP (Feature contribution)</option>
               </select>
             </div>
             <div>

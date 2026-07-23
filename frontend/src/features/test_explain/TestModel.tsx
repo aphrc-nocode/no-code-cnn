@@ -277,8 +277,6 @@ export default function TestModel() {
               >
                 <option value="none">Disabled</option>
                 <option value="gradcam">Grad-CAM (Attention Map)</option>
-                <option value="lime">LIME (Pixel Regions)</option>
-                <option value="shap">SHAP (Feature Importance)</option>
               </select>
               <p style={{ fontSize: 9, color: "hsl(var(--muted-foreground))", marginTop: 4, lineHeight: 1.4 }}>
                 Grad-CAM overlays heatmaps displaying pixels the model computed to make prediction features.

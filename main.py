@@ -60,8 +60,6 @@ from data_loaders import create_dataloaders
 # Import Responsible AI Toolkit
 from responsible_ai import (
     ClassBalanceAnalyzer,
-    LimeExplainer,
-    ShapExplainer,
     GradCAMExplainer,
     FairnessAnalyzer,
     ModelCardGenerator,
@@ -297,208 +295,47 @@ class JobManager:
             print(f"Warning: Failed to save job metadata for {job.id}: {e}")
 
     def _recover_jobs(self):
-        """Recursively scan logs/models for saved checkpoints and recover job details, falling back to MinIO"""
-        models_dirs = []
-        legacy_dir = Path(os.getenv("MODELS_DIR", "logs/models"))
-        if legacy_dir.exists():
-            models_dirs.append(legacy_dir)
-        projects_dir = Path("logs/projects")
-        if projects_dir.exists():
-            models_dirs.append(projects_dir)
-            
-        for models_base_dir in models_dirs:
-            # Helper to infer task type from architecture string/enum
-            def get_task_type_for_architecture(arch: str) -> TaskType:
-                classification_archs = {"resnet18", "resnet50", "vgg16", "efficientnet", "mobilenet"}
-                detection_archs = {"faster_rcnn", "ssd", "retinanet", "yolo", "detr_resnet50", "detr_resnet101", "yolos_small", "yolos_base", "owlv2_base"}
-                segmentation_archs = {"fcn", "deeplabv3", "mask_rcnn", "unet"}
-                
-                arch_str = str(arch).lower()
-                if arch_str in classification_archs:
-                    return TaskType.IMAGE_CLASSIFICATION
-                elif arch_str in detection_archs:
-                    return TaskType.OBJECT_DETECTION
-                elif arch_str in segmentation_archs:
-                    return TaskType.IMAGE_SEGMENTATION
-                else:
-                    return TaskType.IMAGE_CLASSIFICATION
-
-            # Scan for all pth files under models_base_dir
-            for pth_file in models_base_dir.rglob("*.pth"):
-                if not pth_file.is_file():
-                    continue
-                
-                # Determine job ID
-                if pth_file.parent != models_base_dir:
-                    job_id = pth_file.parent.name
-                else:
-                    job_id = pth_file.stem
-                
-                if job_id in self.jobs:
-                    continue
-                
-                try:
-                    # Load the checkpoint dictionary (keys only/weights only = False for config data)
-                    checkpoint = torch.load(pth_file, map_location="cpu", weights_only=False)
-                    if not isinstance(checkpoint, dict):
-                        continue
-                    
-                    checkpoint_config = checkpoint.get("config")
-                    if not checkpoint_config:
-                        continue
-                    
-                    # Check config format
-                    if isinstance(checkpoint_config, dict):
-                        arch_str = checkpoint_config.get("architecture")
-                        if not arch_str:
-                            continue
-                        
-                        try:
-                            architecture = ModelArchitecture(arch_str)
-                        except ValueError:
-                            print(f"Skipping checkpoint {pth_file} due to unknown architecture: {arch_str}")
-                            continue
-                        
-                        task_type_str = checkpoint_config.get("task_type")
-                        if task_type_str:
-                            try:
-                                task_type = TaskType(task_type_str)
-                            except ValueError:
-                                task_type = get_task_type_for_architecture(arch_str)
-                        else:
-                            task_type = get_task_type_for_architecture(arch_str)
-                        
-                        name = checkpoint_config.get("name", f"Recovered {architecture.value}")
-                        
-                        # Construct configuration dict with required fields
-                        config_dict = {
-                            "name": name,
-                            "task_type": task_type,
-                            "architecture": architecture,
-                        }
-                        
-                        # Extract remaining fields supported by PipelineConfig
-                        fields = getattr(PipelineConfig, "model_fields", getattr(PipelineConfig, "__fields__", {}))
-                        for k, v in checkpoint_config.items():
-                            if k not in config_dict and k in fields:
-                                config_dict[k] = v
-                                
-                        pipeline_config = PipelineConfig(**config_dict)
-                    else:
-                        # If config is not a dictionary but could be an object (or class)
-                        arch = getattr(checkpoint_config, "architecture", None)
-                        if not arch:
-                            continue
-                        
-                        try:
-                            architecture = ModelArchitecture(arch)
-                        except ValueError:
-                            continue
-                            
-                        task_type = getattr(checkpoint_config, "task_type", None)
-                        if task_type:
-                            try:
-                                task_type = TaskType(task_type)
-                            except ValueError:
-                                task_type = get_task_type_for_architecture(str(architecture))
-                        else:
-                            task_type = get_task_type_for_architecture(str(architecture))
-                            
-                        name = getattr(checkpoint_config, "name", f"Recovered {architecture.value}")
-                        
-                        config_dict = {
-                            "name": name,
-                            "task_type": task_type,
-                            "architecture": architecture,
-                        }
-                        
-                        # Copy other fields
-                        fields = getattr(PipelineConfig, "model_fields", getattr(PipelineConfig, "__fields__", {}))
-                        for field_name in fields:
-                            if field_name not in config_dict and hasattr(checkpoint_config, field_name):
-                                config_dict[field_name] = getattr(checkpoint_config, field_name)
-                                
-                        pipeline_config = PipelineConfig(**config_dict)
-                    
-                    # Check for metrics
-                    metrics = {}
-                    if "metrics" in checkpoint:
-                        metrics = checkpoint["metrics"]
-                        
-                    # Recover training history if stored in checkpoint
-                    history = checkpoint.get("history", [])
-                    
-                    # Retrieve the file modification time as recovery timestamp
-                    mtime = datetime.fromtimestamp(pth_file.stat().st_mtime)
-                    
-                    job = TrainingJob(
-                        id=job_id,
-                        pipeline_config=pipeline_config,
-                        status=TrainingStatus.COMPLETED,
-                        created_at=mtime,
-                        started_at=mtime,
-                        completed_at=mtime,
-                        metrics=metrics,
-                        model_path=str(pth_file),
-                        logs=[f"Model recovered successfully from local checkpoint: {pth_file.name}"],
-                        history=history
-                    )
-                    
-                    self.jobs[job_id] = job
-                    
-                    # Recover linked_dataset_id from persistent file
-                    link_file = pth_file.parent / "linked_dataset.json"
-                    if link_file.exists():
-                        try:
-                            with open(link_file, 'r') as f:
-                                link_data = json.load(f)
-                            job.linked_dataset_id = link_data.get("dataset_id")
-                            print(f"  Recovered linked_dataset_id={job.linked_dataset_id}")
-                        except Exception as e:
-                            print(f"  Warning: Failed to recover dataset link: {e}")
-                    
-                    print(f"Recovered job {job_id} ({architecture.value}) from {pth_file}")
-                    self.save_job_metadata(job)
-                    
-                except Exception as e:
-                    print(f"Warning: Failed to recover job {job_id} from {pth_file}: {e}")
-
-        # Recover additional jobs from MinIO metadata
+        """Recover all training job metadata dynamically and exclusively from MinIO S3 object storage."""
         try:
             client = minio_utils.get_minio_client()
-            if client.bucket_exists(MODELS_BUCKET):
-                objects = client.list_objects(MODELS_BUCKET, recursive=True)
-                for obj in objects:
-                    if obj.object_name.endswith("job_metadata.json"):
-                        parts = obj.object_name.split("/")
-                        if len(parts) >= 2:
-                            job_id = parts[0]
-                            if job_id in self.jobs:
-                                continue
-                            
-                            # Download metadata file
-                            local_job_dir = models_base_dir / job_id
-                            local_job_dir.mkdir(parents=True, exist_ok=True)
-                            local_meta_path = local_job_dir / "job_metadata.json"
-                            
-                            if minio_utils.download_file(MODELS_BUCKET, obj.object_name, str(local_meta_path)):
-                                try:
-                                    with open(local_meta_path, "r") as f:
-                                        job_data = json.load(f)
-                                    
-                                    # Reconstruct datetimes
-                                    if job_data.get("created_at"):
-                                        job_data["created_at"] = datetime.fromisoformat(job_data["created_at"])
-                                    if job_data.get("started_at"):
-                                        job_data["started_at"] = datetime.fromisoformat(job_data["started_at"])
-                                    if job_data.get("completed_at"):
-                                        job_data["completed_at"] = datetime.fromisoformat(job_data["completed_at"])
-                                        
-                                    job = TrainingJob(**job_data)
-                                    self.jobs[job_id] = job
-                                    print(f"Recovered job {job_id} from MinIO metadata")
-                                except Exception as parse_err:
-                                    print(f"Error parsing recovered job {job_id} from MinIO: {parse_err}")
+            if not client.bucket_exists(MODELS_BUCKET):
+                print(f"MinIO bucket '{MODELS_BUCKET}' does not exist yet. No jobs recovered.")
+                return
+
+            objects = client.list_objects(MODELS_BUCKET, recursive=True)
+            recovered_count = 0
+            for obj in objects:
+                if obj.object_name.endswith("job_metadata.json"):
+                    parts = obj.object_name.split("/")
+                    job_id = parts[0] if len(parts) >= 2 else obj.object_name.replace("/job_metadata.json", "")
+                    
+                    if job_id in self.jobs:
+                        continue
+                    
+                    # Fetch object metadata directly into memory from MinIO
+                    try:
+                        response = client.get_object(MODELS_BUCKET, obj.object_name)
+                        try:
+                            job_data = json.loads(response.read().decode('utf-8'))
+                        finally:
+                            response.close()
+                            response.release_conn()
+
+                        # Reconstruct datetimes from ISO strings
+                        if job_data.get("created_at") and isinstance(job_data["created_at"], str):
+                            job_data["created_at"] = datetime.fromisoformat(job_data["created_at"])
+                        if job_data.get("started_at") and isinstance(job_data["started_at"], str):
+                            job_data["started_at"] = datetime.fromisoformat(job_data["started_at"])
+                        if job_data.get("completed_at") and isinstance(job_data["completed_at"], str):
+                            job_data["completed_at"] = datetime.fromisoformat(job_data["completed_at"])
+
+                        job = TrainingJob(**job_data)
+                        self.jobs[job.id] = job
+                        recovered_count += 1
+                    except Exception as parse_err:
+                        print(f"Error parsing job metadata for object '{obj.object_name}' from MinIO: {parse_err}")
+            
+            print(f"Pure MinIO Recovery: Successfully recovered {recovered_count} jobs dynamically from MinIO bucket '{MODELS_BUCKET}'. Total active jobs: {len(self.jobs)}.")
         except Exception as e:
             print(f"Warning: Failed to recover jobs from MinIO: {e}")
     
@@ -2635,42 +2472,6 @@ async def predict(
                             explanation_image_b64 = base64.b64encode(buf.read()).decode()
                             plt.close(fig)
                             print("Grad-CAM generation successful")
-                            
-                        elif explain_method == "lime":
-                            from responsible_ai.explainability import LimeExplainer
-                            explainer = LimeExplainer(model, device=device)
-                            img_size = job.pipeline_config.image_size
-                            image_resized = target_image.resize(img_size)
-                            img_np = np.array(image_resized)
-                            
-                            exp_result = explainer.explain_image(img_np, num_samples=500)
-                            fig = exp_result["figure"]
-                            
-                            buf = io.BytesIO()
-                            fig.savefig(buf, format="png", bbox_inches="tight")
-                            buf.seek(0)
-                            explanation_image_b64 = base64.b64encode(buf.read()).decode()
-                            plt.close(fig)
-                            print("LIME generation successful")
-                            
-                        elif explain_method == "shap":
-                            from responsible_ai.explainability import ShapExplainer
-                            explainer = ShapExplainer(model, device=device)
-                            transform = job_manager._get_transform(job.pipeline_config)
-                            img_tensor = transform(target_image)
-                            
-                            background = torch.randn(5, img_tensor.shape[0], img_tensor.shape[1], img_tensor.shape[2])
-                            explainer.fit_background(background, num_samples=5)
-                            
-                            exp_result = explainer.explain_image(img_tensor)
-                            fig = exp_result["figure"]
-                            
-                            buf = io.BytesIO()
-                            fig.savefig(buf, format="png", bbox_inches="tight")
-                            buf.seek(0)
-                            explanation_image_b64 = base64.b64encode(buf.read()).decode()
-                            plt.close(fig)
-                            print("SHAP generation successful")
                     except Exception as class_xai_err:
                         print(f"Classification specific XAI failed: {class_xai_err}. Falling back to universal saliency map...")
                 
