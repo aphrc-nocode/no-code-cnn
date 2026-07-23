@@ -739,29 +739,54 @@ class JobManager:
             
             elif job.pipeline_config.task_type == TaskType.OBJECT_DETECTION:
                 project = project_manager.get_project(job.pipeline_config.project_id) if hasattr(job.pipeline_config, 'project_id') else None
-                project_classes = project.classes if (project and project.classes) else getattr(job.pipeline_config, 'class_names', [])
+                project_classes = list(project.classes) if (project and project.classes) else list(getattr(job.pipeline_config, 'class_names', []))
+
+                # Check linked dataset config if project_classes is missing
+                if not project_classes and job.linked_dataset_id:
+                    ds_config_path = Path("datasets") / job.linked_dataset_id / "dataset_config.json"
+                    if ds_config_path.exists():
+                        try:
+                            with open(ds_config_path, "r") as f:
+                                ds_conf = json.load(f)
+                            project_classes = ds_conf.get("classes", [])
+                        except Exception:
+                            pass
+                            
+                # Check class_map from loaded checkpoint if project_classes is missing
+                if not project_classes and class_map:
+                    project_classes = list(class_map.values())
 
                 if "predictions" in result:
                     detections = result.get("predictions", [])
                     formatted_detections = []
                     for detection in detections:
                         raw_label = detection.get("label", 0)
+                        raw_name = detection.get("class_name", "")
                         mapped_idx = max(0, raw_label - 1) if raw_label > 0 else 0
                         
-                        if project_classes and len(project_classes) == 1:
-                            actual_name = project_classes[0]
-                        elif project_classes and mapped_idx < len(project_classes):
-                            actual_name = project_classes[mapped_idx]
-                        elif project_classes and raw_label < len(project_classes):
-                            actual_name = project_classes[raw_label]
-                        else:
-                            actual_name = detection.get("class_name", f"class_{raw_label}")
-
-                        if actual_name.lower().replace("_", "") in ("cassavaslice", "background", "dataset") and project_classes:
-                            for p_cls in project_classes:
-                                if p_cls.lower().replace("_", "") not in ("cassavaslice", "background", "dataset"):
-                                    actual_name = p_cls
-                                    break
+                        actual_name = ""
+                        if raw_name and not raw_name.lower().startswith("class_") and raw_name.lower() not in ("background", "bg", "dataset"):
+                            actual_name = raw_name
+                        elif project_classes:
+                            # Filter out generic terms from project_classes
+                            valid_p_classes = [c for c in project_classes if not c.lower().startswith("class_") and c.lower() not in ("background", "bg", "dataset")]
+                            if valid_p_classes:
+                                if len(valid_p_classes) == 1:
+                                    actual_name = valid_p_classes[0]
+                                elif mapped_idx < len(valid_p_classes):
+                                    actual_name = valid_p_classes[mapped_idx]
+                                elif raw_label < len(valid_p_classes):
+                                    actual_name = valid_p_classes[raw_label]
+                                else:
+                                    actual_name = valid_p_classes[0]
+                                    
+                        if not actual_name:
+                            if raw_name and raw_name.lower().startswith("class_"):
+                                parts = raw_name.split("_")
+                                num_str = parts[-1] if len(parts) > 1 else str(raw_label)
+                                actual_name = f"Object {num_str}"
+                            else:
+                                actual_name = raw_name or f"Object {raw_label or 1}"
 
                         formatted_detections.append({
                             "box": detection["box"],

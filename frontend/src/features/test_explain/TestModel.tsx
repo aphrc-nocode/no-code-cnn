@@ -383,9 +383,17 @@ export default function TestModel() {
                         const isHovered = hoveredIndex === idx;
                         const isSelected = selectedBoxIndex === idx;
 
-                        const displayName = (det.class_name && !det.class_name.toLowerCase().startsWith("class_"))
-                          ? det.class_name
-                          : (det.actual_class_name || det.class_name || `Class ${det.label || idx + 1}`);
+                        let displayName = det.class_name || "";
+                        if (!displayName || displayName.toLowerCase().startsWith("class_")) {
+                          if (det.actual_class_name && !det.actual_class_name.toLowerCase().startsWith("class_")) {
+                            displayName = det.actual_class_name;
+                          } else if (displayName.toLowerCase().startsWith("class_")) {
+                            const num = displayName.split("_")[1] || (idx + 1);
+                            displayName = `Object ${num}`;
+                          } else {
+                            displayName = `Object ${det.label || idx + 1}`;
+                          }
+                        }
 
                         return (
                           <div
