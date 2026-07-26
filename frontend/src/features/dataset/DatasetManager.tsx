@@ -61,20 +61,31 @@ export default function DatasetManager() {
   const [labelMapping, setLabelMapping] = useState<Record<string, string>>({});
   const [importing, setImporting] = useState<boolean>(false);
 
+  const [annotatedCount, setAnnotatedCount] = useState<number>(0);
+  const [unannotatedCount, setUnannotatedCount] = useState<number>(0);
+
   const fetchDatasetItems = async () => {
     if (!projectId) return;
     setLoading(true);
     try {
-      const res = await api.get(`/projects/${projectId}/dataset/items`, {
-        params: {
-          status_filter: statusFilter,
-          class_filter: classFilter,
-          search: searchQuery || undefined
-        }
-      });
-      setItems(res.data.items || []);
+      const params: Record<string, string> = {
+        status_filter: statusFilter,
+        class_filter: classFilter,
+      };
+      if (searchQuery && searchQuery.trim() !== "") {
+        params.search = searchQuery.trim();
+      }
+      const res = await api.get(`/projects/${projectId}/dataset/items`, { params });
+      const fetchedItems = res.data.items || [];
+      setItems(fetchedItems);
       setClasses(res.data.classes || []);
-      setTotalCount(res.data.total_count || 0);
+      setTotalCount(res.data.total_count ?? fetchedItems.length);
+      
+      const annCount = res.data.annotated_count ?? fetchedItems.filter((i: any) => i.status === "annotated" || (i.annotations && i.annotations.length > 0)).length;
+      const unannCount = res.data.unannotated_count ?? (res.data.total_count ? Math.max(0, res.data.total_count - annCount) : fetchedItems.filter((i: any) => i.status !== "annotated").length);
+      
+      setAnnotatedCount(annCount);
+      setUnannotatedCount(unannCount);
     } catch (err) {
       console.error("Failed to fetch unified dataset items", err);
     } finally {
@@ -217,7 +228,7 @@ export default function DatasetManager() {
             }}
           >
             <FileImage size={15} />
-            <span>Unified Media Workspace</span>
+            <span>Master Dataset Pool</span>
             <span className="bg-primary/20 text-primary px-2 py-0.5 rounded-full text-[10px] font-bold">
               {totalCount}
             </span>
@@ -241,7 +252,7 @@ export default function DatasetManager() {
             }}
           >
             <Layers size={15} />
-            <span>Dataset Versions & Snapshots</span>
+            <span>Dataset Versions</span>
           </button>
         </div>
 
@@ -257,7 +268,7 @@ export default function DatasetManager() {
             onClick={() => setShowVersionModal(true)}
             className="bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5"
           >
-            <Plus size={14} /> Snapshot
+            <Plus size={14} /> Create Version
           </button>
           <button
             onClick={() => handleExportDataset()}

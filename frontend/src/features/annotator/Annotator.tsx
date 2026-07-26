@@ -328,17 +328,17 @@ export default function Annotate() {
   }
 
   useEffect(() => {
-    setLoading(true)
+    if (!images.length) {
+      setLoading(true)
+    }
     Promise.all([
       api.get(`/projects/${projectId}`),
       api.get(`/projects/${projectId}/images`),
       api.get(`/pipelines?project_id=${projectId}`),
     ]).then(([pRes, iRes, rRes]) => {
       setProject(pRes.data)
-      const imgs: ImageItem[] = iRes.data
+      const imgs: ImageItem[] = iRes.data || []
       setImages(imgs)
-      const idx = imgs.findIndex(i => String(i.id) === String(imageId) || i.filename === String(imageId))
-      setCurrentIdx(idx >= 0 ? idx : 0)
       const doneRuns = (rRes.data as {id:string;pipeline_config?:any;status:string}[])
         .filter(r => r.status === 'completed' || r.status === 'success')
         .map(r => ({
@@ -354,7 +354,13 @@ export default function Annotate() {
       console.error("Error loading project/images", err)
       setLoading(false)
     })
-  }, [projectId, imageId])
+  }, [projectId])
+
+  useEffect(() => {
+    if (!images.length) return
+    const idx = images.findIndex(i => String(i.id) === String(imageId) || i.filename === String(imageId))
+    setCurrentIdx(idx >= 0 ? idx : 0)
+  }, [imageId, images])
 
   const currentImage = images[currentIdx]
 

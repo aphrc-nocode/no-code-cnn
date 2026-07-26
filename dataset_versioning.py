@@ -829,9 +829,25 @@ class UnifiedDatasetManager:
         master = self.load_master_dataset(project_id)
         items_list = []
 
+        if search and search.lower() in ("undefined", "null", "none"):
+            search = None
+
+        annotated_count = 0
+        unannotated_count = 0
+
         for item_id, item in master["items"].items():
+            has_anns = item.get("status") == "annotated" or len(item.get("annotations", [])) > 0
+            if has_anns:
+                annotated_count += 1
+            else:
+                unannotated_count += 1
+
             if status_filter and status_filter.lower() != "all":
-                if item.get("status", "").lower() != status_filter.lower():
+                target_status = status_filter.lower()
+                is_annotated = item.get("status") == "annotated" or len(item.get("annotations", [])) > 0
+                if target_status == "annotated" and not is_annotated:
+                    continue
+                if target_status == "unannotated" and is_annotated:
                     continue
 
             if class_filter and class_filter.lower() != "all":
@@ -841,7 +857,10 @@ class UnifiedDatasetManager:
                     continue
 
             if search:
-                if search.lower() not in item_id.lower():
+                query = search.lower()
+                fn = item.get("filename", "").lower()
+                orig = item.get("original_name", "").lower()
+                if query not in item_id.lower() and query not in fn and query not in orig:
                     continue
 
             items_list.append(item)
@@ -851,6 +870,8 @@ class UnifiedDatasetManager:
         return {
             "project_id": project_id,
             "total_count": len(master["items"]),
+            "annotated_count": annotated_count,
+            "unannotated_count": unannotated_count,
             "filtered_count": len(items_list),
             "classes": master["classes"],
             "items": items_list
