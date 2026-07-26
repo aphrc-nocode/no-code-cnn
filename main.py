@@ -2161,6 +2161,174 @@ async def delete_dataset(job_id: str, current_user: User = Depends(get_current_a
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete dataset: {str(e)}")
 
+# ==================== Geti-Style Unified Dataset Endpoints ====================
+
+@app.post("/api/v1/projects/{project_id}/dataset/import-preview", tags=["Unified Datasets"])
+async def preview_dataset_import(
+    project_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_approved_user)
+):
+    """Analyze a dataset ZIP archive for label preview & format detection before ingestion."""
+    try:
+        from dataset_versioning import UnifiedDatasetManager
+        ud_mgr = UnifiedDatasetManager("datasets")
+        
+        temp_dir = Path("temp")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_path = temp_dir / f"preview_{int(time.time())}_{file.filename}"
+        
+        with open(temp_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+            
+        result = ud_mgr.preview_zip_import(temp_path)
+        if temp_path.exists():
+            temp_path.unlink()
+            
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Dataset preview failed: {str(e)}")
+
+
+@app.post("/api/v1/projects/{project_id}/dataset/import", tags=["Unified Datasets"])
+async def import_dataset_zip(
+    project_id: str,
+    file: UploadFile = File(...),
+    label_mapping: str = Form("{}"),
+    task_type: str = Form("object_detection"),
+    current_user: User = Depends(get_current_approved_user)
+):
+    """Ingest a ZIP archive into the project's unified dataset pool with label remapping."""
+    try:
+        from dataset_versioning import UnifiedDatasetManager
+        ud_mgr = UnifiedDatasetManager("datasets")
+        
+        temp_dir = Path("temp")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_path = temp_dir / f"import_{int(time.time())}_{file.filename}"
+        
+        with open(temp_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+            
+        try:
+            mapping_dict = json.loads(label_mapping)
+        except Exception:
+            mapping_dict = {}
+            
+        result = ud_mgr.ingest_zip_import(
+            project_id=project_id,
+            zip_path=temp_path,
+            label_mapping=mapping_dict,
+            task_type=task_type
+        )
+        
+        if temp_path.exists():
+            temp_path.unlink()
+            
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Dataset import failed: {str(e)}")
+
+
+@app.get("/api/v1/projects/{project_id}/dataset/items", tags=["Unified Datasets"])
+async def get_unified_dataset_items(
+    project_id: str,
+    status_filter: Optional[str] = "all",
+    class_filter: Optional[str] = "all",
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_approved_user)
+):
+    """List all items in the project's unified dataset pool."""
+    try:
+        from dataset_versioning import UnifiedDatasetManager
+        ud_mgr = UnifiedDatasetManager("datasets")
+        return ud_mgr.get_project_items(project_id, status_filter, class_filter, search)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch dataset items: {str(e)}")
+
+
+@app.post("/api/v1/projects/{project_id}/dataset/save-annotations", tags=["Unified Datasets"])
+async def save_unified_item_annotations(
+    project_id: str,
+    payload: Dict[str, Any],
+    current_user: User = Depends(get_current_approved_user)
+):
+    """Save updated annotations for an item in the unified project dataset."""
+    try:
+        from dataset_versioning import UnifiedDatasetManager
+        ud_mgr = UnifiedDatasetManager("datasets")
+        item_id = payload.get("item_id")
+        annotations = payload.get("annotations", [])
+        if not item_id:
+            raise HTTPException(status_code=400, detail="Missing item_id in payload")
+            
+        success = ud_mgr.save_item_annotations(project_id, item_id, annotations)
+        if not success:
+            raise HTTPException(status_code=404, detail="Item not found in project dataset")
+            
+        return {"message": "Annotations saved successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save annotations: {str(e)}")
+
+
+@app.post("/api/v1/projects/{project_id}/dataset/versions", tags=["Unified Datasets"])
+async def create_dataset_version(
+    project_id: str,
+    payload: Dict[str, Any],
+    current_user: User = Depends(get_current_approved_user)
+):
+    """Create an immutable snapshot version of the project's dataset (e.g. v1.0)."""
+    try:
+        from dataset_versioning import UnifiedDatasetManager
+        ud_mgr = UnifiedDatasetManager("datasets")
+        version_name = payload.get("version_name", "v1.0")
+        train_ratio = float(payload.get("train_ratio", 0.8))
+        val_ratio = float(payload.get("val_ratio", 0.2))
+        
+        snapshot = ud_mgr.create_version_snapshot(project_id, version_name, train_ratio, val_ratio)
+        return snapshot
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create version snapshot: {str(e)}")
+
+
+@app.get("/api/v1/projects/{project_id}/dataset/versions", tags=["Unified Datasets"])
+async def list_project_dataset_versions(
+    project_id: str,
+    current_user: User = Depends(get_current_approved_user)
+):
+    """List all version snapshots for a project's dataset."""
+    try:
+        from dataset_versioning import UnifiedDatasetManager
+        ud_mgr = UnifiedDatasetManager("datasets")
+        return ud_mgr.list_version_snapshots(project_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list version snapshots: {str(e)}")
+
+
+@app.get("/api/v1/projects/{project_id}/dataset/export", tags=["Unified Datasets"])
+async def export_project_dataset(
+    project_id: str,
+    version_id: Optional[str] = None,
+    export_format: str = "coco",
+    current_user: User = Depends(get_current_approved_user)
+):
+    """Export unified dataset or specific snapshot as a downloadable ZIP package."""
+    try:
+        from dataset_versioning import UnifiedDatasetManager
+        ud_mgr = UnifiedDatasetManager("datasets")
+        export_zip = ud_mgr.export_dataset_zip(project_id, version_id, export_format)
+        
+        return FileResponse(
+            path=export_zip,
+            filename=export_zip.name,
+            media_type="application/zip"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+
 # ==================== Dataset Upload Endpoints ====================
 
 @app.post("/api/v1/upload-dataset/{job_id}/{class_name}", tags=["Datasets"])

@@ -1,306 +1,626 @@
 import React, { useEffect, useState } from "react";
-import { Search, UploadCloud, RefreshCw, Database, FileImage, FolderArchive } from "lucide-react";
-import { useParams } from "react-router-dom";
+import { 
+  Search, UploadCloud, RefreshCw, Database, FileImage, 
+  Layers, Download, Plus, CheckCircle, AlertCircle, Tag, Eye, Play, Sparkles
+} from "lucide-react";
+import { useParams, useNavigate } from "react-router-dom";
 import api from "../../api";
-import ImageGallery from "./ImageGallery";
 
-interface Dataset {
+interface MediaItem {
   id: string;
-  name: string;
-  task_type: string;
+  filename: string;
+  path: string;
+  status: "annotated" | "unannotated";
+  checksum?: string;
+  width?: number;
+  height?: number;
+  annotations?: any[];
+  added_at?: number;
+  source_zip?: string;
+}
+
+interface DatasetVersionSnapshot {
+  version_id: string;
+  version_name: string;
+  created_at: number;
+  sample_count: number;
   classes: string[];
-  item_count: number;
-  format?: string;
+  split_ratios: { train: number; val: number };
 }
 
 export default function DatasetManager() {
   const { id: projectId } = useParams<{ id: string }>();
-  const [subTab, setSubTab] = useState<"gallery" | "zips">("gallery");
+  const navigate = useNavigate();
 
-  // State for Zips library
-  const [datasets, setDatasets] = useState<Dataset[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [activeTab, setActiveTab] = useState<"explorer" | "versions">("explorer");
 
-  // Upload dataset form state
-  const [datasetName, setDatasetName] = useState("");
-  const [taskType, setTaskType] = useState("image_classification");
+  // Master Dataset Items State
+  const [items, setItems] = useState<MediaItem[]>([]);
+  const [classes, setClasses] = useState<string[]>([]);
+  const [totalCount, setTotalCount] = useState<number>(0);
+  const [loading, setLoading] = useState<boolean>(false);
+
+  // Filter state
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [classFilter, setClassFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+
+  // Version Snapshots State
+  const [versions, setVersions] = useState<DatasetVersionSnapshot[]>([]);
+  const [showVersionModal, setShowVersionModal] = useState<boolean>(false);
+  const [versionName, setVersionName] = useState<string>("v1.0");
+  const [trainRatio, setTrainRatio] = useState<number>(80);
+  const [creatingVersion, setCreatingVersion] = useState<boolean>(false);
+
+  // Import Modal & Label Mapping State (Geti Workflow)
+  const [showImportModal, setShowImportModal] = useState<boolean>(false);
+  const [importStep, setImportStep] = useState<1 | 2>(1);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState<boolean>(false);
+  const [zipPreview, setZipPreview] = useState<any>(null);
+  const [labelMapping, setLabelMapping] = useState<Record<string, string>>({});
+  const [importing, setImporting] = useState<boolean>(false);
 
-  const fetchDatasets = async () => {
+  const fetchDatasetItems = async () => {
+    if (!projectId) return;
     setLoading(true);
     try {
-      const res = await api.get(projectId ? `/datasets/available?project_id=${projectId}` : "/datasets/available");
-      setDatasets(res.data || []);
-    } catch {
-      setDatasets([]);
+      const res = await api.get(`/projects/${projectId}/dataset/items`, {
+        params: {
+          status_filter: statusFilter,
+          class_filter: classFilter,
+          search: searchQuery || undefined
+        }
+      });
+      setItems(res.data.items || []);
+      setClasses(res.data.classes || []);
+      setTotalCount(res.data.total_count || 0);
+    } catch (err) {
+      console.error("Failed to fetch unified dataset items", err);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    if (subTab === "zips") {
-      fetchDatasets();
-    }
-  }, [projectId, subTab]);
-
-  const handleUploadDataset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedFile || !datasetName.trim()) return;
-
-    setUploading(true);
+  const fetchVersions = async () => {
+    if (!projectId) return;
     try {
-      const datasetId = datasetName.toLowerCase().replace(/[^a-z0-9_]/g, '_') || 'dataset_' + Date.now();
-      const formData = new FormData();
-      formData.append("file", selectedFile);
-      if (projectId) {
-        formData.append("project_id", projectId);
-      }
-      if (taskType === "image_classification") {
-        formData.append("file_type", "zip");
-      }
-
-      const uploadUrl = taskType === "object_detection"
-        ? `/upload-detection-dataset/${datasetId}?task_type=${taskType}&dataset_name=${encodeURIComponent(datasetName)}`
-        : `/upload-dataset/${datasetId}?task_type=${taskType}&dataset_name=${encodeURIComponent(datasetName)}`;
-
-      await api.post(uploadUrl, formData);
-      setShowUploadModal(false);
-      setDatasetName("");
-      setSelectedFile(null);
-      fetchDatasets();
-    } catch (err: any) {
-      alert(err.response?.data?.detail || "Failed to upload dataset");
-    } finally {
-      setUploading(false);
+      const res = await api.get(`/projects/${projectId}/dataset/versions`);
+      setVersions(res.data || []);
+    } catch (err) {
+      console.error("Failed to fetch version snapshots", err);
     }
   };
 
-  const filteredDatasets = datasets.filter((d) =>
-    d.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  useEffect(() => {
+    fetchDatasetItems();
+  }, [projectId, statusFilter, classFilter, searchQuery]);
+
+  useEffect(() => {
+    if (activeTab === "versions") {
+      fetchVersions();
+    }
+  }, [projectId, activeTab]);
+
+  // Step 1: Preview ZIP Archive
+  const handleZipFileSelected = async (file: File) => {
+    setSelectedFile(file);
+    if (!projectId) return;
+    setPreviewLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await api.post(`/projects/${projectId}/dataset/import-preview`, formData);
+      setZipPreview(res.data);
+
+      // Pre-fill label mapping
+      const initMap: Record<string, string> = {};
+      (res.data.detected_classes || []).forEach((cls: string) => {
+        initMap[cls] = cls;
+      });
+      setLabelMapping(initMap);
+      setImportStep(2);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to analyze dataset ZIP");
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  // Step 2: Confirm Ingestion
+  const handleConfirmImport = async () => {
+    if (!selectedFile || !projectId) return;
+    setImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      formData.append("label_mapping", JSON.stringify(labelMapping));
+      formData.append("task_type", "object_detection");
+
+      const res = await api.post(`/projects/${projectId}/dataset/import`, formData);
+      alert(`Successfully ingested ${res.data.added_count} items (${res.data.skipped_count} skipped duplicates)!`);
+      setShowImportModal(false);
+      setImportStep(1);
+      setSelectedFile(null);
+      setZipPreview(null);
+      fetchDatasetItems();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to ingest dataset ZIP");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // Create Snapshot Version
+  const handleCreateVersion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!projectId || !versionName.trim()) return;
+    setCreatingVersion(true);
+    try {
+      await api.post(`/projects/${projectId}/dataset/versions`, {
+        version_name: versionName,
+        train_ratio: trainRatio / 100.0,
+        val_ratio: (100 - trainRatio) / 100.0
+      });
+      setShowVersionModal(false);
+      setVersionName("");
+      fetchVersions();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to create dataset snapshot");
+    } finally {
+      setCreatingVersion(false);
+    }
+  };
+
+  // Export Dataset ZIP
+  const handleExportDataset = (versionId?: string) => {
+    if (!projectId) return;
+    const exportUrl = `${api.defaults.baseURL}/projects/${projectId}/dataset/export${versionId ? `?version_id=${versionId}` : ""}`;
+    window.open(exportUrl, "_blank");
+  };
+
+  const annotatedCount = items.filter(i => i.status === "annotated").length;
+  const unannotatedCount = items.filter(i => i.status === "unannotated").length;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      {/* ── Sub Navigation Tabs inside Data page ── */}
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }} className="bg-background text-foreground">
+      {/* ── Sub Header / Navigation Tabs ── */}
       <div style={{
-        height: 40,
+        height: 48,
         background: "hsl(var(--secondary) / 0.4)",
         borderBottom: "1px solid hsl(var(--border))",
         display: "flex",
         alignItems: "center",
+        justifyContent: "space-between",
         padding: "0 24px",
-        gap: 16,
         flexShrink: 0
       }}>
-        <button
-          onClick={() => setSubTab("gallery")}
-          style={{
-            height: "100%",
-            background: "transparent",
-            border: "none",
-            borderBottom: subTab === "gallery" ? "2px solid hsl(var(--primary))" : "2px solid transparent",
-            color: subTab === "gallery" ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))",
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: 6
-          }}
-        >
-          <FileImage size={13} />
-          <span>Project Media Files</span>
-        </button>
+        <div style={{ display: "flex", gap: 20, height: "100%", alignItems: "center" }}>
+          <button
+            onClick={() => setActiveTab("explorer")}
+            style={{
+              height: "100%",
+              background: "transparent",
+              border: "none",
+              borderBottom: activeTab === "explorer" ? "2.5px solid hsl(var(--primary))" : "2.5px solid transparent",
+              color: activeTab === "explorer" ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 8
+            }}
+          >
+            <FileImage size={15} />
+            <span>Unified Media Workspace</span>
+            <span className="bg-primary/20 text-primary px-2 py-0.5 rounded-full text-[10px] font-bold">
+              {totalCount}
+            </span>
+          </button>
 
-        <button
-          onClick={() => setSubTab("zips")}
-          style={{
-            height: "100%",
-            background: "transparent",
-            border: "none",
-            borderBottom: subTab === "zips" ? "2px solid hsl(var(--primary))" : "2px solid transparent",
-            color: subTab === "zips" ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))",
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: 6
-          }}
-        >
-          <FolderArchive size={13} />
-          <span>Imported Zips Library</span>
-        </button>
+          <button
+            onClick={() => setActiveTab("versions")}
+            style={{
+              height: "100%",
+              background: "transparent",
+              border: "none",
+              borderBottom: activeTab === "versions" ? "2.5px solid hsl(var(--primary))" : "2.5px solid transparent",
+              color: activeTab === "versions" ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 8
+            }}
+          >
+            <Layers size={15} />
+            <span>Dataset Versions & Snapshots</span>
+          </button>
+        </div>
+
+        {/* Global Action Controls */}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            onClick={() => { setShowImportModal(true); setImportStep(1); }}
+            className="bg-primary hover:bg-primary/95 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow transition-all"
+          >
+            <UploadCloud size={14} /> Import & Append ZIP
+          </button>
+          <button
+            onClick={() => setShowVersionModal(true)}
+            className="bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5"
+          >
+            <Plus size={14} /> Create Snapshot
+          </button>
+          <button
+            onClick={() => handleExportDataset()}
+            className="bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5"
+            title="Export full dataset as ZIP"
+          >
+            <Download size={14} /> Export
+          </button>
+        </div>
       </div>
 
-      {/* ── View switcher ── */}
+      {/* ── Main Tab Content ── */}
       <div style={{ flex: 1, overflow: "hidden" }}>
-        {subTab === "gallery" ? (
-          <ImageGallery />
-        ) : (
-          <div className="p-6 space-y-6 bg-background text-foreground h-full overflow-y-auto">
-            {/* Title Bar */}
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-lg font-bold text-foreground">Imported Zipped Datasets</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">Upload external pre-labeled zip packages for pipeline training</p>
+        {activeTab === "explorer" ? (
+          <div className="p-6 space-y-6 h-full overflow-y-auto">
+            {/* Stats Overview */}
+            <div className="grid grid-cols-4 gap-4">
+              <div className="bg-card border border-border p-4 rounded-xl flex items-center gap-3">
+                <div className="p-3 bg-primary/10 text-primary rounded-lg"><Database size={20} /></div>
+                <div>
+                  <div className="text-[11px] text-muted-foreground font-semibold">Total Unified Items</div>
+                  <div className="text-xl font-black text-foreground">{totalCount}</div>
+                </div>
               </div>
-              <button
-                onClick={() => setShowUploadModal(true)}
-                className="bg-primary hover:bg-primary/95 text-white px-4 py-2 rounded text-xs font-semibold flex items-center gap-1.5 shadow"
-              >
-                <UploadCloud size={14} /> Upload Dataset Zip
-              </button>
+              <div className="bg-card border border-border p-4 rounded-xl flex items-center gap-3">
+                <div className="p-3 bg-green-500/10 text-green-500 rounded-lg"><CheckCircle size={20} /></div>
+                <div>
+                  <div className="text-[11px] text-muted-foreground font-semibold">Annotated Items</div>
+                  <div className="text-xl font-black text-foreground">{annotatedCount}</div>
+                </div>
+              </div>
+              <div className="bg-card border border-border p-4 rounded-xl flex items-center gap-3">
+                <div className="p-3 bg-amber-500/10 text-amber-500 rounded-lg"><AlertCircle size={20} /></div>
+                <div>
+                  <div className="text-[11px] text-muted-foreground font-semibold">Unannotated Items</div>
+                  <div className="text-xl font-black text-foreground">{unannotatedCount}</div>
+                </div>
+              </div>
+              <div className="bg-card border border-border p-4 rounded-xl flex items-center gap-3">
+                <div className="p-3 bg-purple-500/10 text-purple-500 rounded-lg"><Tag size={20} /></div>
+                <div>
+                  <div className="text-[11px] text-muted-foreground font-semibold">Project Classes</div>
+                  <div className="text-xl font-black text-foreground">{classes.length}</div>
+                </div>
+              </div>
             </div>
 
-            {/* Search & Actions */}
-            <div className="flex justify-between items-center gap-4">
-              <div className="max-w-xs w-full relative">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search zip datasets..."
-                  className="w-full bg-card border border-border pl-9 pr-3 py-1.5 rounded text-xs outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
-                />
-                <Search size={14} className="absolute left-3 top-2.5 text-muted-foreground" />
+            {/* Filter Bar */}
+            <div className="flex justify-between items-center gap-4 bg-card border border-border p-3 rounded-xl">
+              <div className="flex items-center gap-4">
+                <div className="relative w-64">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search media items..."
+                    className="w-full bg-background border border-border pl-9 pr-3 py-1.5 rounded-lg text-xs outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  <Search size={14} className="absolute left-3 top-2.5 text-muted-foreground" />
+                </div>
+
+                {/* Status Filter */}
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="text-muted-foreground font-semibold">Status:</span>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="bg-background border border-border px-2.5 py-1.5 rounded-lg text-xs outline-none"
+                  >
+                    <option value="all">All Items</option>
+                    <option value="annotated">Annotated Only</option>
+                    <option value="unannotated">Unannotated Only</option>
+                  </select>
+                </div>
+
+                {/* Class Filter */}
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="text-muted-foreground font-semibold">Class:</span>
+                  <select
+                    value={classFilter}
+                    onChange={(e) => setClassFilter(e.target.value)}
+                    className="bg-background border border-border px-2.5 py-1.5 rounded-lg text-xs outline-none"
+                  >
+                    <option value="all">All Classes</option>
+                    {classes.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
               </div>
+
               <button
-                onClick={fetchDatasets}
+                onClick={fetchDatasetItems}
                 disabled={loading}
-                className="flex items-center gap-1 bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border px-3 py-1.5 rounded text-xs font-semibold"
+                className="flex items-center gap-1 bg-secondary text-secondary-foreground px-3 py-1.5 rounded-lg text-xs font-semibold"
               >
                 <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
               </button>
             </div>
 
-            {/* Datasets Table */}
-            <div className="border border-border rounded bg-card overflow-hidden">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-muted/35 text-muted-foreground font-bold border-b border-border">
-                    <th className="p-4">Name / ID</th>
-                    <th className="p-4">Task Type</th>
-                    <th className="p-4">Classes</th>
-                    <th className="p-4 text-right">Items Count</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredDatasets.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="p-8 text-center text-muted-foreground">
-                        {loading ? "Loading datasets..." : "No zipped datasets available."}
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredDatasets.map((d) => (
-                      <tr key={d.id} className="border-b border-border last:border-0 hover:bg-muted/10 transition-colors">
-                        <td className="p-4 font-semibold text-foreground">
-                          <div>{d.name}</div>
-                          <div className="text-[10px] text-muted-foreground font-mono mt-0.5">{d.id}</div>
-                        </td>
-                        <td className="p-4">
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary capitalize">
-                            {d.task_type.replace("_", " ")}
+            {/* Media Items Grid */}
+            {items.length === 0 ? (
+              <div className="border border-dashed border-border rounded-xl p-12 text-center text-muted-foreground bg-card">
+                <Database size={32} className="mx-auto mb-2 opacity-50" />
+                <p className="text-sm font-semibold">No media items match your criteria</p>
+                <p className="text-xs mt-1">Import a dataset ZIP or add images to start building your unified dataset.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-5 gap-4">
+                {items.map((item) => {
+                  const imgUrl = `${api.defaults.baseURL}/projects/${projectId}/dataset/images/${item.filename}`;
+                  return (
+                    <div
+                      key={item.id}
+                      className="bg-card border border-border rounded-xl overflow-hidden flex flex-col group hover:border-primary/50 transition-all shadow-sm"
+                    >
+                      <div className="relative aspect-video bg-slate-950 overflow-hidden flex items-center justify-center">
+                        <img
+                          src={imgUrl}
+                          alt={item.filename}
+                          className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-200"
+                          onError={(e) => { (e.target as any).src = "https://via.placeholder.com/300x200?text=Image"; }}
+                        />
+                        {/* Status Badge */}
+                        <div className="absolute top-2 left-2">
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider ${
+                            item.status === "annotated"
+                              ? "bg-emerald-500/90 text-white shadow"
+                              : "bg-amber-500/90 text-white shadow"
+                          }`}>
+                            {item.status}
                           </span>
-                        </td>
-                        <td className="p-4 text-muted-foreground leading-relaxed truncate max-w-xs">
-                          {d.classes ? d.classes.join(", ") : "-"}
-                        </td>
-                        <td className="p-4 text-right font-mono font-bold text-foreground">
-                          {d.item_count}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                        </div>
+                      </div>
+
+                      {/* Item Details & Action */}
+                      <div className="p-3 flex-1 flex flex-col justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-bold text-foreground truncate" title={item.filename}>
+                            {item.filename}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                            {item.width && item.height ? `${item.width}x${item.height} • ` : ""}
+                            {item.annotations ? `${item.annotations.length} objects` : "0 objects"}
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => navigate(`/projects/${projectId}/annotate`)}
+                          className="w-full bg-secondary hover:bg-primary hover:text-white border border-border text-foreground py-1.5 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all"
+                        >
+                          <Eye size={12} /> Edit in Annotator
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* ── Dataset Versions Tab ── */
+          <div className="p-6 space-y-6 h-full overflow-y-auto">
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="text-base font-bold text-foreground">Dataset Versions & Snapshots</h3>
+                <p className="text-xs text-muted-foreground">Immutable dataset versions locked for training model pipelines</p>
+              </div>
+              <button
+                onClick={() => setShowVersionModal(true)}
+                className="bg-primary hover:bg-primary/95 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow"
+              >
+                <Plus size={14} /> Create Snapshot Version
+              </button>
             </div>
 
-            {/* Upload Zip Modal */}
-            {showUploadModal && (
-              <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-                <div className="bg-card border border-border rounded max-w-md w-full p-6 shadow-2xl scale-in">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-bold text-sm text-foreground flex items-center gap-1.5">
-                      <Database size={16} className="text-primary" /> Upload Zipped Dataset
-                    </h3>
-                    <button
-                      onClick={() => setShowUploadModal(false)}
-                      className="text-muted-foreground hover:text-foreground text-sm font-semibold"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <form onSubmit={handleUploadDataset} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-semibold mb-1">Dataset Name</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. Tomato Pest Detection"
-                        value={datasetName}
-                        onChange={(e) => setDatasetName(e.target.value)}
-                        className="w-full border border-border px-3 py-2 rounded text-xs bg-background text-foreground outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold mb-1">Task Type</label>
-                      <select
-                        value={taskType}
-                        onChange={(e) => setTaskType(e.target.value)}
-                        className="w-full border border-border px-3 py-2 rounded text-xs bg-background text-foreground outline-none"
-                      >
-                        <option value="image_classification">Image Classification (Folder Structured Zip)</option>
-                        <option value="object_detection">Object Detection (COCO Json + Images Zip)</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold mb-1">Select ZIP File</label>
-                      <input
-                        type="file"
-                        required
-                        accept=".zip"
-                        onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                        className="w-full border border-border px-3 py-2 rounded text-xs bg-background text-foreground"
-                      />
-                    </div>
-
-                    {uploading && (
-                      <div className="text-xs text-muted-foreground flex items-center gap-1.5 py-1">
-                        <RefreshCw className="animate-spin" size={14} /> Uploading & unpacking dataset...
+            {versions.length === 0 ? (
+              <div className="border border-dashed border-border rounded-xl p-12 text-center text-muted-foreground bg-card">
+                <Layers size={32} className="mx-auto mb-2 opacity-50" />
+                <p className="text-sm font-semibold">No version snapshots created yet</p>
+                <p className="text-xs mt-1">Create a dataset version snapshot (e.g. v1.0) to lock your annotations and train models.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                {versions.map((v) => (
+                  <div key={v.version_id} className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="text-base font-black text-foreground flex items-center gap-2">
+                          <Layers size={18} className="text-primary" /> {v.version_name}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground font-mono mt-0.5">
+                          ID: {v.version_id} • Created: {new Date(v.created_at * 1000).toLocaleString()}
+                        </div>
                       </div>
-                    )}
-
-                    <div className="flex justify-end gap-3 pt-2">
                       <button
-                        type="button"
-                        onClick={() => setShowUploadModal(false)}
-                        className="px-4 py-2 border border-border rounded text-xs font-semibold hover:bg-secondary/80 transition-colors"
+                        onClick={() => handleExportDataset(v.version_id)}
+                        className="bg-secondary hover:bg-secondary/80 border border-border text-foreground px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5"
                       >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={uploading || !selectedFile}
-                        className="px-4 py-2 bg-primary text-primary-foreground font-semibold rounded text-xs hover:bg-primary/95 transition-all shadow disabled:opacity-50"
-                      >
-                        Start Upload
+                        <Download size={12} /> Export ZIP
                       </button>
                     </div>
-                  </form>
-                </div>
+
+                    <div className="grid grid-cols-3 gap-2 bg-muted/20 p-3 rounded-lg text-xs">
+                      <div>
+                        <span className="text-[10px] text-muted-foreground block font-semibold">Samples</span>
+                        <span className="font-bold text-foreground">{v.sample_count}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-muted-foreground block font-semibold">Classes</span>
+                        <span className="font-bold text-foreground">{v.classes.length}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-muted-foreground block font-semibold">Train/Val Split</span>
+                        <span className="font-bold text-primary">
+                          {Math.round(v.split_ratios.train * 100)} / {Math.round(v.split_ratios.val * 100)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         )}
       </div>
+
+      {/* ── Import Dataset ZIP & Label Mapping Modal (Geti Import Workflow) ── */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-xl max-w-lg w-full p-6 shadow-2xl scale-in space-y-4">
+            <div className="flex justify-between items-center border-b border-border pb-3">
+              <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
+                <UploadCloud size={18} className="text-primary" /> Import Dataset ZIP (Geti Workflow)
+              </h3>
+              <button onClick={() => setShowImportModal(false)} className="text-muted-foreground hover:text-foreground text-sm font-semibold">✕</button>
+            </div>
+
+            {importStep === 1 ? (
+              <div className="space-y-4">
+                <p className="text-xs text-muted-foreground">Select a dataset ZIP archive (COCO JSON, YOLO, or image folders). The system will unpack and analyze the dataset labels before ingestion.</p>
+
+                <div className="border-2 border-dashed border-border rounded-xl p-8 text-center bg-background hover:border-primary/50 transition-colors">
+                  <input
+                    type="file"
+                    accept=".zip"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleZipFileSelected(f);
+                    }}
+                    className="hidden"
+                    id="zip-upload-input"
+                  />
+                  <label htmlFor="zip-upload-input" className="cursor-pointer flex flex-col items-center gap-2">
+                    <UploadCloud size={32} className="text-primary" />
+                    <span className="text-xs font-bold text-foreground">Click to select ZIP Archive</span>
+                    <span className="text-[10px] text-muted-foreground">Supports COCO, YOLO, and Images ZIPs</span>
+                  </label>
+                </div>
+
+                {previewLoading && (
+                  <div className="text-xs text-muted-foreground flex items-center justify-center gap-2 py-2">
+                    <RefreshCw className="animate-spin" size={14} /> Analyzing dataset format & labels...
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Step 2: Label Mapping & Ingestion Confirmation */
+              <div className="space-y-4">
+                <div className="bg-primary/10 border border-primary/20 p-3 rounded-lg text-xs space-y-1">
+                  <div className="font-bold text-primary flex items-center gap-1.5">
+                    <Sparkles size={14} /> Dataset Analysis Complete
+                  </div>
+                  <div>Format: <strong className="uppercase">{zipPreview?.format}</strong> • Images: <strong>{zipPreview?.image_count}</strong></div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold mb-2">Label Mapping & Conflict Resolution</label>
+                  <p className="text-[11px] text-muted-foreground mb-3">Map dataset labels from the ZIP to your existing project classes:</p>
+
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {(zipPreview?.detected_classes || []).map((zipCls: string) => (
+                      <div key={zipCls} className="flex items-center justify-between gap-3 text-xs bg-background p-2 rounded-lg border border-border">
+                        <span className="font-mono font-semibold text-foreground truncate max-w-[150px]">{zipCls}</span>
+                        <span>➔</span>
+                        <input
+                          type="text"
+                          value={labelMapping[zipCls] || zipCls}
+                          onChange={(e) => setLabelMapping({ ...labelMapping, [zipCls]: e.target.value })}
+                          className="bg-card border border-border px-2 py-1 rounded text-xs text-foreground outline-none w-40"
+                          placeholder="Project label"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button onClick={() => setImportStep(1)} className="px-4 py-2 border border-border rounded-lg text-xs font-bold hover:bg-secondary">
+                    Back
+                  </button>
+                  <button
+                    onClick={handleConfirmImport}
+                    disabled={importing}
+                    className="px-4 py-2 bg-primary text-white font-bold rounded-lg text-xs hover:bg-primary/95 flex items-center gap-1.5 shadow"
+                  >
+                    {importing ? <RefreshCw className="animate-spin" size={14} /> : <CheckCircle size={14} />}
+                    {importing ? "Ingesting..." : "Confirm & Ingest"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Create Version Snapshot Modal ── */}
+      {showVersionModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-xl max-w-md w-full p-6 shadow-2xl scale-in space-y-4">
+            <div className="flex justify-between items-center border-b border-border pb-3">
+              <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
+                <Layers size={18} className="text-primary" /> Create Dataset Version Snapshot
+              </h3>
+              <button onClick={() => setShowVersionModal(false)} className="text-muted-foreground hover:text-foreground text-sm font-semibold">✕</button>
+            </div>
+
+            <form onSubmit={handleCreateVersion} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold mb-1">Version Name / Release</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. v1.0, v2.0 or Initial Annotation Set"
+                  value={versionName}
+                  onChange={(e) => setVersionName(e.target.value)}
+                  className="w-full border border-border px-3 py-2 rounded-lg text-xs bg-background text-foreground outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1">Train / Validation Split ({trainRatio}% Train / {100 - trainRatio}% Val)</label>
+                <input
+                  type="range"
+                  min="50"
+                  max="95"
+                  value={trainRatio}
+                  onChange={(e) => setTrainRatio(Number(e.target.value))}
+                  className="w-full accent-primary"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setShowVersionModal(false)} className="px-4 py-2 border border-border rounded-lg text-xs font-semibold">
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingVersion || !versionName.trim()}
+                  className="px-4 py-2 bg-primary text-white font-bold rounded-lg text-xs hover:bg-primary/95 flex items-center gap-1.5 shadow"
+                >
+                  {creatingVersion ? <RefreshCw className="animate-spin" size={14} /> : <Layers size={14} />}
+                  {creatingVersion ? "Creating Snapshot..." : "Create Snapshot"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

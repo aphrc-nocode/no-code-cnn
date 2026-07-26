@@ -914,40 +914,21 @@ export default function ModelGarden() {
                 <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Dataset Source</label>
                 <select
                   value={datasetSource}
-                  onChange={(e) => {
-                    setDatasetSource(e.target.value);
-                    if (e.target.value === "zips") {
-                      setSelectedDatasetId(datasets[0]?.id || "");
-                    }
-                  }}
+                  onChange={(e) => setDatasetSource(e.target.value)}
                   style={{
                     width: "100%", height: 36, padding: "0 10px",
                     background: "hsl(var(--secondary))", border: "1px solid hsl(var(--border))",
                     borderRadius: 4, color: "hsl(var(--foreground))", fontSize: 12, outline: "none", boxSizing: "border-box"
                   }}
                 >
-                  <option value="current_annotations">Current Project Annotations (Auto-Snapshot)</option>
-                  <option value="zips">Imported Zipped Dataset</option>
+                  <option value="current_annotations">Unified Project Dataset (Master Pool)</option>
+                  <option value="zips">Imported Zipped Dataset / Version Snapshot</option>
                 </select>
-                {datasetSource === "current_annotations" && projectImages.length === 0 && (
-                  <div style={{
-                    background: "rgba(239, 68, 68, 0.08)",
-                    border: "1px solid rgba(239, 68, 68, 0.2)",
-                    borderRadius: 4,
-                    padding: "8px 10px",
-                    fontSize: 11,
-                    color: "#f87171",
-                    lineHeight: 1.4,
-                    marginTop: 6
-                  }}>
-                    ⚠️ <strong>No media files:</strong> There are no images uploaded in this project to train on. Go to the <strong>Data</strong> tab to upload and label images first, or select <strong>Imported Zipped Dataset</strong>.
-                  </div>
-                )}
               </div>
 
               {datasetSource === "zips" && (
                 <div>
-                  <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Select Zip Dataset</label>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Select Dataset Version / Package</label>
                   <select
                     value={selectedDatasetId}
                     onChange={(e) => setSelectedDatasetId(e.target.value)}
@@ -958,7 +939,7 @@ export default function ModelGarden() {
                     }}
                   >
                     {datasets.length === 0 ? (
-                      <option value="">No datasets available. Please upload a zip first.</option>
+                      <option value="">No custom datasets or snapshots available. Using master dataset.</option>
                     ) : (
                       datasets.map(d => (
                         <option key={d.id} value={d.id}>{d.name} ({d.task_type.replace("_", " ")})</option>
