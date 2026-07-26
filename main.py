@@ -3995,49 +3995,74 @@ async def delete_project(project_id: str, current_user: User = Depends(get_curre
 async def list_project_images(project_id: str, current_user: User = Depends(get_current_approved_user)):
     import os, json
     from pathlib import Path
+    from dataset_versioning import UnifiedDatasetManager
     
     project = check_project_access(project_id, current_user)
+    
+    # 1. Fetch items from Unified Master Dataset (datasets/projects/{project_id}/annotations.json)
+    ud_mgr = UnifiedDatasetManager("datasets")
+    master = ud_mgr.load_master_dataset(project_id)
+    
+    images_list = []
+    seen_ids = set()
+    seen_filenames = set()
+    
+    for item_id, item in master.get("items", {}).items():
+        seen_ids.add(str(item_id))
+        fn = item.get("filename", item_id)
+        seen_filenames.add(fn)
+        has_anns = item.get("status") == "annotated" or len(item.get("annotations", [])) > 0
+        images_list.append({
+            "id": item_id,
+            "filename": fn,
+            "annotated": has_anns
+        })
         
+    # 2. Check legacy metadata file (logs/projects/{project_id}/images_metadata.json) for backward compatibility
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
     metadata_file = project_dir / "images_metadata.json"
-    
-    if not metadata_file.exists():
-        return []
-        
-    try:
-        with open(metadata_file, "r", encoding="utf-8") as f:
-            metadata = json.load(f)
-    except Exception:
-        return []
-        
-    annotations_file = project_dir / "annotations.json"
-    annotations = {}
-    if annotations_file.exists():
+    if metadata_file.exists():
         try:
-            with open(annotations_file, "r", encoding="utf-8") as f:
-                annotations = json.load(f)
-        except:
+            with open(metadata_file, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+            annotations_file = project_dir / "annotations.json"
+            legacy_anns = {}
+            if annotations_file.exists():
+                try:
+                    with open(annotations_file, "r", encoding="utf-8") as f:
+                        legacy_anns = json.load(f)
+                except:
+                    pass
+                    
+            for img_id_str, img in metadata.items():
+                if img_id_str not in seen_ids and img.get("filename") not in seen_filenames:
+                    has_anns = len(legacy_anns.get(img_id_str, [])) > 0
+                    img["annotated"] = has_anns
+                    images_list.append(img)
+        except Exception:
             pass
             
-    images_list = []
-    for img_id_str, img in metadata.items():
-        has_anns = len(annotations.get(img_id_str, [])) > 0
-        img["annotated"] = has_anns
-        images_list.append(img)
     return images_list
 
 @app.post("/api/v1/projects/{project_id}/images", tags=["Projects"])
 async def upload_project_images(project_id: str, files: List[UploadFile] = File(...), current_user: User = Depends(get_current_approved_user)):
-    import os, uuid, json
+    import os, uuid, json, hashlib
     from pathlib import Path
     from PIL import Image as PILImage
+    from dataset_versioning import UnifiedDatasetManager
     
     project = check_project_access(project_id, current_user)
-        
-    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
-    images_dir = project_dir / "images"
-    images_dir.mkdir(parents=True, exist_ok=True)
     
+    # Target unified dataset directory
+    ud_mgr = UnifiedDatasetManager("datasets")
+    master = ud_mgr.load_master_dataset(project_id)
+    master_img_dir = ud_mgr.get_project_dir(project_id) / "images"
+    master_img_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Legacy directory
+    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+    legacy_img_dir = project_dir / "images"
+    legacy_img_dir.mkdir(parents=True, exist_ok=True)
     metadata_file = project_dir / "images_metadata.json"
     metadata = {}
     if metadata_file.exists():
@@ -4047,7 +4072,7 @@ async def upload_project_images(project_id: str, files: List[UploadFile] = File(
         except:
             pass
             
-    existing_ids = [int(k) for k in metadata.keys()]
+    existing_ids = [int(k) for k in metadata.keys() if str(k).isdigit()]
     next_id = max(existing_ids) + 1 if existing_ids else 1
     
     saved_images = []
@@ -4057,13 +4082,18 @@ async def upload_project_images(project_id: str, files: List[UploadFile] = File(
             continue
             
         unique_name = f"{uuid.uuid4().hex}{ext}"
-        dest_path = images_dir / unique_name
+        dest_path = master_img_dir / unique_name
         
+        content = await file.read()
         with open(dest_path, "wb") as f:
-            content = await file.read()
             f.write(content)
             
-        file_size = os.path.getsize(dest_path)
+        # Copy to legacy dir for safety
+        with open(legacy_img_dir / unique_name, "wb") as f:
+            f.write(content)
+            
+        file_size = len(content)
+        checksum = hashlib.sha256(content).hexdigest()
         width, height = 0, 0
         color_space = "RGB"
         is_corrupt = False
@@ -4078,11 +4108,23 @@ async def upload_project_images(project_id: str, files: List[UploadFile] = File(
         except Exception:
             is_corrupt = True
             
-        img_id = next_id
-        next_id += 1
+        img_id = unique_name
+        
+        # Add to Master Unified Dataset
+        master["items"][img_id] = {
+            "id": img_id,
+            "filename": unique_name,
+            "original_name": file.filename or unique_name,
+            "path": f"images/{unique_name}",
+            "checksum": checksum,
+            "status": "unannotated",
+            "width": width,
+            "height": height,
+            "annotations": []
+        }
         
         img_metadata = {
-            "id": img_id,
+            "id": next_id,
             "filename": unique_name,
             "original_name": file.filename or unique_name,
             "annotated": False,
@@ -4092,10 +4134,11 @@ async def upload_project_images(project_id: str, files: List[UploadFile] = File(
             "is_corrupt": is_corrupt,
             "file_size": file_size
         }
-        
-        metadata[str(img_id)] = img_metadata
+        metadata[str(next_id)] = img_metadata
+        next_id += 1
         saved_images.append(img_metadata)
         
+    ud_mgr.save_master_dataset(project_id, master)
     with open(metadata_file, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
         
@@ -4108,70 +4151,81 @@ async def get_project_image_file(project_id: str, image_id: str, current_user: U
     import json
     
     check_project_access(project_id, current_user)
+    
+    # 1. Direct path check in Unified Master Dataset
+    master_dir = Path("datasets") / "projects" / project_id / "images"
+    direct_path = master_dir / image_id
+    if direct_path.exists():
+        return FileResponse(direct_path)
+        
+    # 2. Match item_id or filename in Master Unified Dataset
+    from dataset_versioning import UnifiedDatasetManager
+    ud_mgr = UnifiedDatasetManager("datasets")
+    master = ud_mgr.load_master_dataset(project_id)
+    items = master.get("items", {})
+    if image_id in items:
+        fn = items[image_id].get("filename", image_id)
+        fpath = master_dir / fn
+        if fpath.exists():
+            return FileResponse(fpath)
+            
+    # 3. Check legacy storage
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
     metadata_file = project_dir / "images_metadata.json"
-    
-    if not metadata_file.exists():
-        raise HTTPException(status_code=404, detail="Image list not found")
-        
-    try:
-        with open(metadata_file, "r", encoding="utf-8") as f:
-            metadata = json.load(f)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to load image metadata")
-        
-    img_info = metadata.get(image_id)
-    if not img_info:
-        raise HTTPException(status_code=404, detail="Image not found in metadata")
-        
-    img_path = project_dir / "images" / img_info["filename"]
-    if not img_path.exists():
-        raise HTTPException(status_code=404, detail="Image file not found on disk")
-        
-    return FileResponse(img_path)
+    if metadata_file.exists():
+        try:
+            with open(metadata_file, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+            img_info = metadata.get(image_id)
+            if img_info:
+                legacy_path = project_dir / "images" / img_info["filename"]
+                if legacy_path.exists():
+                    return FileResponse(legacy_path)
+        except Exception:
+            pass
+
+    raise HTTPException(status_code=404, detail="Image file not found on disk")
 
 @app.delete("/api/v1/projects/{project_id}/images/{image_id}", tags=["Projects"])
 async def delete_project_image(project_id: str, image_id: str, current_user: User = Depends(get_current_approved_user)):
     import os, json
     from pathlib import Path
+    from dataset_versioning import UnifiedDatasetManager
     
     check_project_access(project_id, current_user)
     
+    # Remove from Unified Master Dataset
+    ud_mgr = UnifiedDatasetManager("datasets")
+    master = ud_mgr.load_master_dataset(project_id)
+    if image_id in master.get("items", {}):
+        item = master["items"].pop(image_id)
+        fn = item.get("filename", image_id)
+        fpath = Path("datasets") / "projects" / project_id / "images" / fn
+        if fpath.exists():
+            try:
+                os.remove(fpath)
+            except Exception:
+                pass
+        ud_mgr.save_master_dataset(project_id, master)
+
+    # Legacy deletion
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
     metadata_file = project_dir / "images_metadata.json"
-    
-    if not metadata_file.exists():
-        raise HTTPException(status_code=404, detail="Image list not found")
-        
-    try:
-        with open(metadata_file, "r", encoding="utf-8") as f:
-            metadata = json.load(f)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to load image metadata")
-        
-    img_info = metadata.get(image_id)
-    if not img_info:
-        raise HTTPException(status_code=404, detail="Image not found in metadata")
-        
-    img_path = project_dir / "images" / img_info["filename"]
-    if img_path.exists():
+    if metadata_file.exists():
         try:
-            os.remove(img_path)
-        except Exception:
-            pass
-            
-    metadata.pop(image_id, None)
-    with open(metadata_file, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2)
-        
-    annotations_file = project_dir / "annotations.json"
-    if annotations_file.exists():
-        try:
-            with open(annotations_file, "r", encoding="utf-8") as f:
-                annotations = json.load(f)
-            annotations.pop(image_id, None)
-            with open(annotations_file, "w", encoding="utf-8") as f:
-                json.dump(annotations, f, indent=2)
+            with open(metadata_file, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+            img_info = metadata.get(image_id)
+            if img_info:
+                legacy_path = project_dir / "images" / img_info["filename"]
+                if legacy_path.exists():
+                    try:
+                        os.remove(legacy_path)
+                    except Exception:
+                        pass
+                metadata.pop(image_id, None)
+                with open(metadata_file, "w", encoding="utf-8") as f:
+                    json.dump(metadata, f, indent=2)
         except Exception:
             pass
             
@@ -4181,28 +4235,84 @@ async def delete_project_image(project_id: str, image_id: str, current_user: Use
 async def get_project_image_annotations(project_id: str, image_id: str, current_user: User = Depends(get_current_approved_user)):
     import json
     from pathlib import Path
+    from dataset_versioning import UnifiedDatasetManager
     
-    check_project_access(project_id, current_user)
+    project = check_project_access(project_id, current_user)
+    
+    # 1. Try Unified Master Dataset
+    ud_mgr = UnifiedDatasetManager("datasets")
+    master = ud_mgr.load_master_dataset(project_id)
+    items = master.get("items", {})
+    classes_list = master.get("classes", project.get("classes", []))
+    
+    if image_id in items:
+        ann_list = items[image_id].get("annotations", [])
+        formatted_shapes = []
+        for ann in ann_list:
+            c_name = ann.get("class_name", "Unknown")
+            c_id = classes_list.index(c_name) if c_name in classes_list else 0
+            box = ann.get("box", [0, 0, 0, 0])
+            if len(box) == 4:
+                x1, y1, x2, y2 = box
+                w = max(0, x2 - x1)
+                h = max(0, y2 - y1)
+                formatted_shapes.append({
+                    "shape_type": "bbox",
+                    "class_id": c_id,
+                    "x_center": round(x1 + w / 2.0, 2),
+                    "y_center": round(y1 + h / 2.0, 2),
+                    "width": round(w, 2),
+                    "height": round(h, 2),
+                    "points": []
+                })
+        return formatted_shapes
+        
+    # 2. Check legacy storage
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
     annotations_file = project_dir / "annotations.json"
-    
-    if not annotations_file.exists():
-        return []
-        
-    try:
-        with open(annotations_file, "r", encoding="utf-8") as f:
-            annotations = json.load(f)
-        return annotations.get(image_id, [])
-    except Exception:
-        return []
+    if annotations_file.exists():
+        try:
+            with open(annotations_file, "r", encoding="utf-8") as f:
+                annotations = json.load(f)
+            return annotations.get(image_id, [])
+        except Exception:
+            pass
+
+    return []
 
 @app.post("/api/v1/projects/{project_id}/images/{image_id}/annotations", tags=["Projects"])
 async def save_project_image_annotations(project_id: str, image_id: str, shapes: List[AnnItemInput], current_user: User = Depends(get_current_approved_user)):
     import json
     from pathlib import Path
+    from dataset_versioning import UnifiedDatasetManager
     
-    check_project_access(project_id, current_user)
+    project = check_project_access(project_id, current_user)
     
+    # 1. Update Master Unified Dataset
+    ud_mgr = UnifiedDatasetManager("datasets")
+    master = ud_mgr.load_master_dataset(project_id)
+    items = master.get("items", {})
+    classes_list = master.get("classes", project.get("classes", []))
+    
+    if image_id in items:
+        item_anns = []
+        for shape in shapes:
+            c_id = shape.class_id
+            c_name = classes_list[c_id] if 0 <= c_id < len(classes_list) else f"Class_{c_id}"
+            
+            if shape.shape_type == "bbox":
+                x1 = shape.x_center - shape.width / 2.0
+                y1 = shape.y_center - shape.height / 2.0
+                x2 = shape.x_center + shape.width / 2.0
+                y2 = shape.y_center + shape.height / 2.0
+                item_anns.append({
+                    "class_name": c_name,
+                    "box": [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)]
+                })
+        
+        ud_mgr.save_item_annotations(project_id, image_id, item_anns)
+        
+    # 2. Also save to legacy storage for backward compatibility
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
     annotations_file = project_dir / "annotations.json"

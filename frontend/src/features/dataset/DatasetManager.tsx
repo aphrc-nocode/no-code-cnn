@@ -404,7 +404,7 @@ export default function DatasetManager() {
                         </div>
 
                         <button
-                          onClick={() => navigate(`/projects/${projectId}/annotate`)}
+                          onClick={() => navigate(`/projects/${projectId}/annotate/${item.id}`)}
                           className="w-full bg-secondary hover:bg-primary hover:text-white border border-border text-foreground py-1.5 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all"
                         >
                           <Eye size={12} /> Edit in Annotator
