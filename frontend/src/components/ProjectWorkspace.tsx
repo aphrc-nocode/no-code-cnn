@@ -7,7 +7,6 @@ import { useAuth } from "../features/auth/AuthContext";
 import UserProfileDropdown from "./UserProfileDropdown";
 
 import Annotator from "../features/annotator/Annotator";
-import ImageGallery from "../features/dataset/ImageGallery";
 import DatasetManager from "../features/dataset/DatasetManager";
 import ModelGarden from "../features/models/ModelGarden";
 import TestModel from "../features/test_explain/TestModel";
@@ -117,8 +116,8 @@ export default function ProjectWorkspace() {
   const renderActiveView = () => {
     const path = location.pathname;
     if (activeTab === "annotate") {
-      const hasImageId = /\/annotate\/\d+/.test(path);
-      return hasImageId ? <Annotator /> : <ImageGallery />;
+      const hasImageId = /\/annotate\/[^\s/]+/.test(path);
+      return hasImageId ? <Annotator /> : <DatasetManager />;
     }
     switch (activeTab) {
       case "datasets":  return <DatasetManager />;
@@ -129,7 +128,7 @@ export default function ProjectWorkspace() {
   };
 
   const taskStyle = TASK_BADGE[project?.task_type ?? ""] ?? { color: "#64748b", bg: "rgba(100,116,139,0.1)" };
-  const isAnnotating = /\/projects\/[a-zA-Z0-9-]+\/annotate\/\d+/.test(location.pathname);
+  const isAnnotating = /\/projects\/[a-zA-Z0-9-]+\/annotate\/[^\s/]+/.test(location.pathname);
 
   return (
     <>
