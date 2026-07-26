@@ -626,22 +626,63 @@ class UnifiedDatasetManager:
                         if cls_name not in master["classes"]:
                             master["classes"].append(cls_name)
 
-            # 2. Check for YOLO classes & txt files
+            # 2. Check for YOLO classes in data.yaml, classes.txt, or obj.names
             yolo_classes = []
-            classes_txt = next((n for n in namelist if n.lower().endswith("classes.txt") or n.lower().endswith("obj.names")), None)
-            if classes_txt:
+            yaml_file = next((n for n in namelist if n.lower().endswith("data.yaml")), None)
+            if yaml_file:
                 try:
-                    with z.open(classes_txt) as cf:
-                        for line in cf.read().decode("utf-8").splitlines():
-                            if line.strip():
-                                mapped = label_mapping.get(line.strip(), line.strip())
-                                yolo_classes.append(mapped)
-                except Exception:
-                    pass
+                    with z.open(yaml_file) as yf:
+                        content = yf.read().decode("utf-8")
+                        names_section = False
+                        for line in content.splitlines():
+                            line_str = line.strip()
+                            if "names:" in line_str or "names :" in line_str:
+                                idx = line_str.find("[")
+                                if idx != -1:
+                                    end_idx = line_str.find("]", idx)
+                                    names_str = line_str[idx+1:end_idx].replace("'", "").replace('"', "")
+                                    for item in names_str.split(","):
+                                        if item.strip():
+                                            c_m = label_mapping.get(item.strip(), item.strip())
+                                            yolo_classes.append(c_m)
+                                    break
+                                else:
+                                    names_section = True
+                                    continue
+                            if names_section:
+                                if line_str.startswith("-"):
+                                    c_name = line_str.lstrip("-").strip().replace("'", "").replace('"', "")
+                                    if c_name:
+                                        c_m = label_mapping.get(c_name, c_name)
+                                        yolo_classes.append(c_m)
+                                elif ":" in line_str and not line_str.startswith("#"):
+                                    parts = line_str.split(":", 1)
+                                    if parts[0].strip().isdigit():
+                                        c_name = parts[1].strip().replace("'", "").replace('"', "")
+                                        if c_name:
+                                            c_m = label_mapping.get(c_name, c_name)
+                                            yolo_classes.append(c_m)
+                                else:
+                                    if yolo_classes:
+                                        break
+                except Exception as ye:
+                    logger.warning(f"Failed to parse data.yaml during YOLO ingestion: {ye}")
+
+            if not yolo_classes:
+                classes_txt = next((n for n in namelist if n.lower().endswith("classes.txt") or n.lower().endswith("obj.names")), None)
+                if classes_txt:
+                    try:
+                        with z.open(classes_txt) as cf:
+                            for line in cf.read().decode("utf-8").splitlines():
+                                if line.strip():
+                                    mapped = label_mapping.get(line.strip(), line.strip())
+                                    yolo_classes.append(mapped)
+                    except Exception:
+                        pass
 
             yolo_label_map = {} # filename_stem -> list of normalized bounding boxes
             for member in namelist:
-                if member.lower().endswith(".txt") and not member.lower().endswith("classes.txt") and not member.lower().endswith("data.yaml"):
+                if member.lower().endswith(".txt") and not member.lower().endswith("classes.txt") and not member.lower().endswith("data.yaml") and not member.lower().endswith("readme.dataset.txt") and not member.lower().endswith("readme.roboflow.txt"):
                     stem = Path(member).stem
                     try:
                         with z.open(member) as tf:
@@ -652,10 +693,18 @@ class UnifiedDatasetManager:
                                 if len(parts) >= 5:
                                     c_id = int(parts[0])
                                     cx, cy, w, h = [float(v) for v in parts[1:5]]
-                                    c_name = yolo_classes[c_id] if c_id < len(yolo_classes) else f"class_{c_id}"
+                                    if c_id < len(yolo_classes):
+                                        c_name = yolo_classes[c_id]
+                                    elif master["classes"] and c_id < len(master["classes"]):
+                                        c_name = master["classes"][c_id]
+                                    elif label_mapping:
+                                        c_name = list(label_mapping.values())[0]
+                                    else:
+                                        c_name = "slice"
                                     mapped_c_name = label_mapping.get(c_name, c_name)
                                     boxes.append((mapped_c_name, cx, cy, w, h))
-                            yolo_label_map[stem] = boxes
+                            if boxes:
+                                yolo_label_map[stem] = boxes
                     except Exception as ye:
                         logger.warning(f"Error parsing YOLO txt file {member}: {ye}")
 
@@ -703,24 +752,34 @@ class UnifiedDatasetManager:
                         item_anns = c_info["annotations"]
                         break
 
-                # Check YOLO map
-                if not item_anns and Path(filename).stem in yolo_label_map:
-                    y_boxes = yolo_label_map[Path(filename).stem]
-                    for (c_name, cx, cy, w, h) in y_boxes:
-                        x1 = max(0, min(int((cx - w/2) * width), width - 1))
-                        y1 = max(0, min(int((cy - h/2) * height), height - 1))
-                        x2 = max(0, min(int((cx + w/2) * width), width - 1))
-                        y2 = max(0, min(int((cy + h/2) * height), height - 1))
-                        if x2 > x1 and y2 > y1:
-                            item_anns.append({
-                                "box": [x1, y1, x2, y2],
-                                "class_name": c_name,
-                                "label": c_name,
-                                "confidence": 1.0
-                            })
-                            new_annotations_count += 1
-                            if c_name not in master["classes"]:
-                                master["classes"].append(c_name)
+                # Check YOLO map (flexible stem matching)
+                if not item_anns:
+                    stem = Path(filename).stem
+                    matched_boxes = yolo_label_map.get(stem)
+                    if not matched_boxes:
+                        clean_stem = stem.replace("_jpg", "").replace("_png", "").replace("_jpeg", "")
+                        for k, v in yolo_label_map.items():
+                            clean_k = k.replace("_jpg", "").replace("_png", "").replace("_jpeg", "")
+                            if clean_k.lower() == clean_stem.lower():
+                                matched_boxes = v
+                                break
+
+                    if matched_boxes:
+                        for (c_name, cx, cy, w, h) in matched_boxes:
+                            x1 = max(0, min(int((cx - w/2) * width), width - 1))
+                            y1 = max(0, min(int((cy - h/2) * height), height - 1))
+                            x2 = max(0, min(int((cx + w/2) * width), width - 1))
+                            y2 = max(0, min(int((cy + h/2) * height), height - 1))
+                            if x2 > x1 and y2 > y1:
+                                item_anns.append({
+                                    "box": [x1, y1, x2, y2],
+                                    "class_name": c_name,
+                                    "label": c_name,
+                                    "confidence": 1.0
+                                })
+                                new_annotations_count += 1
+                                if c_name not in master["classes"]:
+                                    master["classes"].append(c_name)
 
                 item_id = dest_file.name
                 status = "annotated" if item_anns else "unannotated"

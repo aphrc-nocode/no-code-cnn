@@ -1180,7 +1180,32 @@ async def list_projects(current_user: User = Depends(get_current_approved_user))
 
 @app.get("/api/v1/projects/{project_id}", tags=["Projects"])
 async def get_project(project_id: str, current_user: User = Depends(get_current_approved_user)):
-    return check_project_access(project_id, current_user)
+    project = check_project_access(project_id, current_user)
+    try:
+        from dataset_versioning import UnifiedDatasetManager
+        ud_mgr = UnifiedDatasetManager("datasets")
+        master = ud_mgr.load_master_dataset(project_id)
+        
+        classes_list = list(project.classes or [])
+        master_classes = master.get("classes", [])
+        for c in master_classes:
+            if c and c not in classes_list:
+                classes_list.append(c)
+                
+        for item_id, item in master.get("items", {}).items():
+            for ann in item.get("annotations", []):
+                cn = ann.get("class_name")
+                if cn and cn not in classes_list:
+                    classes_list.append(cn)
+                    
+        if classes_list != project.classes:
+            project.classes = classes_list
+            project_manager.projects[project_id] = project
+            project_manager.save_projects()
+    except Exception as e:
+        logger.warning(f"Could not sync master classes for project {project_id}: {e}")
+        
+    return project
 
 # ==================== Job API ====================
 # Import MLflow server utilities
