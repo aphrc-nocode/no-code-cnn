@@ -1349,65 +1349,41 @@ async def evaluate_pipeline(job_id: str, current_user: User = Depends(get_curren
         
     # Handle Image Classification
     if job.pipeline_config.task_type == TaskType.IMAGE_CLASSIFICATION:
-        # Resolve dataset path
-        dataset_id = job.linked_dataset_id or job_id
-        dataset_path = Path(f"datasets/{dataset_id}")
+        # Require a linked dataset
+        if not job.linked_dataset_id:
+            raise HTTPException(status_code=400, detail="No dataset linked to this job. Link a dataset before evaluating.")
+        dataset_path = Path(f"datasets/{job.linked_dataset_id}")
         if not dataset_path.exists() or not dataset_path.is_dir():
-            found_dataset = False
-            for d in Path("datasets").iterdir():
-                if d.is_dir() and not d.name.startswith('.') and d.name != '__pycache__':
-                    cfg_file = d / "dataset_config.json"
-                    if cfg_file.exists():
-                        try:
-                            with open(cfg_file, 'r') as f:
-                                cfg = json.load(f)
-                            if cfg.get("task_type") == "image_classification":
-                                dataset_path = d
-                                dataset_id = d.name
-                                found_dataset = True
-                                break
-                        except:
-                            pass
-            if not found_dataset:
-                for d in Path("datasets").iterdir():
-                    if d.is_dir() and not d.name.startswith('.') and d.name != '__pycache__':
-                        dataset_path = d
-                        dataset_id = d.name
-                        break
-                        
-        if not dataset_path.exists() or not dataset_path.is_dir():
-            raise HTTPException(status_code=400, detail=f"Dataset path not found: {dataset_path}")
-            
-        # Load splits file
+            raise HTTPException(status_code=400, detail=f"Dataset folder not found: {dataset_path}")
+
+        # Load the saved train/val/test splits for this job
         splits_path = Path("dataset_splits") / job_id / "dataset_splits.json"
         if not splits_path.exists():
             splits_path = Path("models") / job_id / "splits" / "dataset_splits.json"
-            
+
         test_indices = []
         if splits_path.exists():
             try:
                 with open(splits_path, 'r') as f:
                     splits = json.load(f)
                 test_indices = splits.get("test", [])
-                if not test_indices:
-                    test_indices = splits.get("val", [])
             except Exception as e:
-                print(f"Warning: Failed to load split file: {e}")
-                
+                raise HTTPException(status_code=500, detail=f"Failed to read split file: {e}")
+
+        if not test_indices:
+            raise HTTPException(status_code=400, detail="No test split found for this job. Re-train with a dataset that has a test split.")
+
         # Load dataset
         try:
             from datasets_module.classification.dataloaders import ImageClassificationDataset
             dataset = ImageClassificationDataset(dataset_path)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to load dataset: {str(e)}")
-            
-        if not test_indices:
-            test_indices = list(range(len(dataset)))
-            
-        # Safely bound-check test_indices
+
+        # Bound-check test_indices against actual dataset size
         test_indices = [idx for idx in test_indices if idx < len(dataset)]
         if not test_indices:
-            raise HTTPException(status_code=400, detail="No valid test samples found for evaluation")
+            raise HTTPException(status_code=400, detail="Test split indices are out of range for this dataset.")
             
         # Ensure model is cached/loaded
         if job_id not in job_manager.loaded_models:
@@ -1708,129 +1684,39 @@ async def evaluate_pipeline(job_id: str, current_user: User = Depends(get_curren
         }
         
     elif job.pipeline_config.task_type == TaskType.OBJECT_DETECTION:
-        # Load splits file
-        splits_path = Path("dataset_splits") / job_id / "dataset_splits.json"
-        if not splits_path.exists():
-            splits_path = Path("models") / job_id / "splits" / "dataset_splits.json"
-            
-        test_indices = []
-        images_dir = None
-        annotations_path = None
-        
-        if splits_path.exists():
-            try:
-                with open(splits_path, 'r') as f:
-                    splits = json.load(f)
-                test_indices = splits.get("test", [])
-                if not test_indices:
-                    test_indices = splits.get("val", [])
-                
-                images_dir = splits.get("dataset_path")
-                annotations_path = splits.get("annotations_path")
-            except Exception as e:
-                print(f"Warning: Failed to load split file: {e}")
-                
-        # Resolve path fallback if split file has invalid paths or doesn't exist
-        dataset_id = job.linked_dataset_id or job_id
-        dataset_path = Path(f"datasets/{dataset_id}")
-        
-        # Robust dataset lookup fallback
-        if not dataset_path.exists() or not list(dataset_path.glob("**/*.json")):
-            found_dataset = False
-            for d in Path("datasets").iterdir():
-                if d.is_dir() and not d.name.startswith('.') and d.name != '__pycache__':
-                    cfg_file = d / "dataset_config.json"
-                    if cfg_file.exists():
-                        try:
-                            with open(cfg_file, 'r') as f:
-                                cfg = json.load(f)
-                            if cfg.get("task_type") == "object_detection":
-                                dataset_path = d
-                                dataset_id = d.name
-                                found_dataset = True
-                                break
-                        except:
-                            pass
-            if not found_dataset:
-                for d in Path("datasets").iterdir():
-                    if d.is_dir() and not d.name.startswith('.') and d.name != '__pycache__':
-                        json_files = list(d.glob("**/*.json"))
-                        json_files = [f for f in json_files if f.name != "dataset_config.json"]
-                        if json_files:
-                            dataset_path = d
-                            dataset_id = d.name
-                            break
+        # Require a linked dataset
+        if not job.linked_dataset_id:
+            raise HTTPException(status_code=400, detail="No dataset linked to this job. Link a dataset before evaluating.")
+        dataset_path = Path(f"datasets/{job.linked_dataset_id}")
+        if not dataset_path.exists() or not dataset_path.is_dir():
+            raise HTTPException(status_code=400, detail=f"Dataset folder not found: {dataset_path}")
 
-        # Prefer instances_test.json explicitly for evaluation (test set)
+        # Require the standard annotations structure
         ann_dir = dataset_path / "annotations"
-        if ann_dir.exists():
-            test_ann = ann_dir / "instances_test.json"
-            val_ann  = ann_dir / "instances_val.json"
-            train_ann = ann_dir / "instances_train.json"
-            if test_ann.exists() and test_ann.stat().st_size > 10:
-                print(f"Using test split for evaluation: {test_ann}")
-                annotations_path = str(test_ann)
-                images_dir = str(dataset_path / "images")
-                test_indices = []  # Will use all images in test annotation file
-            elif val_ann.exists() and val_ann.stat().st_size > 10:
-                print(f"No instances_test.json found, falling back to instances_val.json")
-                annotations_path = str(val_ann)
-                images_dir = str(dataset_path / "images")
-                test_indices = []
-            elif train_ann.exists():
-                print(f"Using instances_train.json as fallback for evaluation")
-                annotations_path = str(train_ann)
-                images_dir = str(dataset_path / "images")
-                test_indices = []
-                        
-        # Find all JSON annotation files in the dataset path (excluding config)
-        annotation_candidates = list(dataset_path.glob("**/*.json"))
-        annotation_candidates = [f for f in annotation_candidates if f.name != "dataset_config.json"]
-        
-        if not images_dir or not Path(images_dir).exists() or not annotations_path or not Path(annotations_path).exists():
-            if annotation_candidates:
-                def priority_score(path: Path):
-                    p_name = path.parent.name.lower()
-                    f_name = path.name.lower()
-                    score = 0
-                    if "instances_test" in f_name:
-                        score += 20
-                    elif "test" in p_name or "test" in f_name:
-                        score += 10
-                    elif "instances_val" in f_name:
-                        score += 8
-                    elif "val" in p_name or "val" in f_name:
-                        score += 5
-                    elif "annotations" in p_name or "annotations" in f_name:
-                        score += 3
-                    return score
-                    
-                annotation_candidates.sort(key=priority_score, reverse=True)
-                annotations_path = annotation_candidates[0]
-                images_dir = annotations_path.parent.parent / "images"
-                if not images_dir.exists():
-                    images_dir = annotations_path.parent
-                
-        if not annotations_path or not Path(annotations_path).exists():
-            raise HTTPException(status_code=400, detail=f"Annotations JSON file not found in {dataset_path}")
-            
-        if not images_dir or not Path(images_dir).exists():
-            images_dir = dataset_path
-            
+        images_dir = dataset_path / "images"
+        if not ann_dir.exists():
+            raise HTTPException(status_code=400, detail=f"No annotations/ directory found in dataset: {dataset_path}")
+        if not images_dir.exists():
+            raise HTTPException(status_code=400, detail=f"No images/ directory found in dataset: {dataset_path}")
+
+        # Use instances_test.json — no fallbacks
+        annotations_path = ann_dir / "instances_test.json"
+        if not annotations_path.exists() or annotations_path.stat().st_size < 10:
+            raise HTTPException(status_code=400, detail="No test split found. Create a version snapshot with a test split before evaluating.")
+
+        print(f"Evaluating on test split: {annotations_path}")
+
         # Load dataset
         try:
             from datasets_module.detection.dataloaders import ObjectDetectionDataset
-            dataset = ObjectDetectionDataset(images_dir, annotations_path)
+            dataset = ObjectDetectionDataset(str(images_dir), str(annotations_path))
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to load dataset: {str(e)}")
-            
+            raise HTTPException(status_code=500, detail=f"Failed to load test dataset: {str(e)}")
+
+        test_indices = list(range(len(dataset)))
+        test_indices = test_indices[:5]  # Limit to 5 for quick CPU evaluation
         if not test_indices:
-            test_indices = list(range(len(dataset)))
-            
-        test_indices = [idx for idx in test_indices if idx < len(dataset)]
-        test_indices = test_indices[:5]  # Limit to 5 images to ensure quick evaluation on CPU
-        if not test_indices:
-            raise HTTPException(status_code=400, detail="No valid test samples found for evaluation")
+            raise HTTPException(status_code=400, detail="Test split is empty — no images to evaluate.")
             
         # Ensure model is cached/loaded
         if job_id not in job_manager.loaded_models:
