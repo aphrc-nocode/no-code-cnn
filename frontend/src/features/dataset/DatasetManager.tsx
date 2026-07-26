@@ -378,7 +378,8 @@ export default function DatasetManager() {
                   return (
                     <div
                       key={item.id}
-                      className="bg-card border border-border rounded-xl overflow-hidden flex flex-col group hover:border-primary/50 transition-all shadow-sm"
+                      onClick={() => navigate(`/projects/${projectId}/annotate/${item.id}`)}
+                      className="bg-card border border-border rounded-xl overflow-hidden flex flex-col group hover:border-primary/50 cursor-pointer transition-all shadow-sm"
                     >
                       <div className="relative aspect-video bg-slate-950 overflow-hidden flex items-center justify-center">
                         <img
@@ -412,7 +413,10 @@ export default function DatasetManager() {
                         </div>
 
                         <button
-                          onClick={() => navigate(`/projects/${projectId}/annotate/${item.id}`)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/projects/${projectId}/annotate/${item.id}`);
+                          }}
                           className="w-full bg-secondary hover:bg-primary hover:text-white border border-border text-foreground py-1.5 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all"
                         >
                           <Eye size={12} /> Edit in Annotator

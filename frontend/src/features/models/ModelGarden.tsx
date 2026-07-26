@@ -913,41 +913,29 @@ export default function ModelGarden() {
               <div>
                 <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Dataset Source</label>
                 <select
-                  value={datasetSource}
-                  onChange={(e) => setDatasetSource(e.target.value)}
+                  value={datasetSource === "current_annotations" ? "current_annotations" : selectedDatasetId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "current_annotations") {
+                      setDatasetSource("current_annotations");
+                      setSelectedDatasetId("");
+                    } else {
+                      setDatasetSource("zips");
+                      setSelectedDatasetId(val);
+                    }
+                  }}
                   style={{
                     width: "100%", height: 36, padding: "0 10px",
                     background: "hsl(var(--secondary))", border: "1px solid hsl(var(--border))",
                     borderRadius: 4, color: "hsl(var(--foreground))", fontSize: 12, outline: "none", boxSizing: "border-box"
                   }}
                 >
-                  <option value="current_annotations">Unified Project Dataset (Master Pool)</option>
-                  <option value="zips">Imported Zipped Dataset / Version Snapshot</option>
+                  <option value="current_annotations">Master Pool (Live Unified Dataset)</option>
+                  {datasets.map(d => (
+                    <option key={d.id} value={d.id}>Version Snapshot: {d.name} ({d.task_type.replace("_", " ")})</option>
+                  ))}
                 </select>
               </div>
-
-              {datasetSource === "zips" && (
-                <div>
-                  <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Select Dataset Version / Package</label>
-                  <select
-                    value={selectedDatasetId}
-                    onChange={(e) => setSelectedDatasetId(e.target.value)}
-                    style={{
-                      width: "100%", height: 36, padding: "0 10px",
-                      background: "hsl(var(--secondary))", border: "1px solid hsl(var(--border))",
-                      borderRadius: 4, color: "hsl(var(--foreground))", fontSize: 12, outline: "none", boxSizing: "border-box"
-                    }}
-                  >
-                    {datasets.length === 0 ? (
-                      <option value="">No custom datasets or snapshots available. Using master dataset.</option>
-                    ) : (
-                      datasets.map(d => (
-                        <option key={d.id} value={d.id}>{d.name} ({d.task_type.replace("_", " ")})</option>
-                      ))
-                    )}
-                  </select>
-                </div>
-              )}
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
