@@ -876,6 +876,8 @@ export default function Annotate() {
         setShapes(newShapes)
         snapshotHistory(newShapes)
       }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); goTo(currentIdxRef.current - 1) }
+      if (e.key === 'ArrowRight') { e.preventDefault(); goTo(currentIdxRef.current + 1) }
     }
     const up = (e: KeyboardEvent) => { if (e.code === 'Space') spaceHeld.current = false }
     window.addEventListener('keydown', down)
@@ -1076,11 +1078,25 @@ export default function Annotate() {
     setImages(prev => prev.map(i => i.id === currentImage.id ? { ...i, annotated: shapes.length > 0 } : i))
   }
 
+  const currentIdxRef = useRef(currentIdx)
+  useEffect(() => {
+    currentIdxRef.current = currentIdx
+  }, [currentIdx])
+
   const goTo = async (nextIdx: number) => {
     if (navigatingRef.current) return
+    if (nextIdx < 0 || nextIdx >= images.length) return
     navigatingRef.current = true
-    try { await save(); setCurrentIdx(nextIdx) }
-    finally { navigatingRef.current = false }
+    try {
+      await save()
+      const nextImg = images[nextIdx]
+      if (nextImg) {
+        setCurrentIdx(nextIdx)
+        navigate(`/projects/${projectId}/annotate/${nextImg.id || nextImg.filename}`, { replace: true })
+      }
+    } finally {
+      navigatingRef.current = false
+    }
   }
 
   // ─── Shape label icons ─────────────────────────────────────────────────
