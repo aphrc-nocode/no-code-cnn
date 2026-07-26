@@ -4,6 +4,7 @@ import { Edit3, Database, Cpu, Play, ChevronLeft, Sun, Moon, User, LogOut, Penci
 import api, { type Project } from "../api";
 import { useTheme } from "./ThemeContext";
 import { useAuth } from "../features/auth/AuthContext";
+import UserProfileDropdown from "./UserProfileDropdown";
 
 import Annotator from "../features/annotator/Annotator";
 import ImageGallery from "../features/dataset/ImageGallery";
@@ -209,15 +210,13 @@ export default function ProjectWorkspace() {
               {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
             </button>
 
-            <div onClick={() => setProfileOpen(true)} title="User Profile"
-              style={{
-                width: 28, height: 28, borderRadius: "50%",
-                background: "hsl(var(--primary))", color: "#fff",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontWeight: 700, fontSize: 12, cursor: "pointer", userSelect: "none"
-              }}>
-              {user?.username.charAt(0).toUpperCase()}
-            </div>
+            {user && (
+              <UserProfileDropdown
+                user={user}
+                onLogout={logout}
+                onUpdateUser={(updatedUser) => setUser(updatedUser)}
+              />
+            )}
           </div>
         </div>
 
@@ -226,151 +225,6 @@ export default function ProjectWorkspace() {
           {renderActiveView()}
         </main>
       </div>
-
-      {/* ─── Profile Modal (Shared Dialog) ─── */}
-      {profileOpen && (
-        <div style={{
-          position: "fixed", inset: 0, zIndex: 2200,
-          background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)",
-          display: "flex", alignItems: "center", justifyContent: "center"
-        }}>
-          <div style={{
-            background: "hsl(var(--card))", border: "1px solid hsl(var(--border))",
-            borderRadius: 8, padding: 24, width: 400, maxWidth: "90vw",
-            boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.15)",
-            color: "hsl(var(--foreground))", position: "relative"
-          }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
-                <User size={18} style={{ color: "hsl(var(--primary))" }} /> User Profile
-              </h3>
-              <button onClick={() => { setProfileOpen(false); setProfileError(null); setProfileSuccess(false); }}
-                style={{ background: "transparent", border: "none", color: "hsl(var(--muted-foreground))", cursor: "pointer", display: "flex" }}>
-                <X size={18} />
-              </button>
-            </div>
-
-            {profileError && (
-              <div style={{ background: "hsl(var(--destructive) / 0.1)", border: "1px solid hsl(var(--destructive) / 0.2)",
-                color: "hsl(var(--destructive))", padding: "8px 12px", borderRadius: 4, fontSize: 12, marginBottom: 14 }}>
-                {profileError}
-              </div>
-            )}
-            
-            {profileSuccess && (
-              <div style={{ background: "rgba(16, 185, 129, 0.1)", border: "1px solid rgba(16, 185, 129, 0.2)",
-                color: "#10b981", padding: "8px 12px", borderRadius: 4, fontSize: 12, marginBottom: 14 }}>
-                Profile updated successfully!
-              </div>
-            )}
-
-            {!isEditingProfile ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 14px", borderRadius: 6, background: "hsl(var(--secondary))", border: "1px solid hsl(var(--border))" }}>
-                  <div style={{
-                    width: 44, height: 44, borderRadius: "50%",
-                    background: "hsl(var(--primary))", color: "#fff",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontWeight: 700, fontSize: 18
-                  }}>
-                    {user?.username.charAt(0).toUpperCase()}
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontWeight: 700, fontSize: 14, color: "hsl(var(--foreground))" }}>{user?.username}</span>
-                      <span style={{ fontSize: 9, fontWeight: 700, background: "hsl(var(--primary) / 0.15)",
-                        color: "hsl(var(--primary))", padding: "1px 5px", borderRadius: 4, textTransform: "uppercase" }}>
-                        {user?.role}
-                      </span>
-                    </div>
-                    <span style={{ fontSize: 11, color: "hsl(var(--muted-foreground))" }}>{user?.email}</span>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
-                  <button type="button" onClick={() => setIsEditingProfile(true)}
-                    style={{
-                      height: 36, width: "100%", background: "hsl(var(--secondary))", color: "hsl(var(--foreground))",
-                      border: "1px solid hsl(var(--border))", borderRadius: 4, fontWeight: 600, fontSize: 12, cursor: "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "background 0.15s"
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = "hsl(var(--border))"; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = "hsl(var(--secondary))"; }}>
-                    <Pencil size={13} /> Edit Profile
-                  </button>
-                  
-                  <div style={{ height: "1px", background: "hsl(var(--border))", margin: "6px 0" }} />
-
-                  <button type="button" onClick={() => { setProfileOpen(false); logout(); }}
-                    style={{
-                      height: 36, width: "100%", background: "hsl(var(--destructive) / 0.1)",
-                      color: "hsl(var(--destructive))", border: "1px solid hsl(var(--destructive) / 0.2)",
-                      borderRadius: 4, fontWeight: 600, fontSize: 12, cursor: "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all 0.15s"
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = "hsl(var(--destructive) / 0.15)"; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = "hsl(var(--destructive) / 0.1)"; }}>
-                    <LogOut size={13} /> Log Out
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <form onSubmit={handleSaveProfile} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <div>
-                  <label style={{ display: "block", fontSize: 10, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Username</label>
-                  <input type="text" required value={profileUsername} onChange={e => setProfileUsername(e.target.value)}
-                    style={{ width: "100%", height: 36, padding: "0 10px", background: "hsl(var(--secondary))",
-                      border: "1px solid hsl(var(--border))", borderRadius: 4, color: "hsl(var(--foreground))",
-                      outline: "none", fontSize: 12, boxSizing: "border-box" }} />
-                </div>
-
-                <div>
-                  <label style={{ display: "block", fontSize: 10, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Email Address</label>
-                  <input type="email" required value={profileEmail} onChange={e => setProfileEmail(e.target.value)}
-                    style={{ width: "100%", height: 36, padding: "0 10px", background: "hsl(var(--secondary))",
-                      border: "1px solid hsl(var(--border))", borderRadius: 4, color: "hsl(var(--foreground))",
-                      outline: "none", fontSize: 12, boxSizing: "border-box" }} />
-                </div>
-
-                <div>
-                  <label style={{ display: "block", fontSize: 10, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>New Password (optional)</label>
-                  <input type="password" placeholder="••••••••" value={profilePassword} onChange={e => setProfilePassword(e.target.value)}
-                    style={{ width: "100%", height: 36, padding: "0 10px", background: "hsl(var(--secondary))",
-                      border: "1px solid hsl(var(--border))", borderRadius: 4, color: "hsl(var(--foreground))",
-                      outline: "none", fontSize: 12, boxSizing: "border-box" }} />
-                </div>
-
-                {profilePassword && (
-                  <div>
-                    <label style={{ display: "block", fontSize: 10, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Confirm New Password</label>
-                    <input type="password" required placeholder="••••••••" value={profileConfirmPassword} onChange={e => setProfileConfirmPassword(e.target.value)}
-                      style={{ width: "100%", height: 36, padding: "0 10px", background: "hsl(var(--secondary))",
-                        border: "1px solid hsl(var(--border))", borderRadius: 4, color: "hsl(var(--foreground))",
-                        outline: "none", fontSize: 12, boxSizing: "border-box" }} />
-                  </div>
-                )}
-
-                <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-                  <button type="button" onClick={() => { setIsEditingProfile(false); setProfileUsername(user?.username || ""); setProfileEmail(user?.email || ""); setProfilePassword(""); setProfileConfirmPassword(""); setProfileError(null); }}
-                    style={{ height: 36, flex: 1, background: "hsl(var(--secondary))", color: "hsl(var(--foreground))",
-                      border: "1px solid hsl(var(--border))", borderRadius: 4, fontWeight: 600, fontSize: 12, cursor: "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}
-                    onMouseEnter={e => { e.currentTarget.style.background = "hsl(var(--border))"; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = "hsl(var(--secondary))"; }}>
-                    Cancel
-                  </button>
-                  <button type="submit" disabled={profileSaving}
-                    style={{ height: 36, flex: 2, background: "hsl(var(--primary))", color: "#fff",
-                      border: "none", borderRadius: 4, fontWeight: 600, fontSize: 12, cursor: "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "background 0.15s" }}>
-                    {profileSaving ? "Saving..." : "Save Changes"}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
     </>
   );
 }
