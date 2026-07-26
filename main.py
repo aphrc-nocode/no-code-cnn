@@ -991,6 +991,12 @@ def check_job_access(job_id: str, current_user: User) -> TrainingJob:
     return job
 
 def check_dataset_access(dataset_id: str, current_user: User):
+    if dataset_id and (dataset_id.startswith("snapshot:") or ":" in dataset_id):
+        parts = dataset_id.split(":")
+        if len(parts) >= 2:
+            p_id = parts[1]
+            check_project_access(p_id, current_user)
+            return
     dataset_path = Path("datasets") / dataset_id
     config_file = dataset_path / "dataset_config.json"
     if config_file.exists():
@@ -2940,6 +2946,29 @@ async def list_available_datasets(project_id: str = None, current_user: User = D
                     "project_id": dataset_project_id
                 })
         
+        # Include dataset version snapshots (v1.0, v2.0) created via DatasetManager
+        if project_id:
+            try:
+                from dataset_versioning import UnifiedDatasetManager
+                ud_mgr = UnifiedDatasetManager("datasets")
+                snapshots = ud_mgr.list_version_snapshots(project_id)
+                proj_obj = check_project_access(project_id, current_user)
+                p_task = proj_obj.task_type if proj_obj else "object_detection"
+                for snap in snapshots:
+                    v_id = snap.get("version_id")
+                    v_name = snap.get("version_name", v_id)
+                    datasets.append({
+                        "id": f"snapshot:{project_id}:{v_id}",
+                        "name": f"Version Snapshot: {v_name} ({len(snap.get('items', {}))} items)",
+                        "classes": snap.get("classes", []),
+                        "task_type": p_task,
+                        "item_count": snap.get("sample_count", len(snap.get("items", {}))),
+                        "is_coco_format": True,
+                        "project_id": project_id
+                    })
+            except Exception as ex:
+                print(f"Error listing dataset snapshots: {ex}")
+
         return datasets
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error listing datasets: {str(e)}")
@@ -2958,6 +2987,17 @@ async def link_dataset_to_job(job_id: str, dataset_id: str, current_user: User =
         if not job:
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
         
+        # Materialize version snapshot if a snapshot dataset ID is passed
+        if dataset_id.startswith("snapshot:") or ":" in dataset_id:
+            parts = dataset_id.split(":")
+            if len(parts) >= 3:
+                p_id = parts[1]
+                v_id = parts[2]
+                from dataset_versioning import UnifiedDatasetManager
+                ud_mgr = UnifiedDatasetManager("datasets")
+                mat_path = ud_mgr.export_version_as_folder(p_id, v_id)
+                dataset_id = mat_path.name
+
         dataset_path = DATASETS_DIR / dataset_id
         # Lazy download dataset from MinIO if missing locally
         if not dataset_path.exists() or not dataset_path.is_dir():

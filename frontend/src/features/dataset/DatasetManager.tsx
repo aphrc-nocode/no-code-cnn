@@ -25,7 +25,7 @@ interface DatasetVersionSnapshot {
   created_at: number;
   sample_count: number;
   classes: string[];
-  split_ratios: { train: number; val: number };
+  split_ratios: { train: number; val: number; test?: number };
 }
 
 export default function DatasetManager() {
@@ -479,9 +479,9 @@ export default function DatasetManager() {
                         <span className="font-bold text-foreground">{v.classes.length}</span>
                       </div>
                       <div>
-                        <span className="text-[10px] text-muted-foreground block font-semibold">Train/Val Split</span>
+                        <span className="text-[10px] text-muted-foreground block font-semibold">Train/Val/Test Split</span>
                         <span className="font-bold text-primary">
-                          {Math.round(v.split_ratios.train * 100)} / {Math.round(v.split_ratios.val * 100)}
+                          {Math.round(v.split_ratios.train * 100)} / {Math.round(v.split_ratios.val * 100)} / {Math.round((v.split_ratios.test ?? Math.max(0, 1 - v.split_ratios.train - v.split_ratios.val)) * 100)}
                         </span>
                       </div>
                     </div>

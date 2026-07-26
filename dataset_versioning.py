@@ -961,6 +961,111 @@ class UnifiedDatasetManager:
         snapshots.sort(key=lambda s: s.get("created_at", 0), reverse=True)
         return snapshots
 
+    def export_version_as_folder(
+        self,
+        project_id: str,
+        version_id: str,
+        dest_folder_name: Optional[str] = None
+    ) -> Path:
+        """
+        Materializes a dataset version snapshot as a structured dataset folder
+        under datasets/<folder_name> containing images/ and annotations/ (instances_train.json, instances_val.json, instances_test.json).
+        """
+        import shutil
+        p_dir = self.get_project_dir(project_id)
+        v_file = p_dir / "versions" / f"{version_id}.json"
+        
+        if v_file.exists():
+            with open(v_file, "r", encoding="utf-8") as f:
+                ds_data = json.load(f)
+        else:
+            ds_data = self.load_master_dataset(project_id)
+
+        target_name = dest_folder_name or f"snapshot_{project_id[:8]}_{version_id}"
+        dest_path = Path("datasets") / target_name
+        dest_path.mkdir(parents=True, exist_ok=True)
+
+        images_dir = dest_path / "images"
+        ann_dir = dest_path / "annotations"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        ann_dir.mkdir(parents=True, exist_ok=True)
+
+        classes_list = ds_data.get("classes", [])
+        categories = [{"id": i + 1, "name": c, "supercategory": "none"} for i, c in enumerate(classes_list)]
+        cat_name_to_id = {c["name"]: c["id"] for c in categories}
+
+        splits: Dict[str, List[Dict[str, Any]]] = {"train": [], "val": [], "test": []}
+        split_anns: Dict[str, List[Dict[str, Any]]] = {"train": [], "val": [], "test": []}
+        ann_counter = 1
+
+        for img_idx, (item_id, item) in enumerate(ds_data.get("items", {}).items()):
+            src_path = p_dir / item.get("path", f"images/{item_id}")
+            if not src_path.exists():
+                src_path = p_dir / "images" / item.get("filename", item_id)
+            if not src_path.exists():
+                continue
+
+            split = item.get("split", "train")
+            if split not in splits:
+                split = "train"
+
+            target_filename = item.get("filename", item_id)
+            dest_img = images_dir / target_filename
+            try:
+                shutil.copy2(src_path, dest_img)
+            except Exception:
+                pass
+
+            img_entry_id = img_idx + 1
+            img_entry = {
+                "id": img_entry_id,
+                "file_name": target_filename,
+                "width": item.get("width", 800),
+                "height": item.get("height", 600)
+            }
+            splits[split].append(img_entry)
+
+            for ann in item.get("annotations", []):
+                box = ann.get("box", [0, 0, 0, 0])
+                c_name = ann.get("class_name", "Unknown")
+                if len(box) == 4 and c_name in cat_name_to_id:
+                    x1, y1, x2, y2 = box
+                    w = max(0, x2 - x1)
+                    h = max(0, y2 - y1)
+                    area = w * h
+                    c_id = cat_name_to_id[c_name]
+                    split_anns[split].append({
+                        "id": ann_counter,
+                        "image_id": img_entry_id,
+                        "category_id": c_id,
+                        "bbox": [x1, y1, w, h],
+                        "area": area,
+                        "iscrowd": 0
+                    })
+                    ann_counter += 1
+
+        for s_name in ["train", "val", "test"]:
+            coco_dict = {
+                "images": splits[s_name],
+                "annotations": split_anns[s_name],
+                "categories": categories
+            }
+            out_file = ann_dir / f"instances_{s_name}.json"
+            if s_name == "train" or len(splits[s_name]) > 0:
+                with open(out_file, "w", encoding="utf-8") as f:
+                    json.dump(coco_dict, f, indent=2)
+
+        config_data = {
+            "dataset_name": ds_data.get("version_name", version_id),
+            "task_type": "object_detection",
+            "classes": classes_list,
+            "project_id": project_id
+        }
+        with open(dest_path / "dataset_config.json", "w", encoding="utf-8") as f:
+            json.dump(config_data, f, indent=2)
+
+        return dest_path
+
     def export_dataset_zip(
         self,
         project_id: str,
