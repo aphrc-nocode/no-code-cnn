@@ -580,51 +580,57 @@ class UnifiedDatasetManager:
 
         with zipfile.ZipFile(zip_path, "r") as z:
             namelist = z.namelist()
-            # 1. Check for COCO JSON
-            coco_json_name = next((n for n in namelist if n.lower().endswith("annotations.json") or "_annotations.coco.json" in n.lower() or "instances_" in n.lower()), None)
+            # 1. Check for all COCO JSON files (train, valid, test, instances, etc.)
+            coco_json_files = [n for n in namelist if n.lower().endswith(".json") and ("annotation" in n.lower() or "coco" in n.lower() or "instances_" in n.lower() or "_annotations" in n.lower())]
             
-            coco_data = None
             coco_categories = {}
-            if coco_json_name:
+            coco_image_map = {} # filename -> list of annotation dicts
+            
+            for coco_json_name in coco_json_files:
                 try:
                     with z.open(coco_json_name) as jf:
                         coco_data = json.load(jf)
+                        if not isinstance(coco_data, dict):
+                            continue
+                            
+                        # Extract categories
                         for cat in coco_data.get("categories", []):
                             cat_id = cat.get("id")
                             cat_name = cat.get("name", str(cat_id))
                             mapped_name = label_mapping.get(cat_name, cat_name)
                             coco_categories[cat_id] = mapped_name
+                            if mapped_name not in master["classes"]:
+                                master["classes"].append(mapped_name)
+                                
+                        # Map image IDs to filenames
+                        img_id_to_fn = {}
+                        for c_img in coco_data.get("images", []):
+                            fn = Path(c_img.get("file_name", "")).name
+                            if fn:
+                                img_id_to_fn[c_img["id"]] = fn
+                                if fn not in coco_image_map:
+                                    coco_image_map[fn] = []
+                                    
+                        # Extract annotations
+                        for ann in coco_data.get("annotations", []):
+                            img_id = ann.get("image_id")
+                            cat_id = ann.get("category_id")
+                            bbox = ann.get("bbox", []) # [x, y, w, h]
+                            if img_id in img_id_to_fn and cat_id in coco_categories and len(bbox) == 4:
+                                fn = img_id_to_fn[img_id]
+                                x, y, w, h = bbox
+                                cls_name = coco_categories[cat_id]
+                                coco_image_map[fn].append({
+                                    "box": [round(x, 2), round(y, 2), round(x + w, 2), round(y + h, 2)],
+                                    "class_name": cls_name,
+                                    "label": cls_name,
+                                    "confidence": 1.0
+                                })
+                                new_annotations_count += 1
+                                if cls_name not in master["classes"]:
+                                    master["classes"].append(cls_name)
                 except Exception as e:
-                    logger.warning(f"Failed to read COCO json during ingestion: {e}")
-
-            # Map COCO images & annotations
-            coco_image_map = {}
-            if coco_data and "images" in coco_data:
-                for c_img in coco_data["images"]:
-                    coco_image_map[c_img["id"]] = {
-                        "filename": Path(c_img.get("file_name", "")).name,
-                        "width": c_img.get("width"),
-                        "height": c_img.get("height"),
-                        "annotations": []
-                    }
-
-            if coco_data and "annotations" in coco_data:
-                for ann in coco_data["annotations"]:
-                    img_id = ann.get("image_id")
-                    cat_id = ann.get("category_id")
-                    bbox = ann.get("bbox", []) # [x, y, w, h]
-                    if img_id in coco_image_map and cat_id in coco_categories and len(bbox) == 4:
-                        x, y, w, h = bbox
-                        cls_name = coco_categories[cat_id]
-                        coco_image_map[img_id]["annotations"].append({
-                            "box": [x, y, x + w, y + h],
-                            "class_name": cls_name,
-                            "label": cls_name,
-                            "confidence": 1.0
-                        })
-                        new_annotations_count += 1
-                        if cls_name not in master["classes"]:
-                            master["classes"].append(cls_name)
+                    logger.warning(f"Failed to read COCO json {coco_json_name} during ingestion: {e}")
 
             # 2. Check for YOLO classes in data.yaml, classes.txt, or obj.names
             yolo_classes = []
@@ -744,13 +750,16 @@ class UnifiedDatasetManager:
                 except Exception:
                     pass
 
-                # Check if we have parsed annotations for this file
                 item_anns = []
                 # Check COCO map
-                for c_info in coco_image_map.values():
-                    if c_info["filename"] == filename:
-                        item_anns = c_info["annotations"]
-                        break
+                if filename in coco_image_map:
+                    item_anns = coco_image_map[filename]
+                else:
+                    fn_lower = filename.lower()
+                    for k, anns in coco_image_map.items():
+                        if k.lower() == fn_lower or Path(k).stem.lower() == Path(filename).stem.lower():
+                            item_anns = anns
+                            break
 
                 # Check YOLO map (flexible stem matching)
                 if not item_anns:
