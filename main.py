@@ -4277,7 +4277,7 @@ async def get_project_image_annotations(project_id: str, image_id: str, current_
     item = find_master_item(master, image_id)
     
     raw_classes = master.get("classes", [])
-    project_classes = project.get("classes", [])
+    project_classes = getattr(project, "classes", [])
     classes_list = []
     for c in list(raw_classes) + list(project_classes):
         if c and c not in classes_list:
@@ -4341,7 +4341,7 @@ async def save_project_image_annotations(project_id: str, image_id: str, shapes:
     item = find_master_item(master, image_id)
     
     raw_classes = master.get("classes", [])
-    project_classes = project.get("classes", [])
+    project_classes = getattr(project, "classes", [])
     classes_list = []
     for c in list(raw_classes) + list(project_classes):
         if c and c not in classes_list:
