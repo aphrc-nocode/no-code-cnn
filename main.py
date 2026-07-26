@@ -4311,6 +4311,21 @@ async def get_project_image_annotations(project_id: str, image_id: str, current_
     classes_lower = [c.lower().strip() for c in classes_list]
     
     if item:
+        img_w = item.get("width", 0) or 0
+        img_h = item.get("height", 0) or 0
+        if img_w <= 0 or img_h <= 0:
+            fn = item.get("filename", image_id)
+            img_path = Path("datasets") / "projects" / project_id / "images" / fn
+            if img_path.exists():
+                try:
+                    from PIL import Image as PILImage
+                    with PILImage.open(img_path) as pimg:
+                        img_w, img_h = pimg.size
+                except Exception:
+                    pass
+        if img_w <= 0: img_w = 800
+        if img_h <= 0: img_h = 600
+
         ann_list = item.get("annotations", [])
         formatted_shapes = []
         for ann in ann_list:
@@ -4325,16 +4340,25 @@ async def get_project_image_annotations(project_id: str, image_id: str, current_
                 
             box = ann.get("box", [0, 0, 0, 0])
             if len(box) == 4:
-                x1, y1, x2, y2 = box
-                w = max(0, x2 - x1)
-                h = max(0, y2 - y1)
+                bx1, by1, bx2, by2 = [float(v) for v in box]
+                # If coordinates are in absolute pixels (> 1.0), normalize to 0.0 .. 1.0 for Annotator canvas
+                if bx2 > 1.0 or by2 > 1.0 or bx1 > 1.0 or by1 > 1.0:
+                    x1 = bx1 / float(img_w)
+                    y1 = by1 / float(img_h)
+                    x2 = bx2 / float(img_w)
+                    y2 = by2 / float(img_h)
+                else:
+                    x1, y1, x2, y2 = bx1, by1, bx2, by2
+
+                w = max(0.0, x2 - x1)
+                h = max(0.0, y2 - y1)
                 formatted_shapes.append({
                     "shape_type": "bbox",
                     "class_id": c_id,
-                    "x_center": round(x1 + w / 2.0, 2),
-                    "y_center": round(y1 + h / 2.0, 2),
-                    "width": round(w, 2),
-                    "height": round(h, 2),
+                    "x_center": round(x1 + w / 2.0, 6),
+                    "y_center": round(y1 + h / 2.0, 6),
+                    "width": round(w, 6),
+                    "height": round(h, 6),
                     "points": []
                 })
         return formatted_shapes
@@ -4374,6 +4398,8 @@ async def save_project_image_annotations(project_id: str, image_id: str, shapes:
             
     if item:
         real_item_id = item.get("id", image_id)
+        img_w = item.get("width", 0) or 800
+        img_h = item.get("height", 0) or 600
         item_anns = []
         for shape in shapes:
             c_id = shape.class_id
@@ -4384,9 +4410,17 @@ async def save_project_image_annotations(project_id: str, image_id: str, shapes:
                 y1 = shape.y_center - shape.height / 2.0
                 x2 = shape.x_center + shape.width / 2.0
                 y2 = shape.y_center + shape.height / 2.0
+
+                px1 = round(x1 * img_w, 2)
+                py1 = round(y1 * img_h, 2)
+                px2 = round(x2 * img_w, 2)
+                py2 = round(y2 * img_h, 2)
+                
                 item_anns.append({
                     "class_name": c_name,
-                    "box": [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)]
+                    "label": c_name,
+                    "box": [px1, py1, px2, py2],
+                    "confidence": 1.0
                 })
         
         ud_mgr.save_item_annotations(project_id, real_item_id, item_anns)
