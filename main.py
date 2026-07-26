@@ -1738,64 +1738,106 @@ async def evaluate_pipeline(job_id: str, current_user: User = Depends(get_curren
         
         from visualization_utils import draw_bounding_boxes
         
+        import torchvision
+        from torchvision.transforms import ToTensor as TVToTensor
+
+        # Build name→test_label_idx map from the test annotation categories
+        # class_names = [cat_name sorted by category ID]
+        # test_name_to_idx: e.g. {"cassava_slice": 0, "slice": 1}
+        test_name_to_idx = {name: i for i, name in enumerate(class_names)}
+
+        # Build trained model label → class name map (from class_map saved at training time)
+        # class_map keys are string label IDs ("0", "1", ...) or ("1", "2", ...)
+        # Faster R-CNN outputs 1-indexed labels (0=background)
+        # class_map should map "1" -> "cassava_slice", "2" -> "slice", etc.
+        def model_label_to_test_idx(raw_label: int):
+            """Convert raw model output label → test annotation class index."""
+            # Try direct class_map lookup (string key)
+            name = class_map.get(str(raw_label)) or class_map.get(str(raw_label - 1))
+            if name and name in test_name_to_idx:
+                return test_name_to_idx[name], name
+            # Fall back: subtract 1 (Faster R-CNN convention) and look up by position
+            idx = raw_label - 1
+            if 0 <= idx < len(class_names):
+                return idx, class_names[idx]
+            return None, None
+
+        img_transform = TVToTensor()
+
         for idx in test_indices:
             # Load image and annotations
             img, target = dataset[idx]
             img_info = dataset.images[dataset.image_ids[idx]]
             filename = img_info["file_name"]
-            
-            # Predict
+
+            # Load PIL image
             try:
-                img_path = Path(dataset.images_dir / filename)
+                img_path = Path(dataset.images_dir) / filename
                 if not img_path.exists():
-                    potential_paths = list(dataset.images_dir.glob(f"**/{filename}"))
+                    potential_paths = list(Path(dataset.images_dir).glob(f"**/{filename}"))
                     if potential_paths:
                         img_path = potential_paths[0]
-                
                 with open(img_path, 'rb') as f:
                     pil_img = Image.open(f).convert('RGB')
             except Exception as e:
                 print(f"Error loading image {filename}: {e}")
                 continue
-                
+
+            # Run inference directly on the cached model (no pipeline re-init)
             try:
-                pred_result = await job_manager.predict(job_id, pil_img)
+                img_tensor = img_transform(pil_img).unsqueeze(0).to(
+                    next(model.parameters()).device
+                )
+                model.eval()
+                with torch.no_grad():
+                    raw_preds = model(img_tensor)
             except Exception as e:
-                print(f"Error predicting image {filename}: {e}")
+                print(f"Error running model on {filename}: {e}")
                 continue
-                
-            formatted_detections = pred_result.get("detections", [])
-            
+
+            # Parse raw model output
+            pred_boxes = []
+            pred_labels = []
+            pred_scores = []
+            formatted_detections = []
+
+            if isinstance(raw_preds, list) and len(raw_preds) > 0:
+                pred0 = raw_preds[0]
+                if isinstance(pred0, dict) and 'boxes' in pred0:
+                    conf_thresh = 0.5
+                    keep = pred0['scores'] > conf_thresh
+                    if keep.any():
+                        for box, score, raw_lbl in zip(
+                            pred0['boxes'][keep].cpu().numpy(),
+                            pred0['scores'][keep].cpu().numpy(),
+                            pred0['labels'][keep].cpu().numpy()
+                        ):
+                            test_idx, det_name = model_label_to_test_idx(int(raw_lbl))
+                            if test_idx is None:
+                                continue  # skip background or unknown labels
+                            pred_boxes.append(box.tolist())
+                            pred_labels.append(test_idx)
+                            pred_scores.append(float(score))
+                            formatted_detections.append({
+                                "box": box.tolist(),
+                                "confidence": float(score * 100),
+                                "class_name": det_name,
+                                "class_id": test_idx,
+                            })
+
             target_boxes = target["boxes"]
             target_labels = target["labels"]
-            
-            # Remap predicted labels from 1-indexed (Faster R-CNN: 0=background)
-            # to 0-indexed (matching dataset labels) and fix class names
-            pred_boxes = []
-            pred_labels = []  # Will hold 0-indexed labels
-            pred_scores = []
-            for det in formatted_detections:
-                pred_boxes.append(det["box"])
-                raw_label = det["class_id"]
-                # Faster R-CNN outputs 1-indexed labels (0=background)
-                # Dataset uses 0-indexed labels, so subtract 1
-                mapped_label = max(0, raw_label - 1)
-                pred_labels.append(mapped_label)
-                pred_scores.append(det["confidence"] / 100.0)
-                # Fix class name using dataset categories
-                if mapped_label < len(class_names):
-                    det["class_name"] = class_names[mapped_label]
-                    det["class_id"] = mapped_label
-                
+
             if pred_boxes:
                 boxes_tensor = torch.tensor(pred_boxes, dtype=torch.float32)
                 labels_tensor = torch.tensor(pred_labels, dtype=torch.int64)
                 scores_tensor = torch.tensor(pred_scores, dtype=torch.float32)
             else:
                 boxes_tensor = torch.zeros((0, 4), dtype=torch.float32)
-                labels_tensor = torch.zeros((0), dtype=torch.int64)
-                scores_tensor = torch.zeros((0), dtype=torch.float32)
-                
+                labels_tensor = torch.zeros((0,), dtype=torch.int64)
+                scores_tensor = torch.zeros((0,), dtype=torch.float32)
+
+
             detections_list.append({
                 'boxes': boxes_tensor,
                 'labels': labels_tensor,
