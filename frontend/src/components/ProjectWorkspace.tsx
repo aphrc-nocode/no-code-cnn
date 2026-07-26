@@ -138,17 +138,20 @@ export default function ProjectWorkspace() {
 
         {/* ─── Horizontal Step Navigation Header (Intel Geti Paradigm) ─── */}
         <div style={{
-          height: 52,
+          minHeight: 52,
+          height: "auto",
           background: "hsl(var(--card))",
           borderBottom: "1px solid hsl(var(--border))",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "0 24px",
+          padding: "8px 16px",
+          flexWrap: "wrap",
+          gap: 12,
           flexShrink: 0
         }}>
           {/* Left Area: Back arrow and project metadata */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button onClick={() => navigate("/projects")}
               style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12,
                 fontWeight: 600, color: "hsl(var(--muted-foreground))", background: "none",
@@ -159,7 +162,7 @@ export default function ProjectWorkspace() {
             </button>
             <div style={{ width: 1, height: 16, background: "hsl(var(--border))" }} />
             <h2 style={{ fontSize: 14, fontWeight: 700, color: "hsl(var(--foreground))", margin: 0,
-              maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {project?.name || "Loading..."}
             </h2>
             <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase",
@@ -169,18 +172,18 @@ export default function ProjectWorkspace() {
             </span>
           </div>
 
-          {/* Center Area: step steps */}
-          <nav style={{ display: "flex", height: "100%" }}>
+          {/* Center Area: step tabs */}
+          <nav style={{ display: "flex", height: "100%", overflowX: "auto", maxWidth: "100%", scrollbarWidth: "none" }}>
             {TABS.map(({ id: tab, label, Icon }) => {
               const active = activeTab === tab;
               return (
                 <button key={tab} onClick={() => handleTabChange(tab)}
                   style={{
-                    height: "100%",
+                    height: 36,
                     display: "flex",
                     alignItems: "center",
-                    gap: 8,
-                    padding: "0 20px",
+                    gap: 6,
+                    padding: "0 14px",
                     border: "none",
                     borderBottom: active ? "3px solid hsl(var(--primary))" : "3px solid transparent",
                     background: "transparent",
@@ -189,7 +192,8 @@ export default function ProjectWorkspace() {
                     fontWeight: active ? 600 : 500,
                     cursor: "pointer",
                     transition: "all 0.15s",
-                    boxSizing: "border-box"
+                    boxSizing: "border-box",
+                    whiteSpace: "nowrap"
                   }}
                   onMouseEnter={e => { if (!active) e.currentTarget.style.color = "hsl(var(--foreground))"; }}
                   onMouseLeave={e => { if (!active) e.currentTarget.style.color = "hsl(var(--muted-foreground))"; }}>
@@ -201,7 +205,7 @@ export default function ProjectWorkspace() {
           </nav>
 
           {/* Right Area: global settings and profile */}
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <button onClick={toggleTheme} title="Switch Theme"
               style={{ background: "none", border: "none", color: "hsl(var(--muted-foreground))",
                 cursor: "pointer", padding: 4, display: "flex", transition: "color 0.15s" }}

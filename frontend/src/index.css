@@ -194,12 +194,53 @@ div:hover > .class-btn-actions {
   display: flex;
 }
 
-/* ── Responsive: App header nav on small screens ── */
-@media (max-width: 600px) {
-  /* Hide nav text labels, keep icons */
-  header nav button span { display: none; }
-  /* Reduce header padding */
-  header { padding: 0 12px !important; }
+/* ── Mobile Responsive Rules & Viewport Overrides ── */
+@media (max-width: 768px) {
+  header {
+    padding: 0 12px !important;
+    grid-template-columns: auto 1fr auto !important;
+  }
+  
+  nav {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100% !important;
+  }
+
+  .scale-in {
+    width: 92vw !important;
+    max-width: 92vw !important;
+    padding: 16px !important;
+    margin: 8px !important;
+  }
+
+  /* Responsive grid fallbacks */
+  .grid-cols-5 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .grid-cols-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .grid-cols-3 {
+    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .grid-cols-5 {
+    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+  }
+  .grid-cols-2 {
+    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+  }
+  
+  /* Reduce padding on mobile viewports */
+  .p-6 {
+    padding: 16px !important;
+  }
+  .p-4 {
+    padding: 12px !important;
+  }
 }
 
 /* ── Responsive: Dashboard project list ── */
@@ -220,3 +261,4 @@ div:hover > .class-btn-actions {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
+

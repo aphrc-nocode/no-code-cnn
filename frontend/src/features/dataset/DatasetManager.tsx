@@ -186,20 +186,23 @@ export default function DatasetManager() {
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }} className="bg-background text-foreground">
       {/* ── Sub Header / Navigation Tabs ── */}
       <div style={{
-        height: 48,
+        minHeight: 48,
+        height: "auto",
         background: "hsl(var(--secondary) / 0.4)",
         borderBottom: "1px solid hsl(var(--border))",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        padding: "0 24px",
+        padding: "8px 16px",
+        flexWrap: "wrap",
+        gap: 12,
         flexShrink: 0
       }}>
-        <div style={{ display: "flex", gap: 20, height: "100%", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 16, alignItems: "center", overflowX: "auto", maxWidth: "100%" }}>
           <button
             onClick={() => setActiveTab("explorer")}
             style={{
-              height: "100%",
+              height: 32,
               background: "transparent",
               border: "none",
               borderBottom: activeTab === "explorer" ? "2.5px solid hsl(var(--primary))" : "2.5px solid transparent",
@@ -209,7 +212,8 @@ export default function DatasetManager() {
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
-              gap: 8
+              gap: 8,
+              whiteSpace: "nowrap"
             }}
           >
             <FileImage size={15} />
@@ -222,7 +226,7 @@ export default function DatasetManager() {
           <button
             onClick={() => setActiveTab("versions")}
             style={{
-              height: "100%",
+              height: 32,
               background: "transparent",
               border: "none",
               borderBottom: activeTab === "versions" ? "2.5px solid hsl(var(--primary))" : "2.5px solid transparent",
@@ -232,7 +236,8 @@ export default function DatasetManager() {
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
-              gap: 8
+              gap: 8,
+              whiteSpace: "nowrap"
             }}
           >
             <Layers size={15} />
@@ -241,18 +246,18 @@ export default function DatasetManager() {
         </div>
 
         {/* Global Action Controls */}
-        <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button
             onClick={() => { setShowImportModal(true); setImportStep(1); }}
-            className="bg-primary hover:bg-primary/95 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow transition-all"
+            className="bg-primary hover:bg-primary/95 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow transition-all"
           >
-            <UploadCloud size={14} /> Import & Append ZIP
+            <UploadCloud size={14} /> Import ZIP
           </button>
           <button
             onClick={() => setShowVersionModal(true)}
-            className="bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5"
+            className="bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5"
           >
-            <Plus size={14} /> Create Snapshot
+            <Plus size={14} /> Snapshot
           </button>
           <button
             onClick={() => handleExportDataset()}
@@ -269,7 +274,7 @@ export default function DatasetManager() {
         {activeTab === "explorer" ? (
           <div className="p-6 space-y-6 h-full overflow-y-auto">
             {/* Stats Overview */}
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div className="bg-card border border-border p-4 rounded-xl flex items-center gap-3">
                 <div className="p-3 bg-primary/10 text-primary rounded-lg"><Database size={20} /></div>
                 <div>
@@ -301,9 +306,9 @@ export default function DatasetManager() {
             </div>
 
             {/* Filter Bar */}
-            <div className="flex justify-between items-center gap-4 bg-card border border-border p-3 rounded-xl">
-              <div className="flex items-center gap-4">
-                <div className="relative w-64">
+            <div className="flex flex-wrap justify-between items-center gap-4 bg-card border border-border p-3 rounded-xl">
+              <div className="flex flex-wrap items-center gap-4 w-full sm:w-auto">
+                <div className="relative w-full sm:w-64">
                   <input
                     type="text"
                     value={searchQuery}
@@ -345,7 +350,7 @@ export default function DatasetManager() {
               <button
                 onClick={fetchDatasetItems}
                 disabled={loading}
-                className="flex items-center gap-1 bg-secondary text-secondary-foreground px-3 py-1.5 rounded-lg text-xs font-semibold"
+                className="flex items-center gap-1 bg-secondary text-secondary-foreground px-3 py-1.5 rounded-lg text-xs font-semibold ml-auto"
               >
                 <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
               </button>
@@ -359,7 +364,7 @@ export default function DatasetManager() {
                 <p className="text-xs mt-1">Import a dataset ZIP or add images to start building your unified dataset.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                 {items.map((item) => {
                   const imgUrl = `${api.defaults.baseURL}/projects/${projectId}/dataset/images/${item.filename}`;
                   return (
