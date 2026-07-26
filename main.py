@@ -1760,7 +1760,29 @@ async def evaluate_pipeline(job_id: str, current_user: User = Depends(get_curren
                             dataset_path = d
                             dataset_id = d.name
                             break
-                            
+
+        # Prefer instances_test.json explicitly for evaluation (test set)
+        ann_dir = dataset_path / "annotations"
+        if ann_dir.exists():
+            test_ann = ann_dir / "instances_test.json"
+            val_ann  = ann_dir / "instances_val.json"
+            train_ann = ann_dir / "instances_train.json"
+            if test_ann.exists() and test_ann.stat().st_size > 10:
+                print(f"Using test split for evaluation: {test_ann}")
+                annotations_path = str(test_ann)
+                images_dir = str(dataset_path / "images")
+                test_indices = []  # Will use all images in test annotation file
+            elif val_ann.exists() and val_ann.stat().st_size > 10:
+                print(f"No instances_test.json found, falling back to instances_val.json")
+                annotations_path = str(val_ann)
+                images_dir = str(dataset_path / "images")
+                test_indices = []
+            elif train_ann.exists():
+                print(f"Using instances_train.json as fallback for evaluation")
+                annotations_path = str(train_ann)
+                images_dir = str(dataset_path / "images")
+                test_indices = []
+                        
         # Find all JSON annotation files in the dataset path (excluding config)
         annotation_candidates = list(dataset_path.glob("**/*.json"))
         annotation_candidates = [f for f in annotation_candidates if f.name != "dataset_config.json"]
@@ -1771,8 +1793,12 @@ async def evaluate_pipeline(job_id: str, current_user: User = Depends(get_curren
                     p_name = path.parent.name.lower()
                     f_name = path.name.lower()
                     score = 0
-                    if "test" in p_name or "test" in f_name:
+                    if "instances_test" in f_name:
+                        score += 20
+                    elif "test" in p_name or "test" in f_name:
                         score += 10
+                    elif "instances_val" in f_name:
+                        score += 8
                     elif "val" in p_name or "val" in f_name:
                         score += 5
                     elif "annotations" in p_name or "annotations" in f_name:
@@ -1781,7 +1807,9 @@ async def evaluate_pipeline(job_id: str, current_user: User = Depends(get_curren
                     
                 annotation_candidates.sort(key=priority_score, reverse=True)
                 annotations_path = annotation_candidates[0]
-                images_dir = annotations_path.parent
+                images_dir = annotations_path.parent.parent / "images"
+                if not images_dir.exists():
+                    images_dir = annotations_path.parent
                 
         if not annotations_path or not Path(annotations_path).exists():
             raise HTTPException(status_code=400, detail=f"Annotations JSON file not found in {dataset_path}")
