@@ -2487,16 +2487,13 @@ async def predict(
                             from responsible_ai.gradcam import GradCAM
                             explainer = GradCAM(model, device=device)
                             transform = job_manager._get_transform(job.pipeline_config)
-                            img_tensor = transform(target_image)
-                            exp_result = explainer.explain_image(img_tensor)
-                            fig = exp_result["figure"]
+                            overlay_np = explainer.explain_pil_image(target_image, transform=transform)
+                            overlay_pil = Image.fromarray(overlay_np)
                             
                             buf = io.BytesIO()
-                            fig.savefig(buf, format="png", bbox_inches="tight")
-                            buf.seek(0)
-                            explanation_image_b64 = base64.b64encode(buf.read()).decode()
-                            plt.close(fig)
-                            print("Grad-CAM generation successful")
+                            overlay_pil.save(buf, format="PNG")
+                            explanation_image_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                            print("Grad-CAM generation successful (clean single-image overlay)")
                     except Exception as class_xai_err:
                         print(f"Classification specific XAI failed: {class_xai_err}. Falling back to universal saliency map...")
                 
@@ -2566,29 +2563,13 @@ async def predict(
                     heatmap_colored = cv2.applyColorMap((saliency_resized * 255).astype(np.uint8), cv2.COLORMAP_JET)
                     heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
                     overlay = cv2.addWeighted(img_np, 0.6, heatmap_colored, 0.4, 0)
+                    overlay_pil = Image.fromarray(overlay)
                     
-                    # 5. Create matplotlib figure
-                    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-                    axes[0].imshow(img_np)
-                    axes[0].set_title('Original' + title_suffix)
-                    axes[0].axis('off')
-                    
-                    axes[1].imshow(saliency_resized, cmap='jet')
-                    axes[1].set_title(f'Saliency Heatmap ({explain_method.upper()})')
-                    axes[1].axis('off')
-                    
-                    axes[2].imshow(overlay)
-                    axes[2].set_title('Saliency Overlay')
-                    axes[2].axis('off')
-                    
-                    plt.tight_layout()
-                    
+                    # 5. Output clean single-image overlay (matching detection approach)
                     buf = io.BytesIO()
-                    fig.savefig(buf, format="png", bbox_inches="tight")
-                    buf.seek(0)
-                    explanation_image_b64 = base64.b64encode(buf.read()).decode()
-                    plt.close(fig)
-                    print("Universal feature activation map generation successful")
+                    overlay_pil.save(buf, format="PNG")
+                    explanation_image_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                    print("Universal feature activation map generation successful (clean single-image overlay)")
                     
             except Exception as e:
                 print(f"XAI explanation generation failed: {e}")

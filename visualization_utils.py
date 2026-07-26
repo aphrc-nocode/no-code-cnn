@@ -69,11 +69,9 @@ def draw_bounding_boxes(
         except (OSError, IOError):
             font = ImageFont.load_default()
     
-    # Define colors for different classes (cycling through a predefined palette)
+    # Define colors for different classes (using modern blue tones matching prediction canvas)
     colors = [
-        "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF",
-        "#800000", "#008000", "#000080", "#808000", "#800080", "#008080",
-        "#FFA500", "#FFC0CB", "#A52A2A", "#DDA0DD", "#98FB98", "#F0E68C"
+        "#2563EB", "#3B82F6", "#1D4ED8", "#60A5FA", "#2563EB"
     ]
     
     # Keep track of class colors
@@ -137,36 +135,38 @@ def draw_bounding_boxes(
         
         color = class_colors[class_name]
         
-        # Draw bounding box with multiple lines for thickness
+        # Draw bounding box with thickness (3px)
         for i in range(box_thickness):
             draw.rectangle([x1 - i, y1 - i, x2 + i, y2 + i], outline=color, width=1)
         
-        # Prepare label text
-        label = f"{class_name}: {conf_pct:.1f}%"
+        # Prepare label text with rounded integer confidence percentage in brackets: class_name (94%)
+        conf_rounded = int(round(conf_pct))
+        label = f"{class_name} ({conf_rounded}%)"
         
         # Get text size
         text_width, text_height = get_text_size(draw, label, font)
+        pad_x = 4
+        pad_y = 2
         
-        # Calculate label background rectangle
+        # Calculate label background rectangle pill
         label_bg_coords = [
             x1, 
-            y1 - text_height - 4, 
-            x1 + text_width + 4, 
+            y1 - text_height - pad_y * 2, 
+            x1 + text_width + pad_x * 2, 
             y1
         ]
         
         # Ensure label background is within image bounds
         if label_bg_coords[1] < 0:
-            # If label would be above image, place it below the box
-            label_bg_coords[1] = y2
-            label_bg_coords[3] = y2 + text_height + 4
+            label_bg_coords[1] = y1
+            label_bg_coords[3] = y1 + text_height + pad_y * 2
         
-        # Draw label background
+        # Draw label background pill
         draw.rectangle(label_bg_coords, fill=color)
         
         # Draw label text
-        text_x = x1 + 2
-        text_y = label_bg_coords[1] + 2
+        text_x = x1 + pad_x
+        text_y = label_bg_coords[1] + pad_y
         draw.text((text_x, text_y), label, fill="white", font=font)
         
         print(f"Drew bounding box for {class_name} at [{x1}, {y1}, {x2}, {y2}]")
@@ -385,23 +385,26 @@ def draw_instance_segmentation(
         for i in range(box_thickness):
             draw.rectangle([x1 - i, y1 - i, x2 + i, y2 + i], outline=color_hex, width=1)
             
-        # Draw label
-        label = f"{class_name}: {confidence:.1f}%"
+        # Draw label with rounded confidence integer percentage in brackets
+        conf_rounded = int(round(confidence if confidence <= 100 else confidence))
+        label = f"{class_name} ({conf_rounded}%)"
         text_width, text_height = get_text_size(draw, label, font)
+        pad_x = 4
+        pad_y = 2
         
         label_bg_coords = [
             x1,
-            y1 - text_height - 4,
-            x1 + text_width + 4,
+            y1 - text_height - pad_y * 2,
+            x1 + text_width + pad_x * 2,
             y1
         ]
         
         if label_bg_coords[1] < 0:
-            label_bg_coords[1] = y2
-            label_bg_coords[3] = y2 + text_height + 4
+            label_bg_coords[1] = y1
+            label_bg_coords[3] = y1 + text_height + pad_y * 2
             
         draw.rectangle(label_bg_coords, fill=color_hex)
-        draw.text((x1 + 2, label_bg_coords[1] + 2), label, fill="white", font=font)
+        draw.text((x1 + pad_x, label_bg_coords[1] + pad_y), label, fill="white", font=font)
         
     return img_with_instances.convert("RGB")
 

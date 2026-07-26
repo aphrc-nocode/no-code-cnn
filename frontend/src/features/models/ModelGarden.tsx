@@ -626,17 +626,18 @@ export default function ModelGarden() {
                     }}>
                       {activeJob?.logs && activeJob.logs.length > 0 ? (
                         activeJob.logs.map((log, idx) => {
-                          let textColor = "#e2e8f0"; // Default bright crisp text
-                          let fontWeight = 400;
+                          let textColor = "#ffffff"; // Crisp white text
+                          let fontWeight: number | string = 400;
 
                           const lowerLog = log.toLowerCase();
                           if (lowerLog.includes("starting epoch") || lowerLog.includes("epoch ")) {
-                            textColor = "#38bdf8"; // Sky blue for epoch headers
+                            textColor = "#ffffff"; // Pure white for epoch headers
                             fontWeight = 600;
                           } else if (lowerLog.includes("loss =") || lowerLog.includes("completed in")) {
-                            textColor = "#a5f3fc"; // Cyan for loss metrics
+                            textColor = "#ffffff"; // Pure white for loss metrics
+                            fontWeight = 400;
                           } else if (lowerLog.includes("success") || lowerLog.includes("saved") || lowerLog.includes("loaded")) {
-                            textColor = "#34d399"; // Emerald green for success/saved
+                            textColor = "#34d399"; // Emerald green for success/saved/loaded
                             fontWeight = 500;
                           } else if (lowerLog.includes("failed") || lowerLog.includes("error") || lowerLog.includes("exception") || lowerLog.includes("warning")) {
                             textColor = "#f87171"; // Rose red for errors/warnings

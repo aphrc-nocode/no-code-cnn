@@ -909,7 +909,7 @@ export default function WorkflowBuilder() {
             {node.config.logs && node.config.logs.length > 0 && (
               <div>
                 <span className="font-semibold block mb-1.5">Training Console Logs</span>
-                <pre className="bg-slate-950 text-emerald-400 p-2.5 rounded-md text-[10px] max-height-[200px] overflow-y-auto font-mono whitespace-pre-wrap">
+                <pre className="bg-slate-950 text-slate-100 p-2.5 rounded-md text-[10px] max-height-[200px] overflow-y-auto font-mono whitespace-pre-wrap">
                   {node.config.logs.join("\n")}
                 </pre>
               </div>

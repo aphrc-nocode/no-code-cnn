@@ -171,8 +171,41 @@ class GradCAM:
         # Overlay heatmap on image
         overlay = cv2.addWeighted(img_np, 1 - alpha, heatmap, alpha, 0)
         
+    def explain_pil_image(
+        self,
+        image_pil: Image.Image,
+        transform = None,
+        target_class: Optional[int] = None,
+        alpha: float = 0.4
+    ) -> np.ndarray:
+        """
+        Explain a PIL image with GradCAM and return single clean overlay image (matching Detection approach).
+        
+        Args:
+            image_pil: Input PIL Image
+            transform: Optional PyTorch transform (if None, uses ToTensor)
+            target_class: Target class index to explain
+            alpha: Transparency of heatmap overlay
+            
+        Returns:
+            RGB numpy array overlay matching image_pil dimensions
+        """
+        if transform is None:
+            from torchvision.transforms import ToTensor
+            transform = ToTensor()
+            
+        img_tensor = transform(image_pil)
+        cam = self.generate_cam(img_tensor, target_class=target_class)
+        
+        w, h = image_pil.size
+        cam_resized = cv2.resize(cam, (w, h))
+        
+        img_np = np.array(image_pil.convert("RGB"))
+        heatmap = cv2.applyColorMap((cam_resized * 255).astype(np.uint8), cv2.COLORMAP_JET)
+        heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+        overlay = cv2.addWeighted(img_np, 1 - alpha, heatmap, alpha, 0)
         return overlay
-    
+
     def explain_image(
         self, 
         image: torch.Tensor, 
