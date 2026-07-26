@@ -337,7 +337,7 @@ export default function Annotate() {
       setProject(pRes.data)
       const imgs: ImageItem[] = iRes.data
       setImages(imgs)
-      const idx = imgs.findIndex(i => String(i.id) === String(imageId))
+      const idx = imgs.findIndex(i => String(i.id) === String(imageId) || i.filename === String(imageId))
       setCurrentIdx(idx >= 0 ? idx : 0)
       const doneRuns = (rRes.data as {id:string;pipeline_config?:any;status:string}[])
         .filter(r => r.status === 'completed' || r.status === 'success')

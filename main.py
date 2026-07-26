@@ -3990,6 +3990,37 @@ async def delete_project(project_id: str, current_user: User = Depends(get_curre
             print(f"Error deleting project directory: {e}")
             
     return {"message": "Project deleted successfully"}
+def find_master_item(master: Dict[str, Any], image_id: str) -> Optional[Dict[str, Any]]:
+    items = master.get("items", {})
+    if not items:
+        return None
+        
+    # 1. Direct key match
+    if image_id in items:
+        return items[image_id]
+    if str(image_id) in items:
+        return items[str(image_id)]
+        
+    # 2. Match by filename, original_name, or id
+    str_id = str(image_id).lower()
+    for k, item in items.items():
+        if str(item.get("id", "")).lower() == str_id:
+            return item
+        if str(item.get("filename", "")).lower() == str_id:
+            return item
+        if str(item.get("original_name", "")).lower() == str_id:
+            return item
+            
+    # 3. Numeric index match (e.g. 1-indexed or 0-indexed)
+    if str_id.isdigit():
+        idx = int(str_id)
+        keys = list(items.keys())
+        if 0 <= idx < len(keys):
+            return items[keys[idx]]
+        if 1 <= idx <= len(keys):
+            return items[keys[idx - 1]]
+            
+    return None
 
 @app.get("/api/v1/projects/{project_id}/images", tags=["Projects"])
 async def list_project_images(project_id: str, current_user: User = Depends(get_current_approved_user)):
@@ -4116,7 +4147,6 @@ async def upload_project_images(project_id: str, files: List[UploadFile] = File(
             "filename": unique_name,
             "original_name": file.filename or unique_name,
             "path": f"images/{unique_name}",
-            "checksum": checksum,
             "status": "unannotated",
             "width": width,
             "height": height,
@@ -4155,16 +4185,16 @@ async def get_project_image_file(project_id: str, image_id: str, current_user: U
     # 1. Direct path check in Unified Master Dataset
     master_dir = Path("datasets") / "projects" / project_id / "images"
     direct_path = master_dir / image_id
-    if direct_path.exists():
+    if direct_path.exists() and direct_path.is_file():
         return FileResponse(direct_path)
         
-    # 2. Match item_id or filename in Master Unified Dataset
+    # 2. Match item in Master Unified Dataset
     from dataset_versioning import UnifiedDatasetManager
     ud_mgr = UnifiedDatasetManager("datasets")
     master = ud_mgr.load_master_dataset(project_id)
-    items = master.get("items", {})
-    if image_id in items:
-        fn = items[image_id].get("filename", image_id)
+    item = find_master_item(master, image_id)
+    if item:
+        fn = item.get("filename", image_id)
         fpath = master_dir / fn
         if fpath.exists():
             return FileResponse(fpath)
@@ -4197,8 +4227,10 @@ async def delete_project_image(project_id: str, image_id: str, current_user: Use
     # Remove from Unified Master Dataset
     ud_mgr = UnifiedDatasetManager("datasets")
     master = ud_mgr.load_master_dataset(project_id)
-    if image_id in master.get("items", {}):
-        item = master["items"].pop(image_id)
+    item = find_master_item(master, image_id)
+    if item:
+        real_id = item.get("id", image_id)
+        master["items"].pop(real_id, None)
         fn = item.get("filename", image_id)
         fpath = Path("datasets") / "projects" / project_id / "images" / fn
         if fpath.exists():
@@ -4242,15 +4274,30 @@ async def get_project_image_annotations(project_id: str, image_id: str, current_
     # 1. Try Unified Master Dataset
     ud_mgr = UnifiedDatasetManager("datasets")
     master = ud_mgr.load_master_dataset(project_id)
-    items = master.get("items", {})
-    classes_list = master.get("classes", project.get("classes", []))
+    item = find_master_item(master, image_id)
     
-    if image_id in items:
-        ann_list = items[image_id].get("annotations", [])
+    raw_classes = master.get("classes", [])
+    project_classes = project.get("classes", [])
+    classes_list = []
+    for c in list(raw_classes) + list(project_classes):
+        if c and c not in classes_list:
+            classes_list.append(c)
+            
+    classes_lower = [c.lower().strip() for c in classes_list]
+    
+    if item:
+        ann_list = item.get("annotations", [])
         formatted_shapes = []
         for ann in ann_list:
             c_name = ann.get("class_name", "Unknown")
-            c_id = classes_list.index(c_name) if c_name in classes_list else 0
+            c_name_lower = str(c_name).lower().strip()
+            
+            c_id = 0
+            if c_name_lower in classes_lower:
+                c_id = classes_lower.index(c_name_lower)
+            elif str(c_name).isdigit():
+                c_id = int(c_name)
+                
             box = ann.get("box", [0, 0, 0, 0])
             if len(box) == 4:
                 x1, y1, x2, y2 = box
@@ -4291,10 +4338,17 @@ async def save_project_image_annotations(project_id: str, image_id: str, shapes:
     # 1. Update Master Unified Dataset
     ud_mgr = UnifiedDatasetManager("datasets")
     master = ud_mgr.load_master_dataset(project_id)
-    items = master.get("items", {})
-    classes_list = master.get("classes", project.get("classes", []))
+    item = find_master_item(master, image_id)
     
-    if image_id in items:
+    raw_classes = master.get("classes", [])
+    project_classes = project.get("classes", [])
+    classes_list = []
+    for c in list(raw_classes) + list(project_classes):
+        if c and c not in classes_list:
+            classes_list.append(c)
+            
+    if item:
+        real_item_id = item.get("id", image_id)
         item_anns = []
         for shape in shapes:
             c_id = shape.class_id
@@ -4310,7 +4364,7 @@ async def save_project_image_annotations(project_id: str, image_id: str, shapes:
                     "box": [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)]
                 })
         
-        ud_mgr.save_item_annotations(project_id, image_id, item_anns)
+        ud_mgr.save_item_annotations(project_id, real_item_id, item_anns)
         
     # 2. Also save to legacy storage for backward compatibility
     project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
@@ -4329,8 +4383,8 @@ async def save_project_image_annotations(project_id: str, image_id: str, shapes:
     for idx, shape in enumerate(shapes):
         saved_shapes.append({
             "id": idx + 1,
-            "class_id": shape.class_id,
             "shape_type": shape.shape_type,
+            "class_id": shape.class_id,
             "x_center": shape.x_center,
             "y_center": shape.y_center,
             "width": shape.width,
@@ -4339,7 +4393,6 @@ async def save_project_image_annotations(project_id: str, image_id: str, shapes:
         })
         
     annotations[image_id] = saved_shapes
-    
     with open(annotations_file, "w", encoding="utf-8") as f:
         json.dump(annotations, f, indent=2)
         
