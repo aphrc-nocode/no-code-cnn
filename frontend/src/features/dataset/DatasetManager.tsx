@@ -186,7 +186,7 @@ export default function DatasetManager() {
   // Export Dataset ZIP
   const handleExportDataset = (versionId?: string) => {
     if (!projectId) return;
-    const exportUrl = `${api.defaults.baseURL}/projects/${projectId}/dataset/export${versionId ? `?version_id=${versionId}` : ""}`;
+    const exportUrl = `/api/v1/projects/${projectId}/dataset/export${versionId ? `?version_id=${versionId}` : ""}`;
     window.open(exportUrl, "_blank");
   };
 
@@ -374,7 +374,7 @@ export default function DatasetManager() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                 {items.map((item) => {
-                  const imgUrl = `${api.defaults.baseURL}/projects/${projectId}/dataset/images/${item.filename}`;
+                  const imgUrl = `/api/v1/projects/${projectId}/images/${encodeURIComponent(item.id || item.filename)}/file`;
                   return (
                     <div
                       key={item.id}
