@@ -339,6 +339,25 @@ export default function Annotate() {
       setProject(pRes.data)
       const imgs: ImageItem[] = iRes.data || []
       setImages(imgs)
+      if (imageId && imgs.length > 0) {
+        const decodedT = decodeURIComponent(String(imageId)).toLowerCase().trim()
+        const cleanT = decodedT.replace(/\.[a-z0-9]+$/i, '')
+        const idx = imgs.findIndex(i => {
+          const iId = String(i.id).toLowerCase().trim()
+          const fn = String(i.filename || "").toLowerCase().trim()
+          const orig = String(i.original_name || "").toLowerCase().trim()
+          const cleanFn = fn.replace(/\.[a-z0-9]+$/i, '')
+          const cleanOrig = orig.replace(/\.[a-z0-9]+$/i, '')
+          const cleanId = iId.replace(/\.[a-z0-9]+$/i, '')
+          return (
+            iId === decodedT || fn === decodedT || orig === decodedT ||
+            cleanId === cleanT || cleanFn === cleanT || cleanOrig === cleanT ||
+            cleanFn.includes(cleanT) || cleanT.includes(cleanFn) ||
+            fn.includes(decodedT) || decodedT.includes(fn)
+          )
+        })
+        if (idx >= 0) setCurrentIdx(idx)
+      }
       const doneRuns = (rRes.data as {id:string;pipeline_config?:any;status:string}[])
         .filter(r => r.status === 'completed' || r.status === 'success')
         .map(r => ({
@@ -358,12 +377,21 @@ export default function Annotate() {
 
   useEffect(() => {
     if (!images.length || !imageId) return
-    const target = String(imageId).toLowerCase()
+    const decodedT = decodeURIComponent(String(imageId)).toLowerCase().trim()
+    const cleanT = decodedT.replace(/\.[a-z0-9]+$/i, '')
     const idx = images.findIndex(i => {
-      const iId = String(i.id).toLowerCase()
-      const fn = String(i.filename || "").toLowerCase()
-      const orig = String(i.original_name || "").toLowerCase()
-      return iId === target || fn === target || orig === target || target.includes(iId) || fn.includes(target)
+      const iId = String(i.id).toLowerCase().trim()
+      const fn = String(i.filename || "").toLowerCase().trim()
+      const orig = String(i.original_name || "").toLowerCase().trim()
+      const cleanFn = fn.replace(/\.[a-z0-9]+$/i, '')
+      const cleanOrig = orig.replace(/\.[a-z0-9]+$/i, '')
+      const cleanId = iId.replace(/\.[a-z0-9]+$/i, '')
+      return (
+        iId === decodedT || fn === decodedT || orig === decodedT ||
+        cleanId === cleanT || cleanFn === cleanT || cleanOrig === cleanT ||
+        cleanFn.includes(cleanT) || cleanT.includes(cleanFn) ||
+        fn.includes(decodedT) || decodedT.includes(fn)
+      )
     })
     if (idx >= 0) {
       setCurrentIdx(idx)

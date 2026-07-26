@@ -259,7 +259,7 @@ export default function DatasetManager() {
             onClick={() => { setShowImportModal(true); setImportStep(1); }}
             className="bg-primary hover:bg-primary/95 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow transition-all"
           >
-            <UploadCloud size={14} /> Import ZIP
+            <UploadCloud size={14} /> Import Dataset
           </button>
           <button
             onClick={() => setShowVersionModal(true)}
@@ -286,7 +286,7 @@ export default function DatasetManager() {
               <div className="bg-card border border-border p-4 rounded-xl flex items-center gap-3">
                 <div className="p-3 bg-primary/10 text-primary rounded-lg"><Database size={20} /></div>
                 <div>
-                  <div className="text-[11px] text-muted-foreground font-semibold">Total Unified Items</div>
+                  <div className="text-[11px] text-muted-foreground font-semibold">Total Items</div>
                   <div className="text-xl font-black text-foreground">{totalCount}</div>
                 </div>
               </div>
@@ -336,8 +336,8 @@ export default function DatasetManager() {
                     className="bg-background border border-border px-2.5 py-1.5 rounded-lg text-xs outline-none"
                   >
                     <option value="all">All Items</option>
-                    <option value="annotated">Annotated Only</option>
-                    <option value="unannotated">Unannotated Only</option>
+                    <option value="annotated">Annotated</option>
+                    <option value="unannotated">Unannotated</option>
                   </select>
                 </div>
 
@@ -350,7 +350,11 @@ export default function DatasetManager() {
                     className="bg-background border border-border px-2.5 py-1.5 rounded-lg text-xs outline-none"
                   >
                     <option value="all">All Classes</option>
-                    {classes.map(c => <option key={c} value={c}>{c}</option>)}
+                    {classes.map((cls) => (
+                      <option key={cls} value={cls}>
+                        {cls}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -374,12 +378,13 @@ export default function DatasetManager() {
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
                 {items.map((item) => {
-                  const imgUrl = `/api/v1/projects/${projectId}/images/${encodeURIComponent(item.id || item.filename)}/file`;
+                  const targetId = item.id || item.filename;
+                  const imgUrl = `/api/v1/projects/${projectId}/images/${encodeURIComponent(targetId)}/file`;
                   const isAnnotated = item.status === "annotated" || (item.annotations && item.annotations.length > 0);
                   return (
                     <div
                       key={item.id}
-                      onClick={() => navigate(`/projects/${projectId}/annotate/${item.id}`)}
+                      onClick={() => navigate(`/projects/${projectId}/annotate/${encodeURIComponent(targetId)}`)}
                       className="bg-card border border-border hover:border-primary/80 rounded-lg p-2 flex flex-col gap-2 group cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md"
                     >
                       <div className="w-full h-[120px] rounded border border-border overflow-hidden bg-slate-950 relative flex items-center justify-center">
