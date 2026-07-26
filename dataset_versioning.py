@@ -487,7 +487,7 @@ class UnifiedDatasetManager:
                 lower = name.lower()
                 if lower.endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp")):
                     image_count += 1
-                if lower.endswith(".json") and "coco" in lower or lower.endswith("annotations.json") or lower.endswith("_annotations.coco.json"):
+                if lower.endswith(".json") and ("coco" in lower or lower.endswith("annotations.json") or lower.endswith("_annotations.coco.json")):
                     detected_format = "coco"
                     coco_json_name = name
 
@@ -502,10 +502,38 @@ class UnifiedDatasetManager:
                     logger.warning(f"Could not parse COCO json in zip preview: {e}")
 
             if detected_format == "images_only":
-                # Check for YOLO data.yaml or *.txt or subfolders
+                # Check for YOLO data.yaml, obj.names, classes.txt, or *.txt files
                 yaml_files = [n for n in namelist if n.lower().endswith("data.yaml")]
-                if yaml_files:
+                classes_txt = [n for n in namelist if n.lower().endswith("classes.txt") or n.lower().endswith("obj.names")]
+                txt_files = [n for n in namelist if n.lower().endswith(".txt") and not n.lower().endswith("classes.txt") and not n.lower().endswith("readme.txt")]
+                
+                if yaml_files or classes_txt or txt_files:
                     detected_format = "yolo"
+                    if yaml_files:
+                        try:
+                            with z.open(yaml_files[0]) as yf:
+                                content = yf.read().decode("utf-8")
+                                for line in content.splitlines():
+                                    if "names:" in line or "names :" in line:
+                                        # Simple extraction of list or inline names
+                                        idx = line.find("[")
+                                        if idx != -1:
+                                            names_str = line[idx+1:line.find("]", idx)].replace("'", "").replace('"', "")
+                                            for n in names_str.split(","):
+                                                if n.strip():
+                                                    detected_classes.add(n.strip())
+                        except Exception as e:
+                            logger.warning(f"Could not parse data.yaml in yolo preview: {e}")
+
+                    if not detected_classes and classes_txt:
+                        try:
+                            with z.open(classes_txt[0]) as cf:
+                                for line in cf.read().decode("utf-8").splitlines():
+                                    c_name = line.strip()
+                                    if c_name:
+                                        detected_classes.add(c_name)
+                        except Exception:
+                            pass
 
             if not detected_classes and detected_format == "images_only":
                 # Check for folder-based classification classes
@@ -531,6 +559,7 @@ class UnifiedDatasetManager:
         """
         Unpacks and ingests a ZIP dataset into the project's unified dataset pool.
         Applies label remapping, image checksum deduplication, and master annotation update.
+        Supports COCO, YOLO, and Classification ZIP formats natively.
         """
         import zipfile
         from PIL import Image
@@ -597,6 +626,39 @@ class UnifiedDatasetManager:
                         if cls_name not in master["classes"]:
                             master["classes"].append(cls_name)
 
+            # 2. Check for YOLO classes & txt files
+            yolo_classes = []
+            classes_txt = next((n for n in namelist if n.lower().endswith("classes.txt") or n.lower().endswith("obj.names")), None)
+            if classes_txt:
+                try:
+                    with z.open(classes_txt) as cf:
+                        for line in cf.read().decode("utf-8").splitlines():
+                            if line.strip():
+                                mapped = label_mapping.get(line.strip(), line.strip())
+                                yolo_classes.append(mapped)
+                except Exception:
+                    pass
+
+            yolo_label_map = {} # filename_stem -> list of normalized bounding boxes
+            for member in namelist:
+                if member.lower().endswith(".txt") and not member.lower().endswith("classes.txt") and not member.lower().endswith("data.yaml"):
+                    stem = Path(member).stem
+                    try:
+                        with z.open(member) as tf:
+                            lines = tf.read().decode("utf-8").splitlines()
+                            boxes = []
+                            for line in lines:
+                                parts = line.strip().split()
+                                if len(parts) >= 5:
+                                    c_id = int(parts[0])
+                                    cx, cy, w, h = [float(v) for v in parts[1:5]]
+                                    c_name = yolo_classes[c_id] if c_id < len(yolo_classes) else f"class_{c_id}"
+                                    mapped_c_name = label_mapping.get(c_name, c_name)
+                                    boxes.append((mapped_c_name, cx, cy, w, h))
+                            yolo_label_map[stem] = boxes
+                    except Exception as ye:
+                        logger.warning(f"Error parsing YOLO txt file {member}: {ye}")
+
             # Ingest image files
             for member in namelist:
                 lower = member.lower()
@@ -626,7 +688,7 @@ class UnifiedDatasetManager:
                     f.write(data_bytes)
 
                 # Get dimensions
-                width, height = 0, 0
+                width, height = 800, 600
                 try:
                     with Image.open(dest_file) as pimg:
                         width, height = pimg.size
@@ -635,10 +697,30 @@ class UnifiedDatasetManager:
 
                 # Check if we have parsed annotations for this file
                 item_anns = []
+                # Check COCO map
                 for c_info in coco_image_map.values():
                     if c_info["filename"] == filename:
                         item_anns = c_info["annotations"]
                         break
+
+                # Check YOLO map
+                if not item_anns and Path(filename).stem in yolo_label_map:
+                    y_boxes = yolo_label_map[Path(filename).stem]
+                    for (c_name, cx, cy, w, h) in y_boxes:
+                        x1 = max(0, min(int((cx - w/2) * width), width - 1))
+                        y1 = max(0, min(int((cy - h/2) * height), height - 1))
+                        x2 = max(0, min(int((cx + w/2) * width), width - 1))
+                        y2 = max(0, min(int((cy + h/2) * height), height - 1))
+                        if x2 > x1 and y2 > y1:
+                            item_anns.append({
+                                "box": [x1, y1, x2, y2],
+                                "class_name": c_name,
+                                "label": c_name,
+                                "confidence": 1.0
+                            })
+                            new_annotations_count += 1
+                            if c_name not in master["classes"]:
+                                master["classes"].append(c_name)
 
                 item_id = dest_file.name
                 status = "annotated" if item_anns else "unannotated"
@@ -804,55 +886,90 @@ class UnifiedDatasetManager:
             ds_data = self.load_master_dataset(project_id)
 
         export_zip_path = p_dir / f"export_{project_id}_{version_id or 'master'}_{export_format}.zip"
+        classes_list = ds_data.get("classes", [])
+        class_to_idx = {c: i for i, c in enumerate(classes_list)}
         
         with zipfile.ZipFile(export_zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-            categories = [{"id": i + 1, "name": c} for i, c in enumerate(ds_data.get("classes", []))]
-            cat_name_to_id = {c["name"]: c["id"] for c in categories}
-            
-            coco_images = []
-            coco_annotations = []
-            ann_id = 1
+            if export_format == "yolo":
+                # Write YOLO classes.txt
+                z.writestr("classes.txt", "\n".join(classes_list))
+                # Write YOLO data.yaml
+                yaml_content = f"names:\n" + "\n".join([f"  {i}: {c}" for i, c in enumerate(classes_list)]) + f"\nnc: {len(classes_list)}\n"
+                z.writestr("data.yaml", yaml_content)
 
-            for img_idx, (item_id, item) in enumerate(ds_data.get("items", {}).items()):
-                src_path = p_dir / item.get("path", f"images/{item_id}")
-                if not src_path.exists():
-                    continue
+                for item_id, item in ds_data.get("items", {}).items():
+                    src_path = p_dir / item.get("path", f"images/{item_id}")
+                    if not src_path.exists():
+                        continue
 
-                # Add image file to zip
-                z.write(src_path, arcname=f"images/{item_id}")
+                    # Write image file
+                    z.write(src_path, arcname=f"images/{item_id}")
 
-                image_entry_id = img_idx + 1
-                coco_images.append({
-                    "id": image_entry_id,
-                    "file_name": f"images/{item_id}",
-                    "width": item.get("width", 800),
-                    "height": item.get("height", 600)
-                })
+                    # Write YOLO label txt file
+                    img_w = item.get("width", 800)
+                    img_h = item.get("height", 600)
+                    yolo_lines = []
+                    for ann in item.get("annotations", []):
+                        box = ann.get("box", [0, 0, 0, 0])
+                        c_name = ann.get("class_name", "Unknown")
+                        if len(box) == 4 and c_name in class_to_idx:
+                            x1, y1, x2, y2 = box
+                            cx_norm = ((x1 + x2) / 2.0) / img_w
+                            cy_norm = ((y1 + y2) / 2.0) / img_h
+                            w_norm = (x2 - x1) / img_w
+                            h_norm = (y2 - y1) / img_h
+                            c_id = class_to_idx[c_name]
+                            yolo_lines.append(f"{c_id} {cx_norm:.6f} {cy_norm:.6f} {w_norm:.6f} {h_norm:.6f}")
 
-                for ann in item.get("annotations", []):
-                    box = ann.get("box", [0, 0, 0, 0])
-                    c_name = ann.get("class_name", "Unknown")
-                    if len(box) == 4 and c_name in cat_name_to_id:
-                        x1, y1, x2, y2 = box
-                        w = max(0, x2 - x1)
-                        h = max(0, y2 - y1)
-                        coco_annotations.append({
-                            "id": ann_id,
-                            "image_id": image_entry_id,
-                            "category_id": cat_name_to_id[c_name],
-                            "bbox": [x1, y1, w, h],
-                            "area": w * h,
-                            "iscrowd": 0
-                        })
-                        ann_id += 1
+                    stem = Path(item_id).stem
+                    z.writestr(f"labels/{stem}.txt", "\n".join(yolo_lines))
+            else:
+                # COCO format
+                categories = [{"id": i + 1, "name": c} for i, c in enumerate(classes_list)]
+                cat_name_to_id = {c["name"]: c["id"] for c in categories}
+                
+                coco_images = []
+                coco_annotations = []
+                ann_id = 1
 
-            # Write COCO JSON
-            coco_manifest = {
-                "categories": categories,
-                "images": coco_images,
-                "annotations": coco_annotations
-            }
-            z.writestr("annotations.json", json.dumps(coco_manifest, indent=2))
+                for img_idx, (item_id, item) in enumerate(ds_data.get("items", {}).items()):
+                    src_path = p_dir / item.get("path", f"images/{item_id}")
+                    if not src_path.exists():
+                        continue
+
+                    z.write(src_path, arcname=f"images/{item_id}")
+
+                    image_entry_id = img_idx + 1
+                    coco_images.append({
+                        "id": image_entry_id,
+                        "file_name": f"images/{item_id}",
+                        "width": item.get("width", 800),
+                        "height": item.get("height", 600)
+                    })
+
+                    for ann in item.get("annotations", []):
+                        box = ann.get("box", [0, 0, 0, 0])
+                        c_name = ann.get("class_name", "Unknown")
+                        if len(box) == 4 and c_name in cat_name_to_id:
+                            x1, y1, x2, y2 = box
+                            w = max(0, x2 - x1)
+                            h = max(0, y2 - y1)
+                            coco_annotations.append({
+                                "id": ann_id,
+                                "image_id": image_entry_id,
+                                "category_id": cat_name_to_id[c_name],
+                                "bbox": [x1, y1, w, h],
+                                "area": w * h,
+                                "iscrowd": 0
+                            })
+                            ann_id += 1
+
+                coco_manifest = {
+                    "categories": categories,
+                    "images": coco_images,
+                    "annotations": coco_annotations
+                }
+                z.writestr("annotations.json", json.dumps(coco_manifest, indent=2))
 
         return export_zip_path
 
