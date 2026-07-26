@@ -190,9 +190,6 @@ export default function DatasetManager() {
     window.open(exportUrl, "_blank");
   };
 
-  const annotatedCount = items.filter(i => i.status === "annotated").length;
-  const unannotatedCount = items.filter(i => i.status === "unannotated").length;
-
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }} className="bg-background text-foreground">
       {/* ── Sub Header / Navigation Tabs ── */}
