@@ -45,7 +45,7 @@ export default function ModelGarden() {
   const [epochs, setEpochs] = useState(10);
   const [batchSize, setBatchSize] = useState(8);
   const [learningRate, setLearningRate] = useState(0.001);
-  const [datasetSource, setDatasetSource] = useState("current_annotations");
+  const [datasetSource, setDatasetSource] = useState("snapshot");
   const [selectedDatasetId, setSelectedDatasetId] = useState("");
   const [augmentation, setAugmentation] = useState(true);
   const [augTypes, setAugTypes] = useState<string[]>(["horizontal_flip", "vertical_flip", "random_rotation", "color_jitter"]);
@@ -188,18 +188,10 @@ export default function ModelGarden() {
 
     setStartingTraining(true);
     try {
-      let finalDatasetId = selectedDatasetId;
-
-      // 1. Auto-Snapshot if requested
-      if (datasetSource === "current_annotations") {
-        const snapName = `auto_${project.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
-        const snapVer = `1.0.${Date.now().toString().slice(-4)}`;
-        const snapRes = await api.post(`/projects/${projectId}/save-dataset?dataset_name=${encodeURIComponent(snapName)}&version=${encodeURIComponent(snapVer)}`);
-        finalDatasetId = snapRes.data.dataset_id;
-      }
+      const finalDatasetId = selectedDatasetId;
 
       if (!finalDatasetId) {
-        alert("Please select a dataset to train on.");
+        alert("Please select a version snapshot to train on.");
         setStartingTraining(false);
         return;
       }
@@ -913,26 +905,17 @@ export default function ModelGarden() {
               <div>
                 <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "hsl(var(--muted-foreground))", marginBottom: 4, textTransform: "uppercase" }}>Dataset Source</label>
                 <select
-                  value={datasetSource === "current_annotations" ? "current_annotations" : selectedDatasetId}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === "current_annotations") {
-                      setDatasetSource("current_annotations");
-                      setSelectedDatasetId("");
-                    } else {
-                      setDatasetSource("zips");
-                      setSelectedDatasetId(val);
-                    }
-                  }}
+                  value={selectedDatasetId}
+                  onChange={(e) => setSelectedDatasetId(e.target.value)}
                   style={{
                     width: "100%", height: 36, padding: "0 10px",
                     background: "hsl(var(--secondary))", border: "1px solid hsl(var(--border))",
                     borderRadius: 4, color: "hsl(var(--foreground))", fontSize: 12, outline: "none", boxSizing: "border-box"
                   }}
                 >
-                  <option value="current_annotations">Master Pool (Live Unified Dataset)</option>
+                  <option value="">— Select a version snapshot —</option>
                   {datasets.map(d => (
-                    <option key={d.id} value={d.id}>Version Snapshot: {d.name} ({d.task_type.replace("_", " ")})</option>
+                    <option key={d.id} value={d.id}>{d.name} ({d.task_type.replace("_", " ")})</option>
                   ))}
                 </select>
               </div>
