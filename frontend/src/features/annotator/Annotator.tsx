@@ -357,9 +357,17 @@ export default function Annotate() {
   }, [projectId])
 
   useEffect(() => {
-    if (!images.length) return
-    const idx = images.findIndex(i => String(i.id) === String(imageId) || i.filename === String(imageId))
-    setCurrentIdx(idx >= 0 ? idx : 0)
+    if (!images.length || !imageId) return
+    const target = String(imageId).toLowerCase()
+    const idx = images.findIndex(i => {
+      const iId = String(i.id).toLowerCase()
+      const fn = String(i.filename || "").toLowerCase()
+      const orig = String(i.original_name || "").toLowerCase()
+      return iId === target || fn === target || orig === target || target.includes(iId) || fn.includes(target)
+    })
+    if (idx >= 0) {
+      setCurrentIdx(idx)
+    }
   }, [imageId, images])
 
   const currentImage = images[currentIdx]

@@ -236,7 +236,7 @@ export default function App() {
   }
 
   // Only show header when NOT inside the workspace annotator (full-screen annotator has its own bar)
-  const isAnnotating = /\/projects\/[a-zA-Z0-9-]+\/annotate\/\d+/.test(location.pathname);
+  const isAnnotating = /\/projects\/[a-zA-Z0-9-]+\/annotate\/[^\s/]+/.test(location.pathname);
   const isWorkspace = /^\/projects\/[a-zA-Z0-9-]+/.test(location.pathname) && !isAnnotating;
 
   return (
