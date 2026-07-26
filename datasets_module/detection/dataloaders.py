@@ -93,22 +93,13 @@ class ObjectDetectionDataset(Dataset):
             except:
                 pass
 
-        # Create class ID to name mapping - filter out supercategories
+        # Create class ID to name mapping
         self.categories = {}
-        for cat in self.annotations["categories"]:
-            # Only include actual categories, not supercategories
-            # Skip categories that might be supercategories (check if it's used in annotations)
+        for cat in self.annotations.get("categories", []):
             category_id = cat["id"]
             category_name = cat["name"]
-            
-            # Check if this category is actually used in annotations
-            is_used = category_id in active_cat_ids if active_cat_ids else any(ann["category_id"] == category_id for ann in self.annotations["annotations"])
-            
-            if is_used:
-                self.categories[category_id] = category_name
-                print(f"Added category: ID {category_id} -> '{category_name}'")
-            else:
-                print(f"Skipping unused category: ID {category_id} -> '{category_name}'")
+            self.categories[category_id] = category_name
+            print(f"Added category: ID {category_id} -> '{category_name}'")
         
         self.num_classes = len(self.categories)
         print(f"Final categories: {self.categories}")
@@ -168,22 +159,28 @@ class ObjectDetectionDataset(Dataset):
         labels = []
         
         # Create mapping from category_id to 0-indexed labels
-        category_id_to_label = {cat_id: idx for idx, cat_id in enumerate(sorted(self.categories.keys()))}
-        
+        category_id_to_label = {}
+        sorted_cat_ids = sorted(self.categories.keys())
+        for idx, cat_id in enumerate(sorted_cat_ids):
+            category_id_to_label[cat_id] = idx
+            category_id_to_label[cat_id + 1] = idx
+            category_id_to_label[str(cat_id)] = idx
+            category_id_to_label[str(cat_id + 1)] = idx
+
         for ann in img_anns:
             # COCO bbox format is [x, y, width, height]
             # Convert to [x1, y1, x2, y2] format for PyTorch
             x, y, w, h = ann["bbox"]
             boxes.append([x, y, x + w, y + h])
             
-            # Map category_id to 0-indexed label using our filtered categories
             category_id = ann["category_id"]
             if category_id in category_id_to_label:
                 labels.append(category_id_to_label[category_id])
+            elif len(sorted_cat_ids) > 0:
+                # Fallback to first class index if category_id is out of bounds
+                labels.append(0)
             else:
-                print(f"Warning: Found annotation with unused category_id {category_id}, skipping")
-                # Skip this annotation since it's not in our filtered categories
-                boxes.pop()  # Remove the box we just added
+                boxes.pop()
         
         # Convert to tensors
         target = {}

@@ -897,12 +897,13 @@ class UnifiedDatasetManager:
         self,
         project_id: str,
         version_name: str,
-        train_ratio: float = 0.8,
-        val_ratio: float = 0.2
+        train_ratio: float = 0.7,
+        val_ratio: float = 0.2,
+        test_ratio: float = 0.1
     ) -> Dict[str, Any]:
         """
         Takes an immutable snapshot of the project dataset at the current moment (v1.0, v2.0).
-        Assigns train/val splits and freezes items & annotations.
+        Assigns train/val/test splits and freezes items & annotations.
         """
         import random
         master = self.load_master_dataset(project_id)
@@ -914,9 +915,17 @@ class UnifiedDatasetManager:
         random.seed(42)
         random.shuffle(items_keys)
 
-        num_train = int(len(items_keys) * train_ratio)
+        total_items = len(items_keys)
+        num_train = int(total_items * train_ratio)
+        num_val = int(total_items * val_ratio)
+
         for idx, key in enumerate(items_keys):
-            split = "train" if idx < num_train else "val"
+            if idx < num_train:
+                split = "train"
+            elif idx < num_train + num_val:
+                split = "val"
+            else:
+                split = "test"
             item_copy = master["items"][key].copy()
             item_copy["split"] = split
             items_dict[key] = item_copy
@@ -928,7 +937,7 @@ class UnifiedDatasetManager:
             "created_at": time.time(),
             "sample_count": len(items_dict),
             "classes": master["classes"],
-            "split_ratios": {"train": train_ratio, "val": val_ratio},
+            "split_ratios": {"train": train_ratio, "val": val_ratio, "test": test_ratio},
             "items": items_dict
         }
 

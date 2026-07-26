@@ -49,7 +49,8 @@ export default function DatasetManager() {
   const [versions, setVersions] = useState<DatasetVersionSnapshot[]>([]);
   const [showVersionModal, setShowVersionModal] = useState<boolean>(false);
   const [versionName, setVersionName] = useState<string>("v1.0");
-  const [trainRatio, setTrainRatio] = useState<number>(80);
+  const [trainRatio, setTrainRatio] = useState<number>(70);
+  const [valRatio, setValRatio] = useState<number>(20);
   const [creatingVersion, setCreatingVersion] = useState<boolean>(false);
 
   // Import Modal & Label Mapping State (Geti Workflow)
@@ -168,10 +169,14 @@ export default function DatasetManager() {
     if (!projectId || !versionName.trim()) return;
     setCreatingVersion(true);
     try {
+      const tRatio = trainRatio / 100.0;
+      const vRatio = valRatio / 100.0;
+      const teRatio = Math.max(0, (100 - trainRatio - valRatio)) / 100.0;
       await api.post(`/projects/${projectId}/dataset/versions`, {
         version_name: versionName,
-        train_ratio: trainRatio / 100.0,
-        val_ratio: (100 - trainRatio) / 100.0
+        train_ratio: tRatio,
+        val_ratio: vRatio,
+        test_ratio: teRatio
       });
       setShowVersionModal(false);
       setVersionName("");
@@ -602,15 +607,41 @@ export default function DatasetManager() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold mb-1">Train / Validation Split ({trainRatio}% Train / {100 - trainRatio}% Val)</label>
-                <input
-                  type="range"
-                  min="50"
-                  max="95"
-                  value={trainRatio}
-                  onChange={(e) => setTrainRatio(Number(e.target.value))}
-                  className="w-full accent-primary"
-                />
+                <label className="block text-xs font-bold mb-1">Dataset Split Ratios ({trainRatio}% Train / {valRatio}% Val / {Math.max(0, 100 - trainRatio - valRatio)}% Test)</label>
+                <div className="space-y-2 pt-1">
+                  <div>
+                    <span className="text-[10px] text-muted-foreground font-semibold">Train Ratio: {trainRatio}%</span>
+                    <input
+                      type="range"
+                      min="40"
+                      max="90"
+                      value={trainRatio}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setTrainRatio(val);
+                        if (val + valRatio > 95) setValRatio(Math.max(5, 95 - val));
+                      }}
+                      className="w-full accent-primary"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-muted-foreground font-semibold">Validation Ratio: {valRatio}%</span>
+                    <input
+                      type="range"
+                      min="5"
+                      max="40"
+                      value={valRatio}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (trainRatio + val <= 95) setValRatio(val);
+                      }}
+                      className="w-full accent-primary"
+                    />
+                  </div>
+                  <div className="text-[11px] font-mono text-muted-foreground bg-secondary/50 p-2 rounded border border-border">
+                    Test Set Ratio: <span className="font-bold text-foreground">{Math.max(0, 100 - trainRatio - valRatio)}%</span> (Reserved for model performance evaluation)
+                  </div>
+                </div>
               </div>
 
               <div className="flex justify-end gap-3 pt-2">

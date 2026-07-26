@@ -33,13 +33,9 @@ class CocoDetectionDataset(Dataset):
         category_ids = sorted(self.coco.getCatIds())
         categories = self.coco.loadCats(category_ids)
         
-        # Determine active category IDs from annotations in this dataset file
-        active_cat_ids = {ann['category_id'] for ann in self.coco.anns.values() if 'category_id' in ann}
-        if not active_cat_ids:
-            active_cat_ids = set(category_ids)
-            
-        # Only keep categories that actually have bounding box annotations
-        categories = [cat for cat in categories if cat['id'] in active_cat_ids]
+        # Preserve all categories defined in COCO manifest
+        if not categories:
+            categories = [{"id": 1, "name": "class0"}]
         
         # Get unique class names and create mapping
         unique_class_names = []
