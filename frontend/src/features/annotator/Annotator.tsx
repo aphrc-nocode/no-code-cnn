@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
   ChevronLeft, ChevronRight, Save, Trash2, RotateCcw,
   MousePointer2, Square, Hexagon, Crosshair, Sparkles, Hand,
@@ -73,9 +73,16 @@ function shapeToApi(s: Shape): Omit<AnnData, 'id'> {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function Annotate() {
-  const { id, imageId } = useParams<{ id: string; imageId: string }>()
-  const projectId = id ?? ''
+  const location = useLocation()
+  const params   = useParams<{ id: string; imageId?: string; "*"?: string }>()
+  const projectId = params.id ?? ''
   const navigate  = useNavigate()
+
+  // Extract imageId from route params or splat pathname (e.g. "/projects/123/annotate/img_456.jpg")
+  const match = location.pathname.match(/\/annotate\/(.+)$/)
+  const rawImageId = params.imageId || (match ? match[1] : undefined)
+  const imageId = rawImageId ? decodeURIComponent(rawImageId) : undefined
+
   const isIframe = typeof window !== 'undefined' && window.self !== window.top;
 
   const [project, setProject]   = useState<Project | null>(null)
