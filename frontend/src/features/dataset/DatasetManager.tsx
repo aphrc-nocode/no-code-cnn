@@ -372,55 +372,43 @@ export default function DatasetManager() {
                 <p className="text-xs mt-1">Import a dataset ZIP or add images to start building your unified dataset.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
                 {items.map((item) => {
                   const imgUrl = `/api/v1/projects/${projectId}/images/${encodeURIComponent(item.id || item.filename)}/file`;
+                  const isAnnotated = item.status === "annotated" || (item.annotations && item.annotations.length > 0);
                   return (
                     <div
                       key={item.id}
                       onClick={() => navigate(`/projects/${projectId}/annotate/${item.id}`)}
-                      className="bg-card border border-border rounded-xl overflow-hidden flex flex-col group hover:border-primary/50 cursor-pointer transition-all shadow-sm"
+                      className="bg-card border border-border hover:border-primary/80 rounded-lg p-2 flex flex-col gap-2 group cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md"
                     >
-                      <div className="relative aspect-video bg-slate-950 overflow-hidden flex items-center justify-center">
+                      <div className="w-full h-[120px] rounded border border-border overflow-hidden bg-slate-950 relative flex items-center justify-center">
                         <img
                           src={imgUrl}
                           alt={item.filename}
-                          className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-200"
-                          onError={(e) => { (e.target as any).src = "https://via.placeholder.com/300x200?text=Image"; }}
+                          loading="lazy"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                          onError={(e) => { (e.target as any).style.display = "none"; }}
                         />
-                        {/* Status Badge */}
-                        <div className="absolute top-2 left-2">
-                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider ${
-                            item.status === "annotated"
-                              ? "bg-emerald-500/90 text-white shadow"
-                              : "bg-amber-500/90 text-white shadow"
+                        <div className="absolute top-1.5 right-1.5">
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold shadow flex items-center gap-1 ${
+                            isAnnotated
+                              ? "bg-emerald-500 text-white"
+                              : "bg-slate-900/80 text-slate-300 border border-slate-700 backdrop-blur-sm"
                           }`}>
-                            {item.status}
+                            {isAnnotated ? "Annotated" : "Unannotated"}
                           </span>
                         </div>
                       </div>
 
-                      {/* Item Details & Action */}
-                      <div className="p-3 flex-1 flex flex-col justify-between gap-2">
-                        <div>
-                          <div className="text-xs font-bold text-foreground truncate" title={item.filename}>
-                            {item.filename}
-                          </div>
-                          <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                            {item.width && item.height ? `${item.width}x${item.height} • ` : ""}
-                            {item.annotations ? `${item.annotations.length} objects` : "0 objects"}
-                          </div>
+                      <div className="flex flex-col gap-0.5 px-0.5">
+                        <div className="text-[11px] font-semibold text-foreground truncate" title={item.filename}>
+                          {item.filename}
                         </div>
-
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(`/projects/${projectId}/annotate/${item.id}`);
-                          }}
-                          className="w-full bg-secondary hover:bg-primary hover:text-white border border-border text-foreground py-1.5 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all"
-                        >
-                          <Eye size={12} /> Edit in Annotator
-                        </button>
+                        <div className="text-[9px] text-muted-foreground font-mono truncate">
+                          {item.width && item.height ? `${item.width}x${item.height}` : ""}
+                          {item.annotations && item.annotations.length > 0 ? ` • ${item.annotations.length} obj` : ""}
+                        </div>
                       </div>
                     </div>
                   );
