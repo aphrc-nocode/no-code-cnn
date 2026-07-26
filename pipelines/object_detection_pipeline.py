@@ -356,17 +356,19 @@ class ObjectDetectionPipeline(BasePipeline):
             images_dir = dataset_path / "images"
             annotations_dir = dataset_path / "annotations"
             
-            # Look for train/val splits in annotations - support multiple val naming conventions
+            json_files = list(annotations_dir.glob("*.json"))
             train_ann = None
             val_ann = None
             
             # Look for training annotation file
-            train_patterns = ["instances_train.json", "train.json", "_annotations.coco.json"]
+            train_patterns = ["instances_train.json", "train.json", "_annotations.coco.json", "instances_default.json", "instances_master.json", "annotations.json"]
             for pattern in train_patterns:
                 potential_train = annotations_dir / pattern
                 if potential_train.exists():
                     train_ann = potential_train
                     break
+            if not train_ann and json_files:
+                train_ann = json_files[0]
             
             # Look for validation annotation file with common naming patterns
             val_patterns = ["instances_val.json", "instances_valid.json", "instances_validation.json", 
@@ -377,6 +379,8 @@ class ObjectDetectionPipeline(BasePipeline):
                     val_ann = potential_val
                     print(f"Found validation annotations: {pattern}")
                     break
+            if not val_ann and train_ann:
+                val_ann = train_ann
             
             if train_ann and val_ann:
                 # Check if images are split into train/val folders
