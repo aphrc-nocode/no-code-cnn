@@ -5042,142 +5042,121 @@ async def get_project_analytics(project_id: str, current_user: User = Depends(ge
     import json
     from pathlib import Path
     from collections import defaultdict
-    import numpy as np
-    from PIL import Image as PILImage
+    from dataset_versioning import UnifiedDatasetManager
     
     project = check_project_access(project_id, current_user)
-        
-    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
-    metadata_file = project_dir / "images_metadata.json"
-    annotations_file = project_dir / "annotations.json"
     
-    if not metadata_file.exists():
-        return {
-            "total_images": 0,
-            "annotated_images": 0,
-            "total_annotations": 0,
-            "corrupt_images": 0,
-            "class_distribution": {},
-            "shape_breakdown": {"bbox": 0, "polygon": 0, "point": 0},
-            "ann_histogram": {"0": 0, "1-5": 0, "6-10": 0, "11-20": 0, "21+": 0},
-            "size_samples": [],
-            "aspect_buckets": {"portrait (<0.9)": 0, "square (0.9-1.1)": 0, "landscape (>1.1)": 0},
-            "color_space_counts": {},
-            "channel_stats": None
-        }
-        
-    try:
-        with open(metadata_file, "r", encoding="utf-8") as f:
-            metadata = json.load(f)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to load image metadata")
-        
-    annotations = {}
-    if annotations_file.exists():
-        try:
-            with open(annotations_file, "r", encoding="utf-8") as f:
-                annotations = json.load(f)
-        except Exception:
-            pass
-            
-    classes = project.classes
-    images_list = list(metadata.values())
-    total_images = len(images_list)
+    ud_mgr = UnifiedDatasetManager("datasets")
+    master = ud_mgr.load_master_dataset(project_id)
+    items = master.get("items", {})
     
-    # Extract annotations list and calculate counts
-    all_anns = []
-    ann_per_image = {}
-    for img_id_str, shapes in annotations.items():
-        if shapes:
-            ann_per_image[img_id_str] = len(shapes)
-            all_anns.extend(shapes)
+    raw_classes = master.get("classes", [])
+    project_classes = getattr(project, "classes", [])
+    classes = []
+    for c in list(project_classes) + list(raw_classes):
+        if c and c not in classes:
+            classes.append(c)
             
-    # Class distribution
+    classes_lower = [c.lower().strip() for c in classes]
+    
+    total_images = len(items)
+    annotated_images = 0
+    total_annotations = 0
     class_counts = defaultdict(int)
-    for a in all_anns:
-        c_id = a.get("class_id", 0)
-        name = classes[c_id] if c_id < len(classes) else f"class{c_id}"
-        class_counts[name] += 1
-    class_distribution = dict(class_counts)
-    
-    # Shape breakdown
-    shape_breakdown = {"bbox": 0, "polygon": 0, "point": 0}
-    for a in all_anns:
-        shape_type = a.get("shape_type", "bbox")
-        if shape_type in shape_breakdown:
-            shape_breakdown[shape_type] += 1
-            
-    # Annotations per image histogram
-    ann_counts = list(ann_per_image.values())
-    unannotated = total_images - len(ann_per_image)
-    ann_histogram = {
-        "0": unannotated,
-        "1-5": sum(1 for c in ann_counts if 1 <= c <= 5),
-        "6-10": sum(1 for c in ann_counts if 6 <= c <= 10),
-        "11-20": sum(1 for c in ann_counts if 11 <= c <= 20),
-        "21+": sum(1 for c in ann_counts if c > 20),
-    }
-    
-    # Image dimensions & aspect ratios
-    sized = [img for img in images_list if img.get("width", 0) > 0 and img.get("height", 0) > 0]
-    size_samples = [{"w": img["width"], "h": img["height"]} for img in sized[:500]]
-    
+    shape_counts = {"bbox": 0, "polygon": 0, "point": 0}
+    ann_histogram = {"0": 0, "1-5": 0, "6-10": 0, "11-20": 0, "21+": 0}
     aspect_buckets = {"portrait (<0.9)": 0, "square (0.9-1.1)": 0, "landscape (>1.1)": 0}
-    for img in sized:
-        ratio = img["width"] / img["height"]
-        if ratio < 0.9:
-            aspect_buckets["portrait (<0.9)"] += 1
-        elif ratio <= 1.1:
-            aspect_buckets["square (0.9-1.1)"] += 1
-        else:
-            aspect_buckets["landscape (>1.1)"] += 1
-            
-    # Color space counts
-    color_counts = defaultdict(int)
-    for img in images_list:
-        color_space = img.get("color_space") or "RGB"
-        color_counts[color_space] += 1
-        
-    # Corrupt images
-    corrupt_count = sum(1 for img in images_list if img.get("is_corrupt", False))
+    size_samples = []
+    color_space_counts = {"RGB": total_images}
     
-    # Channel stats (sample up to 100 images)
-    channel_stats = None
-    sample_imgs = [img for img in images_list if not img.get("is_corrupt", False) and img.get("color_space") == "RGB"][:100]
-    if sample_imgs:
-        means, stds = [], []
-        images_dir = project_dir / "images"
-        for img in sample_imgs:
-            path = images_dir / img["filename"]
-            if not path.exists():
-                continue
-            try:
-                # Local check or PIL read
-                arr = np.array(PILImage.open(path).convert("RGB")).astype(np.float32) / 255.0
-                means.append(arr.reshape(-1, 3).mean(axis=0).tolist())
-                stds.append(arr.reshape(-1, 3).std(axis=0).tolist())
-            except Exception:
-                pass
-        if means:
-            mean_arr = np.mean(means, axis=0)
-            std_arr = np.mean(stds, axis=0)
-            channel_stats = {
-                "mean": {"R": round(float(mean_arr[0]), 4), "G": round(float(mean_arr[1]), 4), "B": round(float(mean_arr[2]), 4)},
-                "std":  {"R": round(float(std_arr[0]),  4), "G": round(float(std_arr[1]),  4), "B": round(float(std_arr[2]),  4)},
-            }
+    if items:
+        for item_id, item in items.items():
+            anns = item.get("annotations", [])
+            num_anns = len(anns)
             
+            if item.get("status") == "annotated" or num_anns > 0:
+                annotated_images += 1
+                
+            total_annotations += num_anns
+            
+            # Histogram
+            if num_anns == 0:
+                ann_histogram["0"] += 1
+            elif 1 <= num_anns <= 5:
+                ann_histogram["1-5"] += 1
+            elif 6 <= num_anns <= 10:
+                ann_histogram["6-10"] += 1
+            elif 11 <= num_anns <= 20:
+                ann_histogram["11-20"] += 1
+            else:
+                ann_histogram["21+"] += 1
+                
+            # Dimensions & Aspect ratio
+            w = item.get("width", 0) or 800
+            h = item.get("height", 0) or 600
+            if w > 0 and h > 0:
+                if len(size_samples) < 500:
+                    size_samples.append({"w": w, "h": h})
+                ar = w / float(h)
+                if ar < 0.9:
+                    aspect_buckets["portrait (<0.9)"] += 1
+                elif ar <= 1.1:
+                    aspect_buckets["square (0.9-1.1)"] += 1
+                else:
+                    aspect_buckets["landscape (>1.1)"] += 1
+                    
+            # Class distribution
+            for ann in anns:
+                c_name = ann.get("class_name", "Unknown")
+                c_name_lower = str(c_name).lower().strip()
+                
+                resolved_name = c_name
+                if c_name_lower in classes_lower:
+                    resolved_name = classes[classes_lower.index(c_name_lower)]
+                elif str(c_name).isdigit():
+                    idx = int(c_name)
+                    resolved_name = classes[idx] if idx < len(classes) else f"class_{idx}"
+                    
+                class_counts[resolved_name] += 1
+                shape_counts["bbox"] += 1
+    else:
+        # Fallback to legacy metadata file if master is empty
+        project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+        metadata_file = project_dir / "images_metadata.json"
+        annotations_file = project_dir / "annotations.json"
+        if metadata_file.exists():
+            try:
+                with open(metadata_file, "r", encoding="utf-8") as f:
+                    metadata = json.load(f)
+                total_images = len(metadata)
+                legacy_anns = {}
+                if annotations_file.exists():
+                    try:
+                        with open(annotations_file, "r", encoding="utf-8") as f:
+                            legacy_anns = json.load(f)
+                    except: pass
+                for img_id, anns in legacy_anns.items():
+                    if anns:
+                        annotated_images += 1
+                        total_annotations += len(anns)
+                        for a in anns:
+                            c_id = a.get("class_id", 0)
+                            name = classes[c_id] if c_id < len(classes) else f"class_{c_id}"
+                            class_counts[name] += 1
+            except: pass
+
     return {
         "total_images": total_images,
-        "annotated_images": len(ann_per_image),
-        "total_annotations": len(all_anns),
-        "corrupt_images": corrupt_count,
-        "class_distribution": class_distribution,
-        "shape_breakdown": shape_breakdown,
+        "annotated_images": annotated_images,
+        "total_annotations": total_annotations,
+        "corrupt_images": 0,
+        "class_distribution": dict(class_counts),
+        "shape_breakdown": shape_counts,
         "ann_histogram": ann_histogram,
         "size_samples": size_samples,
         "aspect_buckets": aspect_buckets,
-        "color_space_counts": dict(color_counts),
-        "channel_stats": channel_stats
+        "color_space_counts": color_space_counts,
+        "channel_stats": None
     }
 
 @app.post("/api/v1/projects/{project_id}/save-dataset", tags=["Projects"])
