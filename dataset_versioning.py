@@ -11,8 +11,10 @@ import os
 import json
 import hashlib
 import time
+import uuid
+import io
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union, Any, Tuple
 import logging
 import shutil
 
@@ -547,6 +549,75 @@ class UnifiedDatasetManager:
             "detected_classes": sorted(list(detected_classes)),
             "image_count": image_count,
             "filename": zip_path.name
+        }
+
+    def ingest_raw_media(
+        self,
+        project_id: str,
+        files: List[Tuple[str, bytes]]
+    ) -> Dict[str, Any]:
+        """
+        Ingest raw unannotated media files (images) into the project's media pool.
+        Calculates width, height, and checksum for deduplication.
+        """
+        from PIL import Image
+
+        p_dir = self.get_project_dir(project_id)
+        img_dir = p_dir / "images"
+        master = self.load_master_dataset(project_id)
+
+        added_count = 0
+        skipped_count = 0
+
+        existing_checksums = {item.get("checksum"): item_id for item_id, item in master["items"].items() if item.get("checksum")}
+
+        valid_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+
+        for orig_filename, content in files:
+            ext = Path(orig_filename).suffix.lower()
+            if ext not in valid_exts:
+                continue
+
+            md5 = hashlib.md5(content).hexdigest()
+            if md5 in existing_checksums:
+                skipped_count += 1
+                continue
+
+            # Save file safely
+            safe_filename = f"{md5[:10]}_{Path(orig_filename).name.replace(' ', '_')}"
+            dest_path = img_dir / safe_filename
+            with open(dest_path, "wb") as f:
+                f.write(content)
+
+            # Extract dimensions
+            width, height = 0, 0
+            try:
+                with Image.open(io.BytesIO(content)) as img:
+                    width, height = img.size
+            except Exception:
+                pass
+
+            item_id = str(uuid.uuid4())
+            master["items"][item_id] = {
+                "id": item_id,
+                "filename": safe_filename,
+                "path": f"images/{safe_filename}",
+                "status": "unannotated",
+                "checksum": md5,
+                "width": width,
+                "height": height,
+                "annotations": [],
+                "added_at": time.time(),
+                "source_zip": "raw_upload"
+            }
+            existing_checksums[md5] = item_id
+            added_count += 1
+
+        self.save_master_dataset(project_id, master)
+        return {
+            "added_count": added_count,
+            "skipped_count": skipped_count,
+            "total_items": len(master["items"])
         }
 
     def ingest_zip_import(

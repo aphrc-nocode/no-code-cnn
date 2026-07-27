@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { 
-  Search, UploadCloud, RefreshCw, Database, FileImage, 
+  Search, UploadCloud, RefreshCw, Database, FileImage, Image,
   Layers, Download, Plus, CheckCircle, AlertCircle, Tag, Eye, Play, Sparkles
 } from "lucide-react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -62,8 +62,33 @@ export default function DatasetManager() {
   const [labelMapping, setLabelMapping] = useState<Record<string, string>>({});
   const [importing, setImporting] = useState<boolean>(false);
 
+  // Raw Image Media Upload State
+  const [showUploadMediaModal, setShowUploadMediaModal] = useState<boolean>(false);
+  const [rawMediaFiles, setRawMediaFiles] = useState<File[]>([]);
+  const [uploadingMedia, setUploadingMedia] = useState<boolean>(false);
+
   const [annotatedCount, setAnnotatedCount] = useState<number>(0);
   const [unannotatedCount, setUnannotatedCount] = useState<number>(0);
+
+  const handleUploadRawMedia = async () => {
+    if (!rawMediaFiles || rawMediaFiles.length === 0 || !projectId) return;
+    setUploadingMedia(true);
+    try {
+      const formData = new FormData();
+      rawMediaFiles.forEach((file) => {
+        formData.append("files", file);
+      });
+      const res = await api.post(`/projects/${projectId}/dataset/upload-media`, formData);
+      alert(`Successfully uploaded ${res.data.added_count} media items (${res.data.skipped_count} skipped duplicates)!`);
+      setShowUploadMediaModal(false);
+      setRawMediaFiles([]);
+      fetchDatasetItems();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to upload media files");
+    } finally {
+      setUploadingMedia(false);
+    }
+  };
 
   const fetchDatasetItems = async () => {
     if (!projectId) return;
@@ -230,7 +255,7 @@ export default function DatasetManager() {
             }}
           >
             <FileImage size={15} />
-            <span>Master Dataset Pool</span>
+            <span>Media Pool</span>
             <span className="bg-primary/20 text-primary px-2 py-0.5 rounded-full text-[10px] font-bold">
               {totalCount}
             </span>
@@ -261,8 +286,16 @@ export default function DatasetManager() {
         {/* Global Action Controls */}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button
-            onClick={() => { setShowImportModal(true); setImportStep(1); }}
+            onClick={() => setShowUploadMediaModal(true)}
             className="bg-primary hover:bg-primary/95 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow transition-all"
+            title="Upload raw unannotated image files directly"
+          >
+            <Image size={14} /> Upload Media
+          </button>
+          <button
+            onClick={() => { setShowImportModal(true); setImportStep(1); }}
+            className="bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5"
+            title="Import labeled dataset ZIP archive (COCO, YOLO, VOC)"
           >
             <UploadCloud size={14} /> Import Dataset
           </button>
@@ -658,6 +691,92 @@ export default function DatasetManager() {
                 </button>
               </div>
             </form>
+      {/* ── Upload Raw Media Modal ── */}
+      {showUploadMediaModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-xl max-w-lg w-full p-6 shadow-2xl scale-in space-y-4">
+            <div className="flex justify-between items-center border-b border-border pb-3">
+              <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
+                <Image size={18} className="text-primary" /> Upload Raw Images to Media Pool
+              </h3>
+              <button onClick={() => { setShowUploadMediaModal(false); setRawMediaFiles([]); }} className="text-muted-foreground hover:text-foreground text-sm font-semibold">✕</button>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Select one or multiple raw image files (.jpg, .jpeg, .png, .webp, .bmp) to upload into the Media Pool for annotation.
+              </p>
+
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    const filesArr = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
+                    setRawMediaFiles(prev => [...prev, ...filesArr]);
+                  }
+                }}
+                className="border-2 border-dashed border-border hover:border-primary/50 bg-secondary/20 rounded-xl p-6 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2"
+                onClick={() => {
+                  const input = document.createElement("input");
+                  input.type = "file";
+                  input.multiple = true;
+                  input.accept = "image/*";
+                  input.onchange = (e: any) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      const filesArr = Array.from(e.target.files) as File[];
+                      setRawMediaFiles(prev => [...prev, ...filesArr]);
+                    }
+                  };
+                  input.click();
+                }}
+              >
+                <Image size={32} className="text-primary/70" />
+                <div className="text-xs font-bold text-foreground">Click or Drag & Drop Images Here</div>
+                <div className="text-[11px] text-muted-foreground">Supports JPG, PNG, WEBP, BMP</div>
+              </div>
+
+              {rawMediaFiles.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-xs font-semibold text-foreground">
+                    <span>{rawMediaFiles.length} file(s) selected</span>
+                    <button
+                      onClick={() => setRawMediaFiles([])}
+                      className="text-destructive hover:underline text-[11px]"
+                    >
+                      Clear list
+                    </button>
+                  </div>
+                  <div className="max-h-36 overflow-y-auto space-y-1.5 border border-border rounded-lg p-2 bg-background">
+                    {rawMediaFiles.map((file, idx) => (
+                      <div key={idx} className="flex justify-between items-center text-xs text-muted-foreground py-1 px-2 hover:bg-secondary/40 rounded">
+                        <span className="truncate max-w-[300px] text-foreground font-mono">{file.name}</span>
+                        <span className="text-[10px]">{(file.size / 1024).toFixed(1)} KB</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowUploadMediaModal(false); setRawMediaFiles([]); }}
+                  className="px-4 py-2 border border-border rounded-lg text-xs font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleUploadRawMedia}
+                  disabled={uploadingMedia || rawMediaFiles.length === 0}
+                  className="px-4 py-2 bg-primary text-white font-bold rounded-lg text-xs hover:bg-primary/95 flex items-center gap-1.5 shadow disabled:opacity-50"
+                >
+                  {uploadingMedia ? <RefreshCw className="animate-spin" size={14} /> : <Image size={14} />}
+                  {uploadingMedia ? `Uploading (${rawMediaFiles.length})...` : `Upload ${rawMediaFiles.length} Image(s)`}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

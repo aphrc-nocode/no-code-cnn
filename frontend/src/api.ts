@@ -57,7 +57,7 @@ const handleResponse = async (res: Response) => {
       const errData = await res.json();
       detail = errData.detail || detail;
     } catch (_) {}
-    throw { response: { data: { detail } } };
+    throw { response: { data: { detail }, status: res.status } };
   }
   const contentType = res.headers.get("content-type");
   if (contentType && contentType.includes("application/json")) {
@@ -67,6 +67,118 @@ const handleResponse = async (res: Response) => {
   return { data: null };
 };
 
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (token: string) => void;
+  reject: (err: any) => void;
+}> = [];
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
+    } else if (token) {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
+export const silentRefreshToken = async (): Promise<string | null> => {
+  const refreshToken = localStorage.getItem("maklens_refresh_token");
+  const currentToken = localStorage.getItem("maklens_token");
+
+  try {
+    const refreshUrl = resolveUrl("auth/refresh");
+    const res = await fetch(refreshUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+
+    if (!res.ok) {
+      throw new Error("Refresh failed");
+    }
+
+    const data = await res.json();
+    if (data && data.access_token) {
+      localStorage.setItem("maklens_token", data.access_token);
+      if (data.refresh_token) {
+        localStorage.setItem("maklens_refresh_token", data.refresh_token);
+      }
+      document.cookie = `maklens_token=${data.access_token}; path=/; max-age=86400; SameSite=Lax`;
+      if (data.user) {
+        localStorage.setItem("maklens_user", JSON.stringify(data.user));
+      }
+      return data.access_token;
+    }
+  } catch (err) {
+    console.warn("Silent refresh failed:", err);
+  }
+  return null;
+};
+
+const customFetch = async (
+  fullUrl: string,
+  options: RequestInit
+): Promise<any> => {
+  const token = localStorage.getItem("maklens_token");
+  const headers: Record<string, string> = {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers as Record<string, string> || {}),
+  };
+
+  const res = await fetch(fullUrl, { ...options, headers });
+
+  const isAuthRoute = fullUrl.includes("auth/login") || fullUrl.includes("auth/refresh");
+
+  if (res.status === 401 && !isAuthRoute) {
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        failedQueue.push({
+          resolve: async (newToken: string) => {
+            headers["Authorization"] = `Bearer ${newToken}`;
+            try {
+              const retryRes = await fetch(fullUrl, { ...options, headers });
+              resolve(await handleResponse(retryRes));
+            } catch (e) {
+              reject(e);
+            }
+          },
+          reject: (err: any) => reject(err),
+        });
+      });
+    }
+
+    isRefreshing = true;
+
+    try {
+      const newToken = await silentRefreshToken();
+      if (newToken) {
+        processQueue(null, newToken);
+        isRefreshing = false;
+        headers["Authorization"] = `Bearer ${newToken}`;
+        const retryRes = await fetch(fullUrl, { ...options, headers });
+        return handleResponse(retryRes);
+      } else {
+        const error = new Error("Session expired");
+        processQueue(error, null);
+        isRefreshing = false;
+        window.dispatchEvent(new CustomEvent("auth:session-expired"));
+      }
+    } catch (refreshErr) {
+      processQueue(refreshErr, null);
+      isRefreshing = false;
+      window.dispatchEvent(new CustomEvent("auth:session-expired"));
+    }
+  }
+
+  return handleResponse(res);
+};
+
 const api = {
   get: async (url: string, config?: any) => {
     let fullUrl = resolveUrl(url);
@@ -74,16 +186,13 @@ const api = {
       const q = new URLSearchParams(config.params as any).toString();
       fullUrl += `?${q}`;
     }
-    const token = localStorage.getItem("maklens_token");
-    const res = await fetch(fullUrl, {
+    return customFetch(fullUrl, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { "Authorization": `Bearer ${token}` } : {}),
         ...(config?.headers || {}),
       },
     });
-    return handleResponse(res);
   },
   post: async (url: string, body?: any, config?: any) => {
     let fullUrl = resolveUrl(url);
@@ -92,20 +201,17 @@ const api = {
       fullUrl += `?${q}`;
     }
     const isFormData = body instanceof FormData;
-    const token = localStorage.getItem("maklens_token");
     const headers: Record<string, string> = {
-      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
       ...(config?.headers || {}),
     };
     if (!isFormData) {
       headers["Content-Type"] = "application/json";
     }
-    const res = await fetch(fullUrl, {
+    return customFetch(fullUrl, {
       method: "POST",
       headers,
       body: body ? (isFormData ? body : JSON.stringify(body)) : undefined,
     });
-    return handleResponse(res);
   },
   put: async (url: string, body?: any, config?: any) => {
     let fullUrl = resolveUrl(url);
@@ -114,20 +220,17 @@ const api = {
       fullUrl += `?${q}`;
     }
     const isFormData = body instanceof FormData;
-    const token = localStorage.getItem("maklens_token");
     const headers: Record<string, string> = {
-      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
       ...(config?.headers || {}),
     };
     if (!isFormData) {
       headers["Content-Type"] = "application/json";
     }
-    const res = await fetch(fullUrl, {
+    return customFetch(fullUrl, {
       method: "PUT",
       headers,
       body: body ? (isFormData ? body : JSON.stringify(body)) : undefined,
     });
-    return handleResponse(res);
   },
   delete: async (url: string, config?: any) => {
     let fullUrl = resolveUrl(url);
@@ -135,16 +238,13 @@ const api = {
       const q = new URLSearchParams(config.params as any).toString();
       fullUrl += `?${q}`;
     }
-    const token = localStorage.getItem("maklens_token");
-    const res = await fetch(fullUrl, {
+    return customFetch(fullUrl, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { "Authorization": `Bearer ${token}` } : {}),
         ...(config?.headers || {}),
       },
     });
-    return handleResponse(res);
   }
 };
 

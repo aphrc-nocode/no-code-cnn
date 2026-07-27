@@ -12,6 +12,8 @@ import PendingApproval from "./features/auth/PendingApproval";
 import AdminDashboard from "./features/dashboard/AdminDashboard";
 import UserProfileDropdown from "./components/UserProfileDropdown";
 import dswbLogo  from "./assets/dswb-logo.PNG";
+import { SessionReauthModal } from "./components/SessionReauthModal";
+import { SessionExpiryToast } from "./components/SessionExpiryToast";
 
 // ── Partner organisations shown on /about ────────────────────────────────────
 const PARTNERS = [
@@ -244,6 +246,9 @@ export default function App() {
       background: "hsl(var(--background))", color: "hsl(var(--foreground))",
       fontFamily: "inherit", transition: "background 0.2s, color 0.2s" }}>
 
+      <SessionReauthModal />
+      <SessionExpiryToast />
+
       {/* ── Sticky header ─────────────────────────────────────────────────── */}
       {!isAnnotating && (
         <header style={{
@@ -292,9 +297,16 @@ export default function App() {
             })}
           </nav>
 
-          {/* Right column: profile badge dropdown */}
-          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
-            {!isWorkspace && user && (
+          {/* Right column: theme toggle + profile dropdown */}
+          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12 }}>
+            <button onClick={toggleTheme} title="Switch Theme"
+              style={{ background: "none", border: "none", color: "hsl(var(--muted-foreground))",
+                cursor: "pointer", padding: 4, display: "flex", transition: "color 0.15s" }}
+              onMouseEnter={e => (e.currentTarget.style.color = "hsl(var(--foreground))")}
+              onMouseLeave={e => (e.currentTarget.style.color = "hsl(var(--muted-foreground))")}>
+              {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
+            </button>
+            {user && (
               <UserProfileDropdown
                 user={user}
                 onLogout={logout}

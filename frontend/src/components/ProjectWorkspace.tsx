@@ -203,24 +203,6 @@ export default function ProjectWorkspace() {
             })}
           </nav>
 
-          {/* Right Area: global settings and profile */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <button onClick={toggleTheme} title="Switch Theme"
-              style={{ background: "none", border: "none", color: "hsl(var(--muted-foreground))",
-                cursor: "pointer", padding: 4, display: "flex", transition: "color 0.15s" }}
-              onMouseEnter={e => (e.currentTarget.style.color = "hsl(var(--foreground))")}
-              onMouseLeave={e => (e.currentTarget.style.color = "hsl(var(--muted-foreground))")}>
-              {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
-            </button>
-
-            {user && (
-              <UserProfileDropdown
-                user={user}
-                onLogout={logout}
-                onUpdateUser={(updatedUser) => setUser(updatedUser)}
-              />
-            )}
-          </div>
         </div>
 
         {/* ─── Main Content View area ─── */}

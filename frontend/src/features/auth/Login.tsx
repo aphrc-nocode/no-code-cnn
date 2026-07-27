@@ -26,7 +26,7 @@ export default function Login() {
     try {
       const res = await api.post("auth/login", { username, password });
       if (res.data && res.data.access_token) {
-        login(res.data.access_token, res.data.user);
+        login(res.data.access_token, res.data.user, res.data.refresh_token);
         
         // Redirect based on approval status or role
         if (res.data.user.status === "approved") {

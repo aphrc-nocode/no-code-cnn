@@ -5,8 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from auth import (
     get_current_user, get_current_approved_user, get_admin_user,
-    User, UserResponse, create_access_token, verify_password,
-    hash_password, user_manager
+    User, UserResponse, create_access_token, create_refresh_token,
+    verify_token_subject, verify_password, hash_password, user_manager
 )
 
 from typing import List, Dict, Any, Optional, Union
@@ -1058,6 +1058,8 @@ async def login_user(req: LoginRequest, response: Response):
         raise HTTPException(status_code=401, detail="Invalid username or password")
     
     access_token = create_access_token(data={"sub": user.id})
+    refresh_token = create_refresh_token(data={"sub": user.id})
+    
     response.set_cookie(
         key="maklens_token",
         value=access_token,
@@ -1065,8 +1067,74 @@ async def login_user(req: LoginRequest, response: Response):
         samesite="lax",
         httponly=False
     )
+    response.set_cookie(
+        key="maklens_refresh_token",
+        value=refresh_token,
+        max_age=604800,
+        samesite="lax",
+        httponly=True
+    )
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "role": user.role,
+            "status": user.status,
+            "created_at": user.created_at
+        }
+    }
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: Optional[str] = None
+
+@app.post("/api/v1/auth/refresh", tags=["Authentication"])
+async def refresh_user_token(request: Request, response: Response, body: Optional[RefreshTokenRequest] = None):
+    token_str = None
+    if body and body.refresh_token:
+        token_str = body.refresh_token
+    if not token_str:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token_str = auth_header.split(" ")[1]
+    if not token_str:
+        token_str = request.cookies.get("maklens_refresh_token") or request.cookies.get("maklens_token")
+        
+    if not token_str:
+        raise HTTPException(status_code=401, detail="Refresh token missing")
+
+    user_id = verify_token_subject(token_str)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+        
+    user = user_manager.users.get(user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    new_access_token = create_access_token(data={"sub": user.id})
+    new_refresh_token = create_refresh_token(data={"sub": user.id})
+    
+    response.set_cookie(
+        key="maklens_token",
+        value=new_access_token,
+        max_age=86400,
+        samesite="lax",
+        httponly=False
+    )
+    response.set_cookie(
+        key="maklens_refresh_token",
+        value=new_refresh_token,
+        max_age=604800,
+        samesite="lax",
+        httponly=True
+    )
+    
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
         "token_type": "bearer",
         "user": {
             "id": user.id,
@@ -2218,6 +2286,28 @@ async def import_dataset_zip(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Dataset import failed: {str(e)}")
+
+
+@app.post("/api/v1/projects/{project_id}/dataset/upload-media", tags=["Unified Datasets"])
+async def upload_raw_media_files(
+    project_id: str,
+    files: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_approved_user)
+):
+    """Upload raw image media files directly into the project's media pool."""
+    try:
+        from dataset_versioning import UnifiedDatasetManager
+        ud_mgr = UnifiedDatasetManager("datasets")
+        
+        file_tuples = []
+        for file in files:
+            content = await file.read()
+            file_tuples.append((file.filename, content))
+            
+        result = ud_mgr.ingest_raw_media(project_id=project_id, files=file_tuples)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Media upload failed: {str(e)}")
 
 
 @app.get("/api/v1/projects/{project_id}/dataset/items", tags=["Unified Datasets"])
