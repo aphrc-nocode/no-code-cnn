@@ -230,11 +230,45 @@ export default function Annotate() {
   }, [])
 
   useEffect(() => {
-    if (!currentImage) return
-    const img = new Image()
-    img.onload = () => { imgRef.current = img; fitToContainer() }
-    img.src = `/api/projects/${projectId}/images/${currentImage.id}/file`
-  }, [currentImage?.id])
+    if (!currentImage || !projectId) return
+    let isCancelled = false
+    let activeObjectUrl: string | null = null
+
+    const token = localStorage.getItem("maklens_token")
+    const fileUrl = `/api/v1/projects/${projectId}/images/${currentImage.id}/file`
+
+    fetch(fileUrl, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}: Image file request failed`)
+        return res.blob()
+      })
+      .then((blob) => {
+        if (isCancelled) return
+        activeObjectUrl = URL.createObjectURL(blob)
+        const img = new Image()
+        img.onload = () => {
+          if (isCancelled) return
+          imgRef.current = img
+          fitToContainer()
+        }
+        img.src = activeObjectUrl
+      })
+      .catch((err) => {
+        if (isCancelled) return
+        console.error("Failed to load image file:", err)
+      })
+
+    return () => {
+      isCancelled = true
+      if (activeObjectUrl) {
+        URL.revokeObjectURL(activeObjectUrl)
+      }
+    }
+  }, [currentImage?.id, projectId, fitToContainer])
 
   // ─── Draw canvas ───────────────────────────────────────────────────────────
   const draw = useCallback(() => {

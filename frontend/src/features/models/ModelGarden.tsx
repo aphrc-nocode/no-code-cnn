@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { Search, RefreshCw, Cpu, Play, Trash2, TrendingUp, Activity, Terminal, Plus, Download, Sliders } from "lucide-react";
 import api from "../../api";
+import { toast } from "../../components/Toast";
 import { CircularProgress } from "../../components/CircularProgress";
 
 interface Dataset {
@@ -191,7 +192,7 @@ export default function ModelGarden() {
       const finalDatasetId = selectedDatasetId;
 
       if (!finalDatasetId) {
-        alert("Please select a version snapshot to train on.");
+        toast.warning("Please select a version snapshot to train on.");
         setStartingTraining(false);
         return;
       }
@@ -233,9 +234,10 @@ export default function ModelGarden() {
 
       setShowTrainModal(false);
       setActiveJobId(jobId);
+      toast.success("Training run initiated successfully!");
       fetchJobs();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Failed to start model training.");
+      toast.error(err.response?.data?.detail || "Failed to start model training.");
     } finally {
       setStartingTraining(false);
     }
@@ -250,9 +252,10 @@ export default function ModelGarden() {
         setActiveJob(null);
         setCurvesPlot("");
       }
+      toast.success("Training run deleted successfully.");
       fetchJobs();
     } catch {
-      alert("Failed to delete model run");
+      toast.error("Failed to delete model run");
     }
   };
 

@@ -439,12 +439,60 @@ export default function Annotate() {
     setZoom(1); setPan({ x: 0, y: 0 })
   }, [])
 
+  const [imageLoading, setImageLoading] = useState(false)
+  const [imageError, setImageError] = useState<string | null>(null)
+
   useEffect(() => {
-    if (!currentImage) return
-    const img = new Image()
-    img.onload = () => { imgRef.current = img; fitToContainer() }
-    img.src = `/api/projects/${projectId}/images/${currentImage.id}/file`
-  }, [currentImage?.id])
+    if (!currentImage || !projectId) return
+    let isCancelled = false
+    let activeObjectUrl: string | null = null
+
+    setImageLoading(true)
+    setImageError(null)
+
+    const token = localStorage.getItem("maklens_token")
+    const fileUrl = `/api/v1/projects/${projectId}/images/${currentImage.id}/file`
+
+    fetch(fileUrl, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}: Image file request failed`)
+        return res.blob()
+      })
+      .then((blob) => {
+        if (isCancelled) return
+        activeObjectUrl = URL.createObjectURL(blob)
+        const img = new Image()
+        img.onload = () => {
+          if (isCancelled) return
+          imgRef.current = img
+          setImageLoading(false)
+          fitToContainer()
+        }
+        img.onerror = () => {
+          if (isCancelled) return
+          setImageError("Failed to decode image format")
+          setImageLoading(false)
+        }
+        img.src = activeObjectUrl
+      })
+      .catch((err) => {
+        if (isCancelled) return
+        console.error("Failed to load image file:", err)
+        setImageError("Failed to load image file from server")
+        setImageLoading(false)
+      })
+
+    return () => {
+      isCancelled = true
+      if (activeObjectUrl) {
+        URL.revokeObjectURL(activeObjectUrl)
+      }
+    }
+  }, [currentImage?.id, projectId, fitToContainer])
 
   useEffect(() => {
     window.addEventListener('resize', fitToContainer)

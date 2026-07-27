@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../../api";
+import { toast } from "../../components/Toast";
 
 interface MediaItem {
   id: string;
@@ -79,12 +80,12 @@ export default function DatasetManager() {
         formData.append("files", file);
       });
       const res = await api.post(`/projects/${projectId}/dataset/upload-media`, formData);
-      alert(`Successfully uploaded ${res.data.added_count} media items (${res.data.skipped_count} skipped duplicates)!`);
+      toast.success(`Successfully uploaded ${res.data.added_count} media item(s) (${res.data.skipped_count} skipped duplicates)!`);
       setShowUploadMediaModal(false);
       setRawMediaFiles([]);
       fetchDatasetItems();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Failed to upload media files");
+      toast.error(err.response?.data?.detail || "Failed to upload media files");
     } finally {
       setUploadingMedia(false);
     }
@@ -158,7 +159,7 @@ export default function DatasetManager() {
       setLabelMapping(initMap);
       setImportStep(2);
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Failed to analyze dataset ZIP");
+      toast.error(err.response?.data?.detail || "Failed to analyze dataset ZIP");
     } finally {
       setPreviewLoading(false);
     }
@@ -175,14 +176,14 @@ export default function DatasetManager() {
       formData.append("task_type", "object_detection");
 
       const res = await api.post(`/projects/${projectId}/dataset/import`, formData);
-      alert(`Successfully ingested ${res.data.added_count} items (${res.data.skipped_count} skipped duplicates)!`);
+      toast.success(`Successfully ingested ${res.data.added_count} items (${res.data.skipped_count} skipped duplicates)!`);
       setShowImportModal(false);
       setImportStep(1);
       setSelectedFile(null);
       setZipPreview(null);
       fetchDatasetItems();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Failed to ingest dataset ZIP");
+      toast.error(err.response?.data?.detail || "Failed to ingest dataset ZIP");
     } finally {
       setImporting(false);
     }
@@ -203,11 +204,12 @@ export default function DatasetManager() {
         val_ratio: vRatio,
         test_ratio: teRatio
       });
+      toast.success(`Dataset snapshot '${versionName}' created successfully!`);
       setShowVersionModal(false);
       setVersionName("");
       fetchVersions();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Failed to create dataset snapshot");
+      toast.error(err.response?.data?.detail || "Failed to create dataset snapshot");
     } finally {
       setCreatingVersion(false);
     }

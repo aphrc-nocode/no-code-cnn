@@ -5,6 +5,7 @@ import {
   Trash2, ShieldCheck, UserCheck, RefreshCw, Search, ShieldAlert, Clock
 } from "lucide-react";
 import api from "../../api";
+import { toast } from "../../components/Toast";
 
 interface UserRecord {
   id: string;
@@ -68,12 +69,13 @@ export default function AdminDashboard() {
       const res = await api.put(`admin/users/${userId}/status`, { status: newStatus });
       if (res.data) {
         setUsers(users.map(u => u.id === userId ? { ...u, status: newStatus } : u));
+        toast.success(`User status updated to ${newStatus}`);
         // Refresh stats
         const statsRes = await api.get("admin/stats");
         setStats(statsRes.data || null);
       }
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Failed to update status");
+      toast.error(err.response?.data?.detail || "Failed to update status");
     }
   };
 
@@ -82,9 +84,10 @@ export default function AdminDashboard() {
       const res = await api.put(`admin/users/${userId}/role`, { role: newRole });
       if (res.data) {
         setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
+        toast.success(`User role updated to ${newRole}`);
       }
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Failed to update role");
+      toast.error(err.response?.data?.detail || "Failed to update role");
     }
   };
 
@@ -93,11 +96,12 @@ export default function AdminDashboard() {
       await api.delete(`admin/users/${userId}`);
       setUsers(users.filter(u => u.id !== userId));
       setConfirmDeleteId(null);
+      toast.success("User account deleted");
       // Refresh stats
       const statsRes = await api.get("admin/stats");
       setStats(statsRes.data || null);
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Failed to delete user");
+      toast.error(err.response?.data?.detail || "Failed to delete user");
     }
   };
 

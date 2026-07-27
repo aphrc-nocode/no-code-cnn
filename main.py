@@ -4665,26 +4665,44 @@ async def auto_annotate_project_image(
                 return class_name
             return "0"
             
-    # 1. Resolve image filepath
-    project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
-    metadata_file = project_dir / "images_metadata.json"
-    
-    if not metadata_file.exists():
-        raise HTTPException(status_code=404, detail="Image list not found")
-        
+    # 1. Resolve image filepath from Unified Media Pool or legacy metadata
+    img_path = None
     try:
-        with open(metadata_file, "r", encoding="utf-8") as f:
-            metadata = json.load(f)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to load image metadata")
-        
-    img_info = metadata.get(image_id)
-    if not img_info:
-        raise HTTPException(status_code=404, detail="Image not found in metadata")
-        
-    img_path = project_dir / "images" / img_info["filename"]
-    if not img_path.exists():
-        raise HTTPException(status_code=404, detail="Image file not found on disk")
+        from dataset_versioning import UnifiedDatasetManager
+        ud_mgr = UnifiedDatasetManager("datasets")
+        master = ud_mgr.load_master_dataset(project_id)
+        if master and "items" in master and image_id in master["items"]:
+            item = master["items"][image_id]
+            p_dir = ud_mgr.get_project_dir(project_id)
+            img_name = item.get("filename")
+            candidate_paths = [
+                p_dir / "images" / img_name,
+                p_dir / img_name,
+                p_dir / (item.get("path") or "")
+            ]
+            for p in candidate_paths:
+                if p and p.exists() and p.is_file():
+                    img_path = p
+                    break
+    except Exception as e:
+        print(f"Error checking unified dataset metadata: {e}")
+
+    # Fallback to legacy metadata if not resolved
+    if not img_path or not img_path.exists():
+        project_dir = Path(__file__).resolve().parent / "logs" / "projects" / project_id
+        metadata_file = project_dir / "images_metadata.json"
+        if metadata_file.exists():
+            try:
+                with open(metadata_file, "r", encoding="utf-8") as f:
+                    metadata = json.load(f)
+                    img_info = metadata.get(image_id)
+                    if img_info:
+                        img_path = project_dir / "images" / img_info["filename"]
+            except Exception:
+                pass
+
+    if not img_path or not img_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found in project metadata or disk")
         
     # 2. Get active job / model configuration
     job_id = run_id
