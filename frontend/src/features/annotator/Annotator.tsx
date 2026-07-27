@@ -3,7 +3,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
   ChevronLeft, ChevronRight, Save, Trash2, RotateCcw,
   MousePointer2, Square, Hexagon, Crosshair, Sparkles, Hand,
-  ZoomIn, ZoomOut, Maximize2, Copy, Undo2, Redo2, Zap, Download, Pencil, Plus, Loader2
+  ZoomIn, ZoomOut, Maximize2, Copy, Undo2, Redo2, Zap, Download, Pencil, Plus, Loader2, Check
 } from 'lucide-react'
 import api, { type AnnData, type ImageItem, type Project, type ExternalModel } from '../../api'
 
@@ -20,6 +20,11 @@ interface BBoxShape   { type: 'bbox';    class_id: number; x: number; y: number;
 interface PolygonShape{ type: 'polygon'; class_id: number; pts: [number,number][] }
 interface PointShape  { type: 'point';   class_id: number; x: number; y: number }
 type Shape = BBoxShape | PolygonShape | PointShape
+
+interface AISuggestion {
+  shape: Shape;
+  confidence: number;
+}
 
 // ─── Drag state (stored in ref, not state, to avoid stale closures) ───────────
 type Drag =
@@ -255,6 +260,10 @@ export default function Annotate() {
   const [batchProgress,  setBatchProgress]  = useState<{done:number;total:number;labeled:number}|null>(null)
   const batchCancelRef = useRef(false)
 
+  // AI Suggestions Preview State (Intel Geti Pattern)
+  const [aiRawSuggestions, setAiRawSuggestions] = useState<AISuggestion[]>([])
+  const activeAiSuggestions = aiRawSuggestions.filter(s => s.confidence >= autoConf)
+
   // ─── Load project + image list ─────────────────────────────────────────
   // File upload state
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -410,7 +419,7 @@ export default function Annotate() {
   // ─── Load annotations on image change ──────────────────────────────────
   useEffect(() => {
     if (!currentImage) return
-    setSaved(false); setSelected(null); setPolyPts([]); setLiveBbox(null); samSession.current = null
+    setSaved(false); setSelected(null); setPolyPts([]); setLiveBbox(null); setAiRawSuggestions([]); samSession.current = null
     api.get(`/projects/${projectId}/images/${currentImage.id}/annotations`)
       .then(r => {
         const loaded = (r.data as AnnData[]).map(apiToShape)
@@ -589,6 +598,45 @@ export default function Annotate() {
           }
           if (isSel) drawDot(ctx, cx(s.x), cy(s.y), (H + 2) / zoom, 'transparent', '#fff')
         }
+      })
+    }
+
+    // ── Draw active AI suggestions (Dashed Bounding Boxes & Polygons - Intel Geti Pattern) ──
+    if (project?.task_type !== 'image_classification' && activeAiSuggestions.length > 0) {
+      activeAiSuggestions.forEach(({ shape: s, confidence }) => {
+        const color = COLORS[s.class_id % COLORS.length]
+        ctx.save()
+        ctx.strokeStyle = color
+        ctx.lineWidth = 2.0 / zoom
+        ctx.setLineDash([8 / zoom, 4 / zoom])
+
+        if (s.type === 'bbox') {
+          const px = cx(s.x), py = cy(s.y), pw = cx(s.w), ph = cy(s.h)
+          ctx.fillStyle = color + '1A'
+          ctx.fillRect(px, py, pw, ph)
+          ctx.strokeRect(px, py, pw, ph)
+          if (showLabels) {
+            const clsName = project?.classes?.[s.class_id] ?? `cls${s.class_id}`
+            const labelText = `✨ ${clsName} ${Math.round(confidence * 100)}%`
+            drawLabel(ctx, labelText, color, px, py, zoom)
+          }
+        } else if (s.type === 'polygon') {
+          if (s.pts.length >= 2) {
+            ctx.fillStyle = color + '1A'
+            ctx.beginPath()
+            ctx.moveTo(cx(s.pts[0][0]), cy(s.pts[0][1]))
+            s.pts.slice(1).forEach(p => ctx.lineTo(cx(p[0]), cy(p[1])))
+            ctx.closePath()
+            ctx.fill()
+            ctx.stroke()
+            if (showLabels) {
+              const clsName = project?.classes?.[s.class_id] ?? `cls${s.class_id}`
+              const labelText = `✨ ${clsName} ${Math.round(confidence * 100)}%`
+              drawLabel(ctx, labelText, color, cx(s.pts[0][0]), cy(s.pts[0][1]), zoom)
+            }
+          }
+        }
+        ctx.restore()
       })
     }
 
@@ -1060,7 +1108,7 @@ export default function Annotate() {
     setAutoLoading(true)
     setAutoMsg(null)
     const [kind, rawId] = autoRunId.split(':')
-    const params: Record<string, unknown> = { conf: autoConf }
+    const params: Record<string, unknown> = { conf: 0.05 }
     if (kind === 'run') params.run_id = rawId
     else params.external_model_id = rawId
     try {
@@ -1069,14 +1117,19 @@ export default function Annotate() {
         null,
         { params }
       )
-      const suggested = (res.data.annotations as AnnData[]).map(apiToShape)
-      if (suggested.length > 0) {
-        const merged = [...shapesRef.current, ...suggested]
-        setShapes(merged)
-        snapshotHistory(merged)
-        setAutoMsg({ text: `+${suggested.length} annotation${suggested.length > 1 ? 's' : ''} added`, ok: true })
+      const rawAnnData = (res.data.annotations as any[]) || []
+      const parsed: AISuggestion[] = rawAnnData.map(a => ({
+        shape: apiToShape(a),
+        confidence: typeof a.confidence === 'number' ? a.confidence : (autoConf || 0.5)
+      }))
+
+      if (parsed.length > 0) {
+        setAiRawSuggestions(parsed)
+        const visibleCount = parsed.filter(s => s.confidence >= autoConf).length
+        setAutoMsg({ text: `Found ${parsed.length} AI prediction(s) (${visibleCount} visible at ${Math.round(autoConf * 100)}% conf). Adjust slider or click Accept.`, ok: true })
       } else {
-        setAutoMsg({ text: 'No objects detected — try lowering the confidence threshold', ok: false })
+        setAiRawSuggestions([])
+        setAutoMsg({ text: 'No objects detected by model', ok: false })
       }
     } catch (err: unknown) {
       const msg = (err as {response?: {data?: {detail?: string}}})?.response?.data?.detail ?? 'Auto-annotate failed'
@@ -1084,6 +1137,16 @@ export default function Annotate() {
     } finally {
       setAutoLoading(false)
     }
+  }
+
+  const acceptAiSuggestions = () => {
+    if (activeAiSuggestions.length === 0) return
+    const newShapes = activeAiSuggestions.map(s => s.shape)
+    const merged = [...shapesRef.current, ...newShapes]
+    setShapes(merged)
+    snapshotHistory(merged)
+    setAiRawSuggestions([])
+    setAutoMsg({ text: `Accepted ${newShapes.length} AI annotation(s)!`, ok: true })
   }
 
   // ─── Auto-annotate every image (saves directly) ──────────────────────────
@@ -1802,6 +1865,64 @@ export default function Annotate() {
                     </>
                   )
                 })()}
+
+                {/* Geti-style AI Predictions Accept/Reject Banner */}
+                {aiRawSuggestions.length > 0 && (
+                  <div style={{
+                    background: 'rgba(99, 102, 241, 0.12)',
+                    border: '1px solid rgba(99, 102, 241, 0.4)',
+                    borderRadius: 6,
+                    padding: 8,
+                    marginTop: 4,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 10, fontWeight: 700, color: '#818cf8' }}>
+                      <span>✨ {activeAiSuggestions.length} AI Predictions</span>
+                      <span style={{ fontSize: 9, padding: '1px 5px', background: 'rgba(99, 102, 241, 0.25)', borderRadius: 3, border: '1px dashed #818cf8', color: '#c7d2fe' }}>Dashed Boxes</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button
+                        onClick={acceptAiSuggestions}
+                        disabled={activeAiSuggestions.length === 0}
+                        style={{
+                          flex: 1,
+                          padding: '5px 0',
+                          background: '#4f46e5',
+                          border: 'none',
+                          borderRadius: 4,
+                          color: '#ffffff',
+                          fontSize: 10,
+                          fontWeight: 700,
+                          cursor: activeAiSuggestions.length === 0 ? 'not-allowed' : 'pointer',
+                          opacity: activeAiSuggestions.length === 0 ? 0.5 : 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 4
+                        }}
+                      >
+                        <Check size={12} /> Accept ({activeAiSuggestions.length})
+                      </button>
+                      <button
+                        onClick={() => setAiRawSuggestions([])}
+                        style={{
+                          padding: '5px 8px',
+                          background: 'transparent',
+                          border: '1px solid var(--annotator-border)',
+                          borderRadius: 4,
+                          color: 'var(--text2)',
+                          fontSize: 10,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {autoMsg && (
                   <p style={{ fontSize: 10, margin: 0, lineHeight: 1.3,
                     color: autoMsg.ok ? 'var(--success)' : '#f97316' }}>

@@ -4761,7 +4761,8 @@ async def auto_annotate_project_image(
                     "y_center": y_cen_rel,
                     "width": w_rel,
                     "height": h_rel,
-                    "points": []
+                    "points": [],
+                    "confidence": round(float(confidence_score), 4)
                 })
                 
         elif task_type == TaskType.IMAGE_SEGMENTATION:
